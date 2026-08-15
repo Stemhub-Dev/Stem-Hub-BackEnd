@@ -1,0 +1,36 @@
+name: Backend CI #nombre al pipeline
+
+on: #cuando alguien haga un pull request ejecuta el pipeline
+  pull_request:
+
+  push: #si cambia alguna de las tres ramas troncales, volve a ejecutar el pipeline
+    branches:
+      - dev
+      - test
+      - main
+
+jobs: #crea temporalemte una "computadora de github (ubuntu)"
+  validate-backend:
+    name: Validate Go Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v7 #trae el código de stem-hub a la computadora temporal - checkout: coloca el contenido del repositorio dentro del workspace del runner para que los pasos siguiente puedan trabajar con él.
+
+      - name: Configurar Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod #mira el go.mod de nuestro proyecto para determinar que versión de Go necesita.
+
+      - name: Descargar dependencias #controles-descargas dependencias
+        run: go mod download
+
+      - name: Analizar código con go vet #control de código
+        run: go vet ./...
+
+      - name: Ejecutar tests
+        run: go test ./...
+
+      - name: Compilar backend
+        run: go build ./...
