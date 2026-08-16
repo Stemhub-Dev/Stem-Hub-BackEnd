@@ -9,3 +9,6 @@
 
 # Variables de entorno
 .env
+
+#Backups
+*.backup
