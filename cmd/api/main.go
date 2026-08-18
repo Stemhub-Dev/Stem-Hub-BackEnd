@@ -20,11 +20,20 @@ func main() {
 
 	log.Println("Conexión con PostgreSQL establecida correctamente")
 
+	//Rol
 	rolRepository := repository.NewRolRepository(db)
 	rolService := service.NewRolService(rolRepository)
 	rolHandler := handler.NewRolHandler(rolService)
 
-	r := router.NewRouter(rolHandler)
+	// Género musical
+	generoMusicalRepository := repository.NewGeneroMusicalRepository(db)
+	generoMusicalService := service.NewGeneroMusicalService(generoMusicalRepository)
+	generoMusicalHandler := handler.NewGeneroMusicalHandler(generoMusicalService)
+
+	r := router.NewRouter(
+		rolHandler,
+		generoMusicalHandler,
+	)
 
 	port := os.Getenv("APP_PORT")
 	if port == "" {
