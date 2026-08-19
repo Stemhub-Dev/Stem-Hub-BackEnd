@@ -1,0 +1,14 @@
+# Ejecutables generados por Go
+*.exe
+
+# Binarios
+*.out
+
+# Archivos temporales
+*.tmp
+
+# Variables de entorno
+.env
+
+#Backups
+*.backup
