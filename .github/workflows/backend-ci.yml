@@ -30,7 +30,13 @@ jobs: #crea temporalemte una "computadora de github (ubuntu)"
         run: go vet ./...
 
       - name: Ejecutar tests
-        run: go test ./...
+        run: go test ./... -coverprofile=coverage.out
 
       - name: Compilar backend
         run: go build ./...
+
+      - name: Analizar código con SonarCloud
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
