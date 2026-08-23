@@ -31,9 +31,12 @@ func main() {
 	generoMusicalService := service.NewGeneroMusicalService(generoMusicalRepository)
 	generoMusicalHandler := handler.NewGeneroMusicalHandler(generoMusicalService)
 
+	// Usuario y UsuarioRol
+	usuarioRolRepository := repository.NewUsuarioRolRepository(db)
+	usuarioRolService := service.NewUsuarioRolService(usuarioRolRepository)
 	usuarioRepository := repository.NewUsuarioRepository(db)
 	usuarioService := service.NewUsuarioService(usuarioRepository)
-	usuarioHandler := handler.NewUsuarioHandler(usuarioService)
+	usuarioHandler := handler.NewUsuarioHandler(usuarioService, usuarioRolService)
 
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseAudience := os.Getenv("SUPABASE_AUDIENCE")
@@ -48,11 +51,17 @@ func main() {
 		log.Fatalf("error al configurar autenticación: %v", err)
 	}
 
+	// Permiso
+	permisoRepository := repository.NewPermisoRepository(db)
+	permisoService := service.NewPermisoService(permisoRepository)
+	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
+
 	r := router.NewRouter(
 		rolHandler,
 		generoMusicalHandler,
 		usuarioHandler,
 		authMiddleware,
+		permisoMiddleware,
 	)
 
 	port := os.Getenv("APP_PORT")

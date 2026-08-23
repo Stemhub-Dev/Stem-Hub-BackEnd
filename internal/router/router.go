@@ -11,6 +11,7 @@ func NewRouter(rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	usuarioHandler *handler.UsuarioHandler,
 	authMiddleware *middleware.AuthMiddleware,
+	permisoMiddleware *middleware.PermisoMiddleware,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -26,10 +27,38 @@ func NewRouter(rolHandler *handler.RolHandler,
 		authMiddleware.UsuarioActivo,
 	)
 
-	configuracion.GET("/generos", generoMusicalHandler.Listar)
-	configuracion.POST("/generos", generoMusicalHandler.Crear)
-	configuracion.PUT("/generos/:id", generoMusicalHandler.Editar)
-	configuracion.PATCH("/generos/:id", generoMusicalHandler.CambiarEstado)
+	configuracion.GET(
+		"/generos",
+		permisoMiddleware.RequerirPermiso("CONSULTAR_GENEROS"),
+		generoMusicalHandler.Listar,
+	)
+
+	configuracion.POST(
+		"/generos",
+		permisoMiddleware.RequerirPermiso("GESTIONAR_GENEROS"),
+		generoMusicalHandler.Crear,
+	)
+
+	configuracion.PUT(
+		"/generos/:id",
+		permisoMiddleware.RequerirPermiso("GESTIONAR_GENEROS"),
+		generoMusicalHandler.Editar,
+	)
+
+	configuracion.PATCH(
+		"/generos/:id",
+		permisoMiddleware.RequerirPermiso("GESTIONAR_GENEROS"),
+		generoMusicalHandler.CambiarEstado,
+	)
+
+	usuarios.POST(
+		"/:codigoUsuario/roles",
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_USUARIOS",
+		),
+		usuarioHandler.AsignarRol,
+	)
 
 	return router
 }
