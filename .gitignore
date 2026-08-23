@@ -12,3 +12,12 @@
 
 #Backups
 *.backup
+
+#SonarQube
+.scannerwork/
+
+#Go coverage
+coverage.out
+
+.out-of-code-insights
+
