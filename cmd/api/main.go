@@ -40,11 +40,15 @@ func main() {
 
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseAudience := os.Getenv("SUPABASE_AUDIENCE")
+	// Opcional: solo necesaria en desarrollo local dockerizado, cuando el
+	// backend no puede alcanzar SUPABASE_URL por red (ver supabase/README.md).
+	supabaseJWKSBaseURL := os.Getenv("SUPABASE_JWKS_BASE_URL")
 
 	authMiddleware, err := middleware.NewAuthMiddleware(
 		usuarioService,
 		supabaseURL,
 		supabaseAudience,
+		supabaseJWKSBaseURL,
 	)
 
 	if err != nil {

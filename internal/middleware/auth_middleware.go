@@ -35,10 +35,12 @@ func NewAuthMiddleware(
 	usuarioService service.UsuarioService,
 	supabaseURL string,
 	audience string,
+	jwksBaseURLOverride string,
 ) (*AuthMiddleware, error) {
 
 	supabaseURL = strings.TrimRight(strings.TrimSpace(supabaseURL), "/")
 	audience = strings.TrimSpace(audience)
+	jwksBaseURLOverride = strings.TrimRight(strings.TrimSpace(jwksBaseURLOverride), "/")
 
 	if supabaseURL == "" {
 		return nil, errors.New("SUPABASE_URL es requerido")
@@ -48,8 +50,19 @@ func NewAuthMiddleware(
 		return nil, errors.New("SUPABASE_AUDIENCE es requerido")
 	}
 
+	// El claim "iss" del token siempre trae supabaseURL (la URL pública que
+	// el cliente usó para autenticarse), pero el backend puede necesitar
+	// descargar el JWKS por otra ruta de red (p. ej. un nombre de servicio
+	// Docker en vez de "localhost"). jwksBaseURLOverride cubre ese caso; si
+	// no se pasa, JWKS e issuer se derivan de la misma URL como siempre.
 	issuer := supabaseURL + "/auth/v1"
-	jwksURL := issuer + "/.well-known/jwks.json"
+
+	jwksBaseURL := supabaseURL
+	if jwksBaseURLOverride != "" {
+		jwksBaseURL = jwksBaseURLOverride
+	}
+
+	jwksURL := jwksBaseURL + "/auth/v1/.well-known/jwks.json"
 
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
