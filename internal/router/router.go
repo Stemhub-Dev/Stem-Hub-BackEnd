@@ -10,6 +10,10 @@ import (
 func NewRouter(rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	usuarioHandler *handler.UsuarioHandler,
+	integranteHandler *handler.IntegranteHandler,
+	proyectoHandler *handler.ProyectoHandler,
+	cancionHandler *handler.CancionHandler,
+	comentarioHandler *handler.ComentarioHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 ) *gin.Engine {
@@ -58,6 +62,43 @@ func NewRouter(rolHandler *handler.RolHandler,
 			"GESTIONAR_USUARIOS",
 		),
 		usuarioHandler.AsignarRol,
+	)
+
+	perfil := router.Group("/perfil")
+	perfil.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+
+	perfil.POST(
+		"/integrante",
+		integranteHandler.CrearPerfil,
+	)
+
+	proyectos := router.Group("/proyectos")
+	proyectos.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+
+	proyectos.POST(
+		"/crear",
+		proyectoHandler.Crear,
+	)
+
+	proyectos.POST(
+		"/:proyectoId/canciones",
+		cancionHandler.Crear,
+	)
+
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones",
+		cancionHandler.CrearVersion,
+	)
+
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
+		comentarioHandler.Crear,
 	)
 
 	return router

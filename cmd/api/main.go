@@ -56,10 +56,46 @@ func main() {
 	permisoService := service.NewPermisoService(permisoRepository)
 	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
 
+	//Integrante
+	integranteRepository := repository.NewIntegranteRepository(db)
+	integranteService := service.NewIntegranteService(integranteRepository)
+	integranteHandler := handler.NewIntegranteHandler(integranteService)
+
+	//Proyecto
+	proyectoRepository := repository.NewProyectoRepository(db)
+	proyectoService := service.NewProyectoService(
+		proyectoRepository,
+		integranteRepository,
+	)
+	proyectoHandler := handler.NewProyectoHandler(proyectoService)
+
+	//Canción
+	cancionRepository := repository.NewCancionRepository(db)
+	cancionService := service.NewCancionService(
+		cancionRepository,
+		proyectoRepository,
+		integranteRepository,
+	)
+	cancionHandler := handler.NewCancionHandler(cancionService)
+
+	//Comentario
+	comentarioRepository := repository.NewComentarioRepository(db)
+	comentarioService := service.NewComentarioService(
+		comentarioRepository,
+		proyectoRepository,
+		cancionRepository,
+		integranteRepository,
+	)
+	comentarioHandler := handler.NewComentarioHandler(comentarioService)
+
 	r := router.NewRouter(
 		rolHandler,
 		generoMusicalHandler,
 		usuarioHandler,
+		integranteHandler,
+		proyectoHandler,
+		cancionHandler,
+		comentarioHandler,
 		authMiddleware,
 		permisoMiddleware,
 	)
