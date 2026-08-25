@@ -26,17 +26,3 @@ type CrearVersionCancionResponse struct {
 	NumeroVersion        int    `json:"numeroVersion"`
 	EtiquetaVersion      string `json:"etiquetaVersion"`
 }
-
-type VersionActualCancionResponse struct {
-	CodigoCancionVersion int64   `json:"codigoCancionVersion"`
-	NumeroVersion        int     `json:"numeroVersion"`
-	EtiquetaVersion      string  `json:"etiquetaVersion"`
-	URLVersionWAV        *string `json:"urlVersionWav"`
-	URLVersionMP3        *string `json:"urlVersionMp3"`
-}
-
-type CancionListadoResponse struct {
-	CodigoCancion int64                         `json:"codigoCancion"`
-	Nombre        string                        `json:"nombre"`
-	VersionActual *VersionActualCancionResponse `json:"versionActual"`
-}

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
@@ -124,55 +123,4 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 			proyecto,
 		)
 	}
-}
-
-func (h *ProyectoHandler) Listar(c *gin.Context) {
-
-	valorUsuario, existe :=
-		c.Get(middleware.UsuarioContextKey)
-
-	if !existe {
-		c.JSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "Usuario no autenticado"},
-		)
-		return
-	}
-
-	usuario, ok :=
-		valorUsuario.(*model.Usuario)
-
-	if !ok || usuario == nil {
-		c.JSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "Usuario no autenticado"},
-		)
-		return
-	}
-
-	proyectos, err :=
-		h.service.ListarProyectos(
-			usuario.CodigoUsuario,
-		)
-
-	if err != nil {
-
-		log.Println(
-			"Error al listar proyectos:",
-			err,
-		)
-
-		c.JSON(
-			http.StatusInternalServerError,
-			gin.H{
-				"error": "Error al obtener los proyectos",
-			},
-		)
-		return
-	}
-
-	c.JSON(
-		http.StatusOK,
-		proyectos,
-	)
 }

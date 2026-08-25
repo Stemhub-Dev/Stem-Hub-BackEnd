@@ -2,8 +2,6 @@ package repository
 
 import (
 	"database/sql"
-
-	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 )
 
 type ProyectoRepository interface {
@@ -41,10 +39,6 @@ type ProyectoRepository interface {
 		codigoIntegrante int64,
 		codigoProyecto int64,
 	) (bool, error)
-
-	ListarPorIntegrante(
-		codigoIntegrante int64,
-	) ([]dto.ProyectoListadoResponse, error)
 }
 
 type proyectoRepository struct {
@@ -339,88 +333,4 @@ func (r *proyectoRepository) EsIntegranteActivo(
 	).Scan(&esIntegrante)
 
 	return esIntegrante, err
-}
-
-func (r *proyectoRepository) ListarPorIntegrante(
-	codigoIntegrante int64,
-) ([]dto.ProyectoListadoResponse, error) {
-
-	rows, err := r.db.Query(`
-		SELECT
-			p.codigoproyecto,
-			p.nombreproyecto,
-			p.descripcionproyecto,
-			p.logoproyecto,
-			tp.nombretipoproy,
-			ep.nombreestadoproy,
-			(
-				SELECT COUNT(*)
-				FROM cancion c
-				WHERE c.codigoproyecto = p.codigoproyecto
-				  AND c.fechahorabajacancion IS NULL
-			) AS cantidadcanciones,
-			ip.codrol,
-			r.nombrerol,
-			ip.espropietario
-		FROM integranteproyecto ip
-		JOIN proyecto p
-		  ON p.codigoproyecto = ip.codigoproyecto
-		JOIN tipoproyecto tp
-		  ON tp.codtipoproy = p.codtipoproy
-		JOIN estadoproyecto ep
-		  ON ep.codestadoproy = p.codestadoproy
-		JOIN rol r
-		  ON r.codrol = ip.codrol
-		 AND r.ambitorol = ip.ambitorol
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		ORDER BY p.codigoproyecto DESC
-	`,
-		codigoIntegrante,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	proyectos := make(
-		[]dto.ProyectoListadoResponse,
-		0,
-	)
-
-	for rows.Next() {
-
-		var proyecto dto.ProyectoListadoResponse
-
-		err := rows.Scan(
-			&proyecto.CodigoProyecto,
-			&proyecto.Nombre,
-			&proyecto.Descripcion,
-			&proyecto.Logo,
-			&proyecto.Tipo,
-			&proyecto.Estado,
-			&proyecto.CantidadCanciones,
-			&proyecto.CodRol,
-			&proyecto.NombreRol,
-			&proyecto.EsPropietario,
-		)
-
-		if err != nil {
-			return nil, err
-		}
-
-		proyectos = append(
-			proyectos,
-			proyecto,
-		)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return proyectos, nil
 }
