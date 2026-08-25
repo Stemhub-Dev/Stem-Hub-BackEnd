@@ -35,9 +35,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 		authMiddleware.UsuarioActivo,
 	)
 
+	// Catálogo de solo lectura: cualquier usuario autenticado y activo lo
+	// necesita para crear un proyecto, no solo quienes tengan un rol de
+	// SISTEMA. CONSULTAR_GENEROS queda reservado para gestión (crear/editar).
 	configuracion.GET(
 		"/generos",
-		permisoMiddleware.RequerirPermiso("CONSULTAR_GENEROS"),
 		generoMusicalHandler.Listar,
 	)
 
@@ -59,9 +61,9 @@ func NewRouter(rolHandler *handler.RolHandler,
 		generoMusicalHandler.CambiarEstado,
 	)
 
+	// Mismo criterio que /generos: catálogo de solo lectura, sin permiso.
 	configuracion.GET(
 		"/tipos-proyecto",
-		permisoMiddleware.RequerirPermiso("CONSULTAR_TIPOS_PROYECTO"),
 		tipoProyectoHandler.Listar,
 	)
 
