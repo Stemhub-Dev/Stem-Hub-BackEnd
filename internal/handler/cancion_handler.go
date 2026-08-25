@@ -286,3 +286,99 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		)
 	}
 }
+
+func (h *CancionHandler) ListarPorProyecto(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	canciones, err :=
+		h.service.ListarPorProyecto(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionPerfilRequerido,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "Perfil de StemHub requerido"},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al listar canciones:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener las canciones"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			canciones,
+		)
+	}
+}
