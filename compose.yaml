@@ -55,6 +55,10 @@ services:
       # servicio Kong en la red Docker que crea la Supabase CLI (ver
       # "networks" abajo). Dejar vacía si se usa Supabase Cloud.
       SUPABASE_JWKS_BASE_URL: ${SUPABASE_JWKS_BASE_URL:-}
+      # Orígenes desde los que el navegador puede llamar a esta API (CORS).
+      # Necesario porque el frontend (Vite, localhost:5173) corre en un
+      # origen distinto al backend (localhost:8080).
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
 
     # Red que crea `supabase start` (nombre derivado de project_id en
     # supabase/config.toml). Necesaria solo para alcanzar "kong" cuando se

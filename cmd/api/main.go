@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
@@ -92,6 +93,8 @@ func main() {
 	)
 	comentarioHandler := handler.NewComentarioHandler(comentarioService)
 
+	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
+
 	r := router.NewRouter(
 		rolHandler,
 		generoMusicalHandler,
@@ -102,6 +105,7 @@ func main() {
 		comentarioHandler,
 		authMiddleware,
 		permisoMiddleware,
+		corsAllowedOrigins,
 	)
 
 	port := os.Getenv("APP_PORT")

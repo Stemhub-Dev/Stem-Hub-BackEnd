@@ -16,8 +16,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 	comentarioHandler *handler.ComentarioHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
+	corsAllowedOrigins []string,
 ) *gin.Engine {
 	router := gin.Default()
+
+	router.Use(middleware.Cors(corsAllowedOrigins))
 
 	router.GET("/roles", rolHandler.Listar)
 
