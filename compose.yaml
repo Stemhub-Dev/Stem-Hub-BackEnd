@@ -42,6 +42,30 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       APP_PORT: 8080
+      # SUPABASE_URL debe ser la URL pública que también usa el
+      # navegador/frontend: es contra ese valor que se valida el claim
+      # "iss" del token (ver auth_middleware.go).
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_AUDIENCE: ${SUPABASE_AUDIENCE:-authenticated}
+      # La Supabase CLI local (ver supabase/README.md) siempre emite tokens
+      # con iss=http://127.0.0.1:54321 (no configurable: limitación conocida
+      # de la CLI, github.com/supabase/cli/issues/3118), y "127.0.0.1" desde
+      # dentro de un contenedor apunta al propio contenedor, no al host. Por
+      # eso el JWKS se descarga por un camino de red distinto: el nombre del
+      # servicio Kong en la red Docker que crea la Supabase CLI (ver
+      # "networks" abajo). Dejar vacía si se usa Supabase Cloud.
+      SUPABASE_JWKS_BASE_URL: ${SUPABASE_JWKS_BASE_URL:-}
+      # Orígenes desde los que el navegador puede llamar a esta API (CORS).
+      # Necesario porque el frontend (Vite, localhost:5173) corre en un
+      # origen distinto al backend (localhost:8080).
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+
+    # Red que crea `supabase start` (nombre derivado de project_id en
+    # supabase/config.toml). Necesaria solo para alcanzar "kong" cuando se
+    # usa el Auth local; no existe/no se usa con Supabase Cloud.
+    networks:
+      - default
+      - supabase_network_stemhub
 
     ports:
       - "${APP_PORT:-8080}:8080"
@@ -49,6 +73,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+
+networks:
+  supabase_network_stemhub:
+    name: supabase_network_Stem-Hub-BackEnd
+    external: true
 
 
 volumes:
