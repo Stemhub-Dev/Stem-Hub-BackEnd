@@ -155,6 +155,39 @@ APP_PORT=8080
 > `.env` **no debe subirse a GitHub**.  
 > `.env.example` sí debe versionarse, pero nunca debe contener contraseñas reales.
 
+### Autenticación (Supabase Auth)
+
+El Backend delega la autenticación a Supabase Auth: valida JWT contra un
+JWKS público, no gestiona contraseñas. Por defecto `.env.example` apunta a
+un Supabase local levantado con la **Supabase CLI** (`supabase start`),
+para no depender de un proyecto de Supabase Cloud en desarrollo.
+
+La CLI gestiona su propio Postgres (para `auth.users`), separado del
+Postgres de negocio de este `docker compose` — es el mismo modelo que
+Supabase Cloud, donde tampoco hay una base compartida entre ambos.
+
+```env
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_AUDIENCE=authenticated
+SUPABASE_JWKS_BASE_URL=http://kong:8000
+```
+
+`SUPABASE_URL` usa `127.0.0.1` (no `localhost`) porque la Supabase CLI
+firma los tokens con ese valor fijo como `iss`. `SUPABASE_JWKS_BASE_URL`
+solo aplica con el Backend dockerizado — ver
+[`supabase/README.md`](./supabase/README.md) para el porqué.
+
+Antes de levantar el Backend hay que levantar Supabase (comando aparte):
+
+```bash
+npx supabase start
+docker compose up --build -d
+```
+
+Ver [`supabase/README.md`](./supabase/README.md) para el setup completo,
+cómo crear un usuario de prueba y cómo volver a usar Supabase Cloud si hace
+falta.
+
 ---
 
 ## Levantar el proyecto completo con Docker
