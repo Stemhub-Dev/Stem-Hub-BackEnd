@@ -17,6 +17,10 @@ var (
 	ErrNombreIntegranteObligatorio = errors.New(
 		"el nombre del integrante es obligatorio",
 	)
+
+	ErrPerfilNoEncontrado = errors.New(
+		"el usuario no posee un perfil",
+	)
 )
 
 type IntegranteService interface {
@@ -24,6 +28,10 @@ type IntegranteService interface {
 		codigoUsuario int64,
 		nombre string,
 		descripcion *string,
+	) (*model.Integrante, error)
+
+	ObtenerPerfil(
+		codigoUsuario int64,
 	) (*model.Integrante, error)
 }
 
@@ -72,4 +80,26 @@ func (s *integranteService) CrearPerfil(
 		nombre,
 		descripcion,
 	)
+}
+
+func (s *integranteService) ObtenerPerfil(
+	codigoUsuario int64,
+) (*model.Integrante, error) {
+
+	integrante, err :=
+		s.repository.BuscarPorCodigoUsuario(codigoUsuario)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPerfilNoEncontrado
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil, ErrPerfilNoEncontrado
+	}
+
+	return integrante, nil
 }
