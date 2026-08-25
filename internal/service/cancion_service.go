@@ -46,10 +46,6 @@ var (
 	ErrVersionSinPermiso = errors.New(
 		"el usuario no puede crear versiones en este proyecto",
 	)
-
-	ErrCancionSinAccesoProyecto = errors.New(
-		"el usuario no pertenece al proyecto",
-	)
 )
 
 type CancionService interface {
@@ -65,11 +61,6 @@ type CancionService interface {
 		codigoCancion int64,
 		request dto.CrearVersionCancionRequest,
 	) (*dto.CrearVersionCancionResponse, error)
-
-	ListarPorProyecto(
-		codigoUsuario int64,
-		codigoProyecto int64,
-	) ([]dto.CancionListadoResponse, error)
 }
 
 type cancionService struct {
@@ -264,54 +255,4 @@ func (s *cancionService) CrearVersion(
 		NumeroVersion:        numeroVersion,
 		EtiquetaVersion:      etiqueta,
 	}, nil
-}
-
-func (s *cancionService) ListarPorProyecto(
-	codigoUsuario int64,
-	codigoProyecto int64,
-) ([]dto.CancionListadoResponse, error) {
-
-	existeProyecto, err :=
-		s.proyectoRepository.ExisteProyectoActivo(
-			codigoProyecto,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !existeProyecto {
-		return nil, ErrCancionProyectoNoEncontrado
-	}
-
-	integrante, err :=
-		s.integranteRepository.BuscarPorCodigoUsuario(
-			codigoUsuario,
-		)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrCancionPerfilRequerido
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	esIntegrante, err :=
-		s.proyectoRepository.EsIntegranteActivo(
-			integrante.CodIntegrante,
-			codigoProyecto,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !esIntegrante {
-		return nil, ErrCancionSinAccesoProyecto
-	}
-
-	return s.cancionRepository.ListarPorProyecto(
-		codigoProyecto,
-	)
 }

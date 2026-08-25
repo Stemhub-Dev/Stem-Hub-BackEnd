@@ -17,17 +17,3 @@ type CrearProyectoResponse struct {
 	CodRol             int64   `json:"codRol"`
 	EsPropietario      bool    `json:"esPropietario"`
 }
-
-type ProyectoListadoResponse struct {
-	CodigoProyecto    int64   `json:"codigoProyecto"`
-	Nombre            string  `json:"nombre"`
-	Descripcion       *string `json:"descripcion"`
-	Logo              *string `json:"logo"`
-	Tipo              string  `json:"tipo"`
-	Estado            string  `json:"estado"`
-	CantidadCanciones int     `json:"cantidadCanciones"`
-
-	CodRol        int64  `json:"codRol"`
-	NombreRol     string `json:"nombreRol"`
-	EsPropietario bool   `json:"esPropietario"`
-}
