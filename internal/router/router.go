@@ -9,6 +9,7 @@ import (
 
 func NewRouter(rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
+	tipoProyectoHandler *handler.TipoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
 	integranteHandler *handler.IntegranteHandler,
 	proyectoHandler *handler.ProyectoHandler,
@@ -58,6 +59,12 @@ func NewRouter(rolHandler *handler.RolHandler,
 		generoMusicalHandler.CambiarEstado,
 	)
 
+	configuracion.GET(
+		"/tipos-proyecto",
+		permisoMiddleware.RequerirPermiso("CONSULTAR_TIPOS_PROYECTO"),
+		tipoProyectoHandler.Listar,
+	)
+
 	usuarios.POST(
 		"/:codigoUsuario/roles",
 		authMiddleware.UsuarioActivo,
@@ -71,11 +78,6 @@ func NewRouter(rolHandler *handler.RolHandler,
 	perfil.Use(
 		authMiddleware.ValidarJWT,
 		authMiddleware.UsuarioActivo,
-	)
-
-	perfil.POST(
-		"/integrante",
-		integranteHandler.CrearPerfil,
 	)
 
 	perfil.GET(

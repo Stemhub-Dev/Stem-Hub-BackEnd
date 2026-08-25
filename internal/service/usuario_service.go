@@ -3,14 +3,16 @@ package service
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
 var (
-	ErrUsuarioNoEncontrado = errors.New("usuario no encontrado")
-	ErrUsuarioInactivo     = errors.New("usuario inactivo")
+	ErrUsuarioNoEncontrado         = errors.New("usuario no encontrado")
+	ErrUsuarioInactivo             = errors.New("usuario inactivo")
+	ErrNombreIntegranteObligatorio = errors.New("el nombre del integrante es obligatorio")
 )
 
 type UsuarioService interface {
@@ -18,7 +20,9 @@ type UsuarioService interface {
 	RegistrarUsuario(
 		idAutenticacion string,
 		email string,
-	) (*model.Usuario, bool, error)
+		nombre string,
+		descripcion *string,
+	) (*model.Usuario, *model.Integrante, bool, error)
 }
 
 type usuarioService struct {
@@ -50,20 +54,35 @@ func (s *usuarioService) ObtenerUsuarioActivoPorIDAutenticacion(idAutenticacion 
 func (s *usuarioService) RegistrarUsuario(
 	idAutenticacion string,
 	email string,
-) (*model.Usuario, bool, error) {
+	nombre string,
+	descripcion *string,
+) (*model.Usuario, *model.Integrante, bool, error) {
 
-	usuario, creado, err := s.repository.Registrar(
+	nombre = strings.TrimSpace(nombre)
+
+	if nombre == "" {
+		return nil, nil, false, ErrNombreIntegranteObligatorio
+	}
+
+	if descripcion != nil {
+		descripcionLimpia := strings.TrimSpace(*descripcion)
+		descripcion = &descripcionLimpia
+	}
+
+	usuario, integrante, creado, err := s.repository.Registrar(
 		idAutenticacion,
 		email,
+		nombre,
+		descripcion,
 	)
 
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
 	if usuario.FechaHoraBajaUsuario != nil {
-		return nil, false, ErrUsuarioInactivo
+		return nil, nil, false, ErrUsuarioInactivo
 	}
 
-	return usuario, creado, nil
+	return usuario, integrante, creado, nil
 }
