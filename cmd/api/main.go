@@ -32,6 +32,11 @@ func main() {
 	generoMusicalService := service.NewGeneroMusicalService(generoMusicalRepository)
 	generoMusicalHandler := handler.NewGeneroMusicalHandler(generoMusicalService)
 
+	// Tipo de proyecto
+	tipoProyectoRepository := repository.NewTipoProyectoRepository(db)
+	tipoProyectoService := service.NewTipoProyectoService(tipoProyectoRepository)
+	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
+
 	// Usuario y UsuarioRol
 	usuarioRolRepository := repository.NewUsuarioRolRepository(db)
 	usuarioRolService := service.NewUsuarioRolService(usuarioRolRepository)
@@ -98,6 +103,7 @@ func main() {
 	r := router.NewRouter(
 		rolHandler,
 		generoMusicalHandler,
+		tipoProyectoHandler,
 		usuarioHandler,
 		integranteHandler,
 		proyectoHandler,
