@@ -11,9 +11,16 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No se encontró archivo .env, se usarán variables de entorno del sistema")
+	}
+
 	db, err := database.NewPostgresConnection()
 	if err != nil {
 		log.Fatal(err)
