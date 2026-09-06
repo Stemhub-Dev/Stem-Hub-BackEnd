@@ -72,6 +72,7 @@ func main() {
 	permisoRepository := repository.NewPermisoRepository(db)
 	permisoService := service.NewPermisoService(permisoRepository)
 	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
+	permisoHandler := handler.NewPermisoHandler(permisoService)
 
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
@@ -116,6 +117,7 @@ func main() {
 		proyectoHandler,
 		cancionHandler,
 		comentarioHandler,
+		permisoHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,

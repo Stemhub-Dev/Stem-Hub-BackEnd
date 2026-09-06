@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type CrearCancionRequest struct {
 	Nombre string `json:"nombre" binding:"required"`
 
@@ -39,4 +41,13 @@ type CancionListadoResponse struct {
 	CodigoCancion int64                         `json:"codigoCancion"`
 	Nombre        string                        `json:"nombre"`
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
+}
+
+type VersionCancionListadoResponse struct {
+	CodigoCancionVersion int64     `json:"codigoCancionVersion"`
+	NumeroVersion        int       `json:"numeroVersion"`
+	EtiquetaVersion      string    `json:"etiquetaVersion"`
+	FechaHoraAlta        time.Time `json:"fechaHoraAlta"`
+	URLVersionWAV        *string   `json:"urlVersionWav"`
+	URLVersionMP3        *string   `json:"urlVersionMp3"`
 }

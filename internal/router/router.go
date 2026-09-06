@@ -15,6 +15,7 @@ func NewRouter(rolHandler *handler.RolHandler,
 	proyectoHandler *handler.ProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
+	permisoHandler *handler.PermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 	corsAllowedOrigins []string,
@@ -121,6 +122,31 @@ func NewRouter(rolHandler *handler.RolHandler,
 	proyectos.GET(
 		"/:proyectoId/canciones",
 		cancionHandler.ListarPorProyecto,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones",
+		cancionHandler.ListarVersiones,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
+		comentarioHandler.ListarPorVersion,
+	)
+
+	permisos := router.Group("/permisos")
+
+	permisos.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ROLES",
+		),
+	)
+
+	permisos.GET(
+		"",
+		permisoHandler.Listar,
 	)
 
 	return router

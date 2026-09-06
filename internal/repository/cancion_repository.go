@@ -39,6 +39,10 @@ type CancionRepository interface {
 	ListarPorProyecto(
 		codigoProyecto int64,
 	) ([]dto.CancionListadoResponse, error)
+
+	ListarVersiones(
+		codigoCancion int64,
+	) ([]dto.VersionCancionListadoResponse, error)
 }
 
 type cancionRepository struct {
@@ -367,4 +371,76 @@ func (r *cancionRepository) ListarPorProyecto(
 	}
 
 	return canciones, nil
+}
+
+func (r *cancionRepository) ListarVersiones(
+	codigoCancion int64,
+) ([]dto.VersionCancionListadoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			codigocancionversion,
+			numeroversion,
+			fechahoraaltaversion,
+			urlversionwavcancionver,
+			urlversionmp3cancionver
+		FROM cancionversion
+		WHERE codigocancion = $1
+		  AND fechahorabajaversion IS NULL
+		ORDER BY numeroversion DESC
+	`,
+		codigoCancion,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	versiones := make(
+		[]dto.VersionCancionListadoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var version dto.VersionCancionListadoResponse
+
+		var urlWAV sql.NullString
+		var urlMP3 sql.NullString
+
+		err := rows.Scan(
+			&version.CodigoCancionVersion,
+			&version.NumeroVersion,
+			&version.FechaHoraAlta,
+			&urlWAV,
+			&urlMP3,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		version.EtiquetaVersion = fmt.Sprintf(
+			"v1.%d.0",
+			version.NumeroVersion-1,
+		)
+
+		if urlWAV.Valid {
+			version.URLVersionWAV = &urlWAV.String
+		}
+
+		if urlMP3.Valid {
+			version.URLVersionMP3 = &urlMP3.String
+		}
+
+		versiones = append(versiones, version)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return versiones, nil
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
@@ -43,6 +44,13 @@ type ComentarioService interface {
 		codigoVersion int64,
 		request dto.CrearComentarioRequest,
 	) (*dto.CrearComentarioResponse, error)
+
+	ListarPorVersion(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoVersion int64,
+	) ([]dto.ComentarioListadoResponse, error)
 }
 
 type comentarioService struct {
@@ -84,6 +92,45 @@ func (s *comentarioService) Crear(
 	if len([]rune(request.Texto)) > 200 {
 		return nil, ErrComentarioTextoMuyLargo
 	}
+	integrante, err :=
+		s.validarAccesoVersion(
+			codigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+			codigoVersion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	codigoComentario, err := s.comentarioRepository.Crear(
+		integrante.CodIntegrante,
+		codigoVersion,
+		request.Texto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.CrearComentarioResponse{
+		CodigoComentario: codigoComentario,
+		Texto:            request.Texto,
+		Estado:           "Pendiente",
+		Autor: dto.AutorComentarioResponse{
+			CodigoIntegrante: integrante.CodIntegrante,
+			Nombre:           integrante.NombreIntegrante,
+		},
+	}, nil
+}
+
+func (s *comentarioService) validarAccesoVersion(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoVersion int64,
+) (*model.Integrante, error) {
 
 	existeProyecto, err :=
 		s.proyectoRepository.ExisteProyectoActivo(
@@ -153,24 +200,30 @@ func (s *comentarioService) Crear(
 		return nil, ErrComentarioSinAcceso
 	}
 
-	codigoComentario, err :=
-		s.comentarioRepository.Crear(
-			integrante.CodIntegrante,
+	return integrante, nil
+}
+
+func (s *comentarioService) ListarPorVersion(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoVersion int64,
+) ([]dto.ComentarioListadoResponse, error) {
+
+	integrante, err :=
+		s.validarAccesoVersion(
+			codigoUsuario,
+			codigoProyecto,
+			codigoCancion,
 			codigoVersion,
-			request.Texto,
 		)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &dto.CrearComentarioResponse{
-		CodigoComentario: codigoComentario,
-		Texto:            request.Texto,
-		Estado:           "Pendiente",
-		Autor: dto.AutorComentarioResponse{
-			CodigoIntegrante: integrante.CodIntegrante,
-			Nombre:           integrante.NombreIntegrante,
-		},
-	}, nil
+	return s.comentarioRepository.ListarPorVersion(
+		codigoVersion,
+		integrante.CodIntegrante,
+	)
 }

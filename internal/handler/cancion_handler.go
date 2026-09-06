@@ -382,3 +382,111 @@ func (h *CancionHandler) ListarPorProyecto(
 		)
 	}
 }
+
+func (h *CancionHandler) ListarVersiones(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err := strconv.ParseInt(
+		c.Param("proyectoId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err := strconv.ParseInt(
+		c.Param("cancionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	versiones, err :=
+		h.service.ListarVersiones(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La canción no existe en este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al listar versiones:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener las versiones"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			versiones,
+		)
+	}
+}
