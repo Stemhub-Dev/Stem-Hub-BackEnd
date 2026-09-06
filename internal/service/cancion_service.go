@@ -70,6 +70,12 @@ type CancionService interface {
 		codigoUsuario int64,
 		codigoProyecto int64,
 	) ([]dto.CancionListadoResponse, error)
+
+	ListarVersiones(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+	) ([]dto.VersionCancionListadoResponse, error)
 }
 
 type cancionService struct {
@@ -313,5 +319,70 @@ func (s *cancionService) ListarPorProyecto(
 
 	return s.cancionRepository.ListarPorProyecto(
 		codigoProyecto,
+	)
+}
+
+func (s *cancionService) ListarVersiones(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+) ([]dto.VersionCancionListadoResponse, error) {
+
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrCancionProyectoNoEncontrado
+	}
+
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeCancion {
+		return nil, ErrVersionCancionNoEncontrada
+	}
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	esIntegrante, err :=
+		s.proyectoRepository.EsIntegranteActivo(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !esIntegrante {
+		return nil, ErrCancionSinAccesoProyecto
+	}
+
+	return s.cancionRepository.ListarVersiones(
+		codigoCancion,
 	)
 }
