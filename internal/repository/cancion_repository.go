@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 type CancionRepository interface {
@@ -46,6 +47,11 @@ type CancionRepository interface {
 		codigoCancion int64,
 		codigoVersion int64,
 	) (bool, error)
+
+	BuscarVersionPorCodigo(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+	) (*model.CancionVersion, error)
 
 	ListarPorProyecto(
 		codigoProyecto int64,
@@ -302,6 +308,55 @@ func (r *cancionRepository) ExisteVersionActivaEnCancion(
 	).Scan(&existe)
 
 	return existe, err
+}
+
+func (r *cancionRepository) BuscarVersionPorCodigo(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+) (*model.CancionVersion, error) {
+
+	var version model.CancionVersion
+
+	var urlArchivo sql.NullString
+	var formatoArchivo sql.NullString
+
+	err := r.db.QueryRow(`
+		SELECT
+			codigocancionversion,
+			codigocancion,
+			numeroversion,
+			fechahoraaltaversion,
+			urlarchivocancionver,
+			formatoarchivocancionver
+		FROM cancionversion
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+	).Scan(
+		&version.CodigoCancionVersion,
+		&version.CodigoCancion,
+		&version.NumeroVersion,
+		&version.FechaHoraAltaVersion,
+		&urlArchivo,
+		&formatoArchivo,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if urlArchivo.Valid {
+		version.URLArchivoCancionVer = &urlArchivo.String
+	}
+
+	if formatoArchivo.Valid {
+		version.FormatoArchivoCancionVer = &formatoArchivo.String
+	}
+
+	return &version, nil
 }
 
 func (r *cancionRepository) ListarPorProyecto(

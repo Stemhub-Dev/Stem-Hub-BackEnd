@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
@@ -74,7 +76,15 @@ var (
 	ErrCancionSinAccesoProyecto = errors.New(
 		"el usuario no pertenece al proyecto",
 	)
+
+	ErrVersionSinArchivo = errors.New(
+		"la versión no tiene un archivo de audio cargado",
+	)
 )
+
+// VigenciaURLDescargaAudio es el tiempo de validez de la URL presignada
+// devuelta para reproducir/descargar el audio de una versión.
+const VigenciaURLDescargaAudio = 15 * time.Minute
 
 // ArchivoAudio representa el archivo de audio recibido por el handler,
 // desacoplado de multipart.FileHeader para no filtrar detalles de Gin al
@@ -126,6 +136,13 @@ type CancionService interface {
 		codigoProyecto int64,
 		codigoCancion int64,
 	) ([]dto.VersionCancionListadoResponse, error)
+
+	ObtenerURLDescargaVersion(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoVersion int64,
+	) (*dto.AudioVersionResponse, error)
 }
 
 type cancionService struct {
@@ -508,4 +525,101 @@ func (s *cancionService) ListarVersiones(
 	return s.cancionRepository.ListarVersiones(
 		codigoCancion,
 	)
+}
+
+func (s *cancionService) ObtenerURLDescargaVersion(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoVersion int64,
+) (*dto.AudioVersionResponse, error) {
+
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrCancionProyectoNoEncontrado
+	}
+
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeCancion {
+		return nil, ErrVersionCancionNoEncontrada
+	}
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	esIntegrante, err :=
+		s.proyectoRepository.EsIntegranteActivo(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !esIntegrante {
+		return nil, ErrCancionSinAccesoProyecto
+	}
+
+	version, err := s.cancionRepository.BuscarVersionPorCodigo(
+		codigoCancion,
+		codigoVersion,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrVersionCancionNoEncontrada
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if version.URLArchivoCancionVer == nil || version.FormatoArchivoCancionVer == nil {
+		return nil, ErrVersionSinArchivo
+	}
+
+	url, err := s.audioStorage.ObtenerURLDescarga(
+		context.Background(),
+		*version.URLArchivoCancionVer,
+		VigenciaURLDescargaAudio,
+	)
+
+	if err != nil {
+		log.Println("Error al generar URL de descarga de audio:", err)
+		return nil, ErrCancionErrorAlmacenamiento
+	}
+
+	return &dto.AudioVersionResponse{
+		CodigoCancionVersion: version.CodigoCancionVersion,
+		URL:                  url,
+		FormatoArchivo:       *version.FormatoArchivoCancionVer,
+		ExpiraEnSegundos:     int(VigenciaURLDescargaAudio.Seconds()),
+	}, nil
 }

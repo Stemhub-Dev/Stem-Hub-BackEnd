@@ -39,3 +39,10 @@ type VersionCancionListadoResponse struct {
 	URLArchivo           *string   `json:"urlArchivo"`
 	FormatoArchivo       *string   `json:"formatoArchivo"`
 }
+
+type AudioVersionResponse struct {
+	CodigoCancionVersion int64  `json:"codigoCancionVersion"`
+	URL                  string `json:"url"`
+	FormatoArchivo       string `json:"formatoArchivo"`
+	ExpiraEnSegundos     int    `json:"expiraEnSegundos"`
+}

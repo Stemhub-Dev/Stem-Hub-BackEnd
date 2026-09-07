@@ -583,3 +583,144 @@ func (h *CancionHandler) ListarVersiones(
 		)
 	}
 }
+
+func (h *CancionHandler) ObtenerAudioVersion(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err := strconv.ParseInt(
+		c.Param("proyectoId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err := strconv.ParseInt(
+		c.Param("cancionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	codigoVersion, err := strconv.ParseInt(
+		c.Param("versionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Versión inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	audio, err :=
+		h.service.ObtenerURLDescargaVersion(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+			codigoVersion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La versión no existe en esta canción"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionSinArchivo,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La versión no tiene un archivo de audio cargado"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al generar la URL del archivo de audio"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al obtener audio de versión:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener el audio de la versión"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			audio,
+		)
+	}
+}

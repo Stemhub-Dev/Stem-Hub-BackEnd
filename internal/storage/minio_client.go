@@ -14,11 +14,13 @@ import (
 
 type AudioStorage interface {
 	Subir(ctx context.Context, objectKey string, contenido io.Reader, tamano int64, contentType string) error
+	ObtenerURLDescarga(ctx context.Context, objectKey string, vigencia time.Duration) (string, error)
 }
 
 type minioAudioStorage struct {
-	client *minio.Client
-	bucket string
+	client       *minio.Client
+	publicClient *minio.Client
+	bucket       string
 }
 
 func NewMinioAudioStorage() (AudioStorage, error) {
@@ -55,9 +57,41 @@ func NewMinioAudioStorage() (AudioStorage, error) {
 		}
 	}
 
+	// El backend habla con MinIO por su nombre de servicio Docker
+	// (MINIO_ENDPOINT, ej. "minio:9000"), pero las URLs presignadas las
+	// resuelve el navegador del usuario, que no tiene ese nombre en su
+	// propia red — necesita un host público (ej. "localhost:9000"). Se usa
+	// un segundo cliente, con las mismas credenciales, solo para firmar.
+	publicEndpoint := os.Getenv("MINIO_PUBLIC_ENDPOINT")
+
+	if publicEndpoint == "" {
+		publicEndpoint = endpoint
+	}
+
+	publicUseSSL := useSSL
+
+	if valor, definido := os.LookupEnv("MINIO_PUBLIC_USE_SSL"); definido {
+		publicUseSSL, _ = strconv.ParseBool(valor)
+	}
+
+	// Region fija: sin esto, PresignedGetObject dispara primero un
+	// GetBucketLocation contra el propio endpoint del cliente para
+	// resolverla, y ese endpoint público no es alcanzable desde dentro del
+	// contenedor del backend (solo lo es desde el navegador).
+	publicClient, err := minio.New(publicEndpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: publicUseSSL,
+		Region: "us-east-1",
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("error al preparar el cliente público de MinIO: %w", err)
+	}
+
 	return &minioAudioStorage{
-		client: client,
-		bucket: bucket,
+		client:       client,
+		publicClient: publicClient,
+		bucket:       bucket,
 	}, nil
 }
 
@@ -83,4 +117,19 @@ func (s *minioAudioStorage) Subir(
 	}
 
 	return nil
+}
+
+func (s *minioAudioStorage) ObtenerURLDescarga(
+	ctx context.Context,
+	objectKey string,
+	vigencia time.Duration,
+) (string, error) {
+
+	url, err := s.publicClient.PresignedGetObject(ctx, s.bucket, objectKey, vigencia, nil)
+
+	if err != nil {
+		return "", fmt.Errorf("error al generar la URL de descarga en MinIO: %w", err)
+	}
+
+	return url.String(), nil
 }

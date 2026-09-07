@@ -135,6 +135,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 	)
 
 	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/audio",
+		cancionHandler.ObtenerAudioVersion,
+	)
+
+	proyectos.GET(
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
 		comentarioHandler.ListarPorVersion,
 	)
