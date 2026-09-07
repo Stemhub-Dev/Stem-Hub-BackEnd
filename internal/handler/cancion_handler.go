@@ -3,15 +3,35 @@ package handler
 import (
 	"errors"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 
-	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+func extraerArchivoAudio(c *gin.Context) (service.ArchivoAudio, multipart.File, error) {
+	fileHeader, err := c.FormFile("archivo")
+
+	if err != nil {
+		return service.ArchivoAudio{}, nil, nil
+	}
+
+	archivo, err := fileHeader.Open()
+
+	if err != nil {
+		return service.ArchivoAudio{}, nil, err
+	}
+
+	return service.ArchivoAudio{
+		Contenido:      archivo,
+		NombreOriginal: fileHeader.Filename,
+		Tamano:         fileHeader.Size,
+	}, archivo, nil
+}
 
 type CancionHandler struct {
 	service service.CancionService
@@ -65,9 +85,11 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 		return
 	}
 
-	var request dto.CrearCancionRequest
+	nombre := c.PostForm("nombre")
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	archivo, archivoAbierto, err := extraerArchivoAudio(c)
+
+	if err != nil {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "Solicitud inválida"},
@@ -75,11 +97,16 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 		return
 	}
 
+	if archivoAbierto != nil {
+		defer archivoAbierto.Close()
+	}
+
 	cancion, err :=
 		h.service.Crear(
 			usuario.CodigoUsuario,
 			codigoProyecto,
-			request,
+			nombre,
+			archivo,
 		)
 
 	switch {
@@ -103,6 +130,28 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 			http.StatusBadRequest,
 			gin.H{
 				"error": "Debés cargar una pista de audio",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El formato del archivo debe ser MP3, WAV o FLAC",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionArchivoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusRequestEntityTooLarge,
+			gin.H{
+				"error": "El archivo de audio supera el tamaño máximo permitido",
 			},
 		)
 
@@ -146,6 +195,15 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 			gin.H{
 				"error": "Completá tu perfil en StemHub",
 			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al almacenar el archivo de audio"},
 		)
 
 	case err != nil:
@@ -216,9 +274,9 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		return
 	}
 
-	var request dto.CrearVersionCancionRequest
+	archivo, archivoAbierto, err := extraerArchivoAudio(c)
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err != nil {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "Solicitud inválida"},
@@ -226,12 +284,16 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		return
 	}
 
+	if archivoAbierto != nil {
+		defer archivoAbierto.Close()
+	}
+
 	version, err :=
 		h.service.CrearVersion(
 			usuario.CodigoUsuario,
 			codigoProyecto,
 			codigoCancion,
-			request,
+			archivo,
 		)
 	switch {
 
@@ -243,6 +305,28 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 			http.StatusBadRequest,
 			gin.H{
 				"error": "Debés cargar una pista de audio para la nueva versión",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El formato del archivo debe ser MP3, WAV o FLAC",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionArchivoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusRequestEntityTooLarge,
+			gin.H{
+				"error": "El archivo de audio supera el tamaño máximo permitido",
 			},
 		)
 
@@ -266,6 +350,15 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 			gin.H{
 				"error": "No tenés permiso para crear versiones",
 			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al almacenar el archivo de audio"},
 		)
 
 	case err != nil:

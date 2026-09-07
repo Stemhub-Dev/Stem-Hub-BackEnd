@@ -2,24 +2,12 @@ package dto
 
 import "time"
 
-type CrearCancionRequest struct {
-	Nombre string `json:"nombre" binding:"required"`
-
-	URLVersionWAV *string `json:"urlVersionWav"`
-	URLVersionMP3 *string `json:"urlVersionMp3"`
-}
-
 type CrearCancionResponse struct {
 	CodigoCancion        int64  `json:"codigoCancion"`
 	NombreCancion        string `json:"nombreCancion"`
 	CodigoCancionVersion int64  `json:"codigoCancionVersion"`
 	NumeroVersion        int    `json:"numeroVersion"`
 	EtiquetaVersion      string `json:"etiquetaVersion"`
-}
-
-type CrearVersionCancionRequest struct {
-	URLVersionWAV *string `json:"urlVersionWav"`
-	URLVersionMP3 *string `json:"urlVersionMp3"`
 }
 
 type CrearVersionCancionResponse struct {
@@ -33,8 +21,8 @@ type VersionActualCancionResponse struct {
 	CodigoCancionVersion int64   `json:"codigoCancionVersion"`
 	NumeroVersion        int     `json:"numeroVersion"`
 	EtiquetaVersion      string  `json:"etiquetaVersion"`
-	URLVersionWAV        *string `json:"urlVersionWav"`
-	URLVersionMP3        *string `json:"urlVersionMp3"`
+	URLArchivo           *string `json:"urlArchivo"`
+	FormatoArchivo       *string `json:"formatoArchivo"`
 }
 
 type CancionListadoResponse struct {
@@ -48,6 +36,6 @@ type VersionCancionListadoResponse struct {
 	NumeroVersion        int       `json:"numeroVersion"`
 	EtiquetaVersion      string    `json:"etiquetaVersion"`
 	FechaHoraAlta        time.Time `json:"fechaHoraAlta"`
-	URLVersionWAV        *string   `json:"urlVersionWav"`
-	URLVersionMP3        *string   `json:"urlVersionMp3"`
+	URLArchivo           *string   `json:"urlArchivo"`
+	FormatoArchivo       *string   `json:"formatoArchivo"`
 }

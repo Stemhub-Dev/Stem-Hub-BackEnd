@@ -22,6 +22,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 ) *gin.Engine {
 	router := gin.Default()
 
+	// Debe ser mayor al tamaño máximo de archivo de audio aceptado
+	// (service.TamanoMaximoArchivoAudio) para no cortar el multipart antes
+	// de que el handler pueda devolver un 413 controlado.
+	router.MaxMultipartMemory = 110 << 20 // 110 MiB
+
 	router.Use(middleware.Cors(corsAllowedOrigins))
 
 	router.GET("/roles", rolHandler.Listar)
