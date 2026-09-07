@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
@@ -23,11 +24,10 @@ func NewIntegranteHandler(
 	}
 }
 
-func (h *IntegranteHandler) CrearPerfil(c *gin.Context) {
+func (h *IntegranteHandler) ObtenerPerfil(c *gin.Context) {
 
-	usuarioContexto, existe := c.Get(
-		middleware.UsuarioContextKey,
-	)
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
 
 	if !existe {
 		c.JSON(
@@ -37,7 +37,8 @@ func (h *IntegranteHandler) CrearPerfil(c *gin.Context) {
 		return
 	}
 
-	usuario, ok := usuarioContexto.(*model.Usuario)
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
 
 	if !ok || usuario == nil {
 		c.JSON(
@@ -47,51 +48,42 @@ func (h *IntegranteHandler) CrearPerfil(c *gin.Context) {
 		return
 	}
 
-	var request dto.CrearPerfilIntegranteRequest
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "Solicitud inválida"},
+	integrante, err :=
+		h.service.ObtenerPerfil(
+			usuario.CodigoUsuario,
 		)
-		return
-	}
-
-	integrante, err := h.service.CrearPerfil(
-		usuario.CodigoUsuario,
-		request.Nombre,
-		request.Descripcion,
-	)
 
 	switch {
-	case errors.Is(
-		err,
-		service.ErrNombreIntegranteObligatorio,
-	):
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "El nombre es obligatorio"},
-		)
 
 	case errors.Is(
 		err,
-		service.ErrPerfilIntegranteYaExiste,
+		service.ErrPerfilNoEncontrado,
 	):
 		c.JSON(
-			http.StatusConflict,
-			gin.H{"error": "El usuario ya posee un perfil en StemHub"},
+			http.StatusNotFound,
+			gin.H{"error": "Perfil no encontrado"},
 		)
 
 	case err != nil:
+		log.Println(
+			"Error al obtener perfil:",
+			err,
+		)
+
 		c.JSON(
 			http.StatusInternalServerError,
-			gin.H{"error": "Error al crear el perfil"},
+			gin.H{"error": "Error al obtener el perfil"},
 		)
 
 	default:
 		c.JSON(
-			http.StatusCreated,
-			integrante,
+			http.StatusOK,
+			dto.ObtenerPerfilResponse{
+				CodigoIntegrante: integrante.CodIntegrante,
+				Email:            usuario.Email,
+				Nombre:           integrante.NombreIntegrante,
+				Descripcion:      integrante.DescripcionIntegrante,
+			},
 		)
 	}
 }

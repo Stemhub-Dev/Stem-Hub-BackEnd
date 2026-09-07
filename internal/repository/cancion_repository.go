@@ -1,6 +1,12 @@
 package repository
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+)
 
 type CancionRepository interface {
 	ExisteNombreEnProyecto(
@@ -8,28 +14,52 @@ type CancionRepository interface {
 		nombre string,
 	) (bool, error)
 
-	CrearConVersionInicial(
+	IniciarCreacionCancion(
 		codigoProyecto int64,
 		nombre string,
-		urlWAV *string,
-		urlMP3 *string,
-	) (int64, int64, error)
+	) (tx *sql.Tx, codigoCancion int64, err error)
+
+	FinalizarCreacionVersionInicial(
+		tx *sql.Tx,
+		codigoCancion int64,
+		urlArchivo string,
+		formatoArchivo string,
+	) (int64, error)
 
 	ExisteCancionActivaEnProyecto(
 		codigoProyecto int64,
 		codigoCancion int64,
 	) (bool, error)
 
-	CrearVersion(
+	IniciarCreacionVersion(
 		codigoCancion int64,
-		urlWAV *string,
-		urlMP3 *string,
-	) (int64, int, error)
+	) (tx *sql.Tx, siguienteVersion int, err error)
+
+	FinalizarCreacionVersion(
+		tx *sql.Tx,
+		codigoCancion int64,
+		numeroVersion int,
+		urlArchivo string,
+		formatoArchivo string,
+	) (int64, error)
 
 	ExisteVersionActivaEnCancion(
 		codigoCancion int64,
 		codigoVersion int64,
 	) (bool, error)
+
+	BuscarVersionPorCodigo(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+	) (*model.CancionVersion, error)
+
+	ListarPorProyecto(
+		codigoProyecto int64,
+	) ([]dto.CancionListadoResponse, error)
+
+	ListarVersiones(
+		codigoCancion int64,
+	) ([]dto.VersionCancionListadoResponse, error)
 }
 
 type cancionRepository struct {
@@ -65,20 +95,16 @@ func (r *cancionRepository) ExisteNombreEnProyecto(
 	return existe, err
 }
 
-func (r *cancionRepository) CrearConVersionInicial(
+func (r *cancionRepository) IniciarCreacionCancion(
 	codigoProyecto int64,
 	nombre string,
-	urlWAV *string,
-	urlMP3 *string,
-) (int64, int64, error) {
+) (*sql.Tx, int64, error) {
 
 	tx, err := r.db.Begin()
 
 	if err != nil {
-		return 0, 0, err
+		return nil, 0, err
 	}
-
-	defer tx.Rollback()
 
 	var codigoCancion int64
 
@@ -95,18 +121,31 @@ func (r *cancionRepository) CrearConVersionInicial(
 	).Scan(&codigoCancion)
 
 	if err != nil {
-		return 0, 0, err
+		tx.Rollback()
+		return nil, 0, err
 	}
+
+	return tx, codigoCancion, nil
+}
+
+func (r *cancionRepository) FinalizarCreacionVersionInicial(
+	tx *sql.Tx,
+	codigoCancion int64,
+	urlArchivo string,
+	formatoArchivo string,
+) (int64, error) {
+
+	defer tx.Rollback()
 
 	var codigoCancionVersion int64
 
-	err = tx.QueryRow(`
+	err := tx.QueryRow(`
 		INSERT INTO cancionversion (
 			codigocancion,
 			numeroversion,
 			fechahoraaltaversion,
-			urlversionwavcancionver,
-			urlversionmp3cancionver
+			urlarchivocancionver,
+			formatoarchivocancionver
 		)
 		VALUES (
 			$1,
@@ -118,19 +157,19 @@ func (r *cancionRepository) CrearConVersionInicial(
 		RETURNING codigocancionversion
 	`,
 		codigoCancion,
-		urlWAV,
-		urlMP3,
+		urlArchivo,
+		formatoArchivo,
 	).Scan(&codigoCancionVersion)
 
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
-	return codigoCancion, codigoCancionVersion, nil
+	return codigoCancionVersion, nil
 }
 
 func (r *cancionRepository) ExisteCancionActivaEnProyecto(
@@ -156,19 +195,15 @@ func (r *cancionRepository) ExisteCancionActivaEnProyecto(
 	return existe, err
 }
 
-func (r *cancionRepository) CrearVersion(
+func (r *cancionRepository) IniciarCreacionVersion(
 	codigoCancion int64,
-	urlWAV *string,
-	urlMP3 *string,
-) (int64, int, error) {
+) (*sql.Tx, int, error) {
 
 	tx, err := r.db.Begin()
 
 	if err != nil {
-		return 0, 0, err
+		return nil, 0, err
 	}
-
-	defer tx.Rollback()
 
 	var codigoCancionBloqueada int64
 
@@ -183,7 +218,8 @@ func (r *cancionRepository) CrearVersion(
 	).Scan(&codigoCancionBloqueada)
 
 	if err != nil {
-		return 0, 0, err
+		tx.Rollback()
+		return nil, 0, err
 	}
 
 	var siguienteVersion int
@@ -198,18 +234,32 @@ func (r *cancionRepository) CrearVersion(
 	).Scan(&siguienteVersion)
 
 	if err != nil {
-		return 0, 0, err
+		tx.Rollback()
+		return nil, 0, err
 	}
+
+	return tx, siguienteVersion, nil
+}
+
+func (r *cancionRepository) FinalizarCreacionVersion(
+	tx *sql.Tx,
+	codigoCancion int64,
+	numeroVersion int,
+	urlArchivo string,
+	formatoArchivo string,
+) (int64, error) {
+
+	defer tx.Rollback()
 
 	var codigoCancionVersion int64
 
-	err = tx.QueryRow(`
+	err := tx.QueryRow(`
 		INSERT INTO cancionversion (
 			codigocancion,
 			numeroversion,
 			fechahoraaltaversion,
-			urlversionwavcancionver,
-			urlversionmp3cancionver
+			urlarchivocancionver,
+			formatoarchivocancionver
 		)
 		VALUES (
 			$1,
@@ -221,20 +271,20 @@ func (r *cancionRepository) CrearVersion(
 		RETURNING codigocancionversion
 	`,
 		codigoCancion,
-		siguienteVersion,
-		urlWAV,
-		urlMP3,
+		numeroVersion,
+		urlArchivo,
+		formatoArchivo,
 	).Scan(&codigoCancionVersion)
 
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
-	return codigoCancionVersion, siguienteVersion, nil
+	return codigoCancionVersion, nil
 }
 
 func (r *cancionRepository) ExisteVersionActivaEnCancion(
@@ -258,4 +308,225 @@ func (r *cancionRepository) ExisteVersionActivaEnCancion(
 	).Scan(&existe)
 
 	return existe, err
+}
+
+func (r *cancionRepository) BuscarVersionPorCodigo(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+) (*model.CancionVersion, error) {
+
+	var version model.CancionVersion
+
+	var urlArchivo sql.NullString
+	var formatoArchivo sql.NullString
+
+	err := r.db.QueryRow(`
+		SELECT
+			codigocancionversion,
+			codigocancion,
+			numeroversion,
+			fechahoraaltaversion,
+			urlarchivocancionver,
+			formatoarchivocancionver
+		FROM cancionversion
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+	).Scan(
+		&version.CodigoCancionVersion,
+		&version.CodigoCancion,
+		&version.NumeroVersion,
+		&version.FechaHoraAltaVersion,
+		&urlArchivo,
+		&formatoArchivo,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if urlArchivo.Valid {
+		version.URLArchivoCancionVer = &urlArchivo.String
+	}
+
+	if formatoArchivo.Valid {
+		version.FormatoArchivoCancionVer = &formatoArchivo.String
+	}
+
+	return &version, nil
+}
+
+func (r *cancionRepository) ListarPorProyecto(
+	codigoProyecto int64,
+) ([]dto.CancionListadoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			c.codigocancion,
+			c.nombrecancion,
+			cv.codigocancionversion,
+			cv.numeroversion,
+			cv.urlarchivocancionver,
+			cv.formatoarchivocancionver
+		FROM cancion c
+		LEFT JOIN LATERAL (
+			SELECT
+				cvv.codigocancionversion,
+				cvv.numeroversion,
+				cvv.urlarchivocancionver,
+				cvv.formatoarchivocancionver
+			FROM cancionversion cvv
+			WHERE cvv.codigocancion = c.codigocancion
+			  AND cvv.fechahorabajaversion IS NULL
+			ORDER BY cvv.numeroversion DESC
+			LIMIT 1
+		) cv ON TRUE
+		WHERE c.codigoproyecto = $1
+		  AND c.fechahorabajacancion IS NULL
+		ORDER BY c.codigocancion DESC
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	canciones := make(
+		[]dto.CancionListadoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var cancion dto.CancionListadoResponse
+
+		var codigoVersion sql.NullInt64
+		var numeroVersion sql.NullInt64
+		var urlArchivo sql.NullString
+		var formatoArchivo sql.NullString
+
+		err := rows.Scan(
+			&cancion.CodigoCancion,
+			&cancion.Nombre,
+			&codigoVersion,
+			&numeroVersion,
+			&urlArchivo,
+			&formatoArchivo,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if codigoVersion.Valid {
+
+			version := dto.VersionActualCancionResponse{
+				CodigoCancionVersion: codigoVersion.Int64,
+				NumeroVersion:        int(numeroVersion.Int64),
+				EtiquetaVersion: fmt.Sprintf(
+					"v1.%d.0",
+					numeroVersion.Int64-1,
+				),
+			}
+
+			if urlArchivo.Valid {
+				version.URLArchivo = &urlArchivo.String
+			}
+
+			if formatoArchivo.Valid {
+				version.FormatoArchivo = &formatoArchivo.String
+			}
+
+			cancion.VersionActual = &version
+		}
+
+		canciones = append(
+			canciones,
+			cancion,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return canciones, nil
+}
+
+func (r *cancionRepository) ListarVersiones(
+	codigoCancion int64,
+) ([]dto.VersionCancionListadoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			codigocancionversion,
+			numeroversion,
+			fechahoraaltaversion,
+			urlarchivocancionver,
+			formatoarchivocancionver
+		FROM cancionversion
+		WHERE codigocancion = $1
+		  AND fechahorabajaversion IS NULL
+		ORDER BY numeroversion DESC
+	`,
+		codigoCancion,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	versiones := make(
+		[]dto.VersionCancionListadoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var version dto.VersionCancionListadoResponse
+
+		var urlArchivo sql.NullString
+		var formatoArchivo sql.NullString
+
+		err := rows.Scan(
+			&version.CodigoCancionVersion,
+			&version.NumeroVersion,
+			&version.FechaHoraAlta,
+			&urlArchivo,
+			&formatoArchivo,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		version.EtiquetaVersion = fmt.Sprintf(
+			"v1.%d.0",
+			version.NumeroVersion-1,
+		)
+
+		if urlArchivo.Valid {
+			version.URLArchivo = &urlArchivo.String
+		}
+
+		if formatoArchivo.Valid {
+			version.FormatoArchivo = &formatoArchivo.String
+		}
+
+		versiones = append(versiones, version)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return versiones, nil
 }

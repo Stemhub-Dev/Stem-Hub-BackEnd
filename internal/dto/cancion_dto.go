@@ -1,11 +1,6 @@
 package dto
 
-type CrearCancionRequest struct {
-	Nombre string `json:"nombre" binding:"required"`
-
-	URLVersionWAV *string `json:"urlVersionWav"`
-	URLVersionMP3 *string `json:"urlVersionMp3"`
-}
+import "time"
 
 type CrearCancionResponse struct {
 	CodigoCancion        int64  `json:"codigoCancion"`
@@ -15,14 +10,39 @@ type CrearCancionResponse struct {
 	EtiquetaVersion      string `json:"etiquetaVersion"`
 }
 
-type CrearVersionCancionRequest struct {
-	URLVersionWAV *string `json:"urlVersionWav"`
-	URLVersionMP3 *string `json:"urlVersionMp3"`
-}
-
 type CrearVersionCancionResponse struct {
 	CodigoCancionVersion int64  `json:"codigoCancionVersion"`
 	CodigoCancion        int64  `json:"codigoCancion"`
 	NumeroVersion        int    `json:"numeroVersion"`
 	EtiquetaVersion      string `json:"etiquetaVersion"`
+}
+
+type VersionActualCancionResponse struct {
+	CodigoCancionVersion int64   `json:"codigoCancionVersion"`
+	NumeroVersion        int     `json:"numeroVersion"`
+	EtiquetaVersion      string  `json:"etiquetaVersion"`
+	URLArchivo           *string `json:"urlArchivo"`
+	FormatoArchivo       *string `json:"formatoArchivo"`
+}
+
+type CancionListadoResponse struct {
+	CodigoCancion int64                         `json:"codigoCancion"`
+	Nombre        string                        `json:"nombre"`
+	VersionActual *VersionActualCancionResponse `json:"versionActual"`
+}
+
+type VersionCancionListadoResponse struct {
+	CodigoCancionVersion int64     `json:"codigoCancionVersion"`
+	NumeroVersion        int       `json:"numeroVersion"`
+	EtiquetaVersion      string    `json:"etiquetaVersion"`
+	FechaHoraAlta        time.Time `json:"fechaHoraAlta"`
+	URLArchivo           *string   `json:"urlArchivo"`
+	FormatoArchivo       *string   `json:"formatoArchivo"`
+}
+
+type AudioVersionResponse struct {
+	CodigoCancionVersion int64  `json:"codigoCancionVersion"`
+	URL                  string `json:"url"`
+	FormatoArchivo       string `json:"formatoArchivo"`
+	ExpiraEnSegundos     int    `json:"expiraEnSegundos"`
 }

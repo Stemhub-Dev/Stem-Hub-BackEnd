@@ -167,3 +167,130 @@ func (h *ComentarioHandler) Crear(c *gin.Context) {
 		)
 	}
 }
+
+func (h *ComentarioHandler) ListarPorVersion(c *gin.Context) {
+
+	codigoProyecto, err := strconv.ParseInt(
+		c.Param("proyectoId"),
+		10,
+		64,
+	)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err := strconv.ParseInt(
+		c.Param("cancionId"),
+		10,
+		64,
+	)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	codigoVersion, err := strconv.ParseInt(
+		c.Param("versionId"),
+		10,
+		64,
+	)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Versión inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	comentarios, err :=
+		h.service.ListarPorVersion(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+			codigoVersion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrComentarioProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrComentarioCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La canción no existe en el proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrComentarioVersionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La versión no existe en la canción"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrComentarioSinAcceso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al listar comentarios:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener los comentarios"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			comentarios,
+		)
+	}
+}

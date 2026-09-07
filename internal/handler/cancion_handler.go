@@ -3,15 +3,35 @@ package handler
 import (
 	"errors"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 
-	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+func extraerArchivoAudio(c *gin.Context) (service.ArchivoAudio, multipart.File, error) {
+	fileHeader, err := c.FormFile("archivo")
+
+	if err != nil {
+		return service.ArchivoAudio{}, nil, nil
+	}
+
+	archivo, err := fileHeader.Open()
+
+	if err != nil {
+		return service.ArchivoAudio{}, nil, err
+	}
+
+	return service.ArchivoAudio{
+		Contenido:      archivo,
+		NombreOriginal: fileHeader.Filename,
+		Tamano:         fileHeader.Size,
+	}, archivo, nil
+}
 
 type CancionHandler struct {
 	service service.CancionService
@@ -65,9 +85,11 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 		return
 	}
 
-	var request dto.CrearCancionRequest
+	nombre := c.PostForm("nombre")
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	archivo, archivoAbierto, err := extraerArchivoAudio(c)
+
+	if err != nil {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "Solicitud inválida"},
@@ -75,11 +97,16 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 		return
 	}
 
+	if archivoAbierto != nil {
+		defer archivoAbierto.Close()
+	}
+
 	cancion, err :=
 		h.service.Crear(
 			usuario.CodigoUsuario,
 			codigoProyecto,
-			request,
+			nombre,
+			archivo,
 		)
 
 	switch {
@@ -103,6 +130,28 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 			http.StatusBadRequest,
 			gin.H{
 				"error": "Debés cargar una pista de audio",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El formato del archivo debe ser MP3, WAV o FLAC",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionArchivoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusRequestEntityTooLarge,
+			gin.H{
+				"error": "El archivo de audio supera el tamaño máximo permitido",
 			},
 		)
 
@@ -146,6 +195,15 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 			gin.H{
 				"error": "Completá tu perfil en StemHub",
 			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al almacenar el archivo de audio"},
 		)
 
 	case err != nil:
@@ -216,9 +274,9 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		return
 	}
 
-	var request dto.CrearVersionCancionRequest
+	archivo, archivoAbierto, err := extraerArchivoAudio(c)
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err != nil {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "Solicitud inválida"},
@@ -226,12 +284,16 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		return
 	}
 
+	if archivoAbierto != nil {
+		defer archivoAbierto.Close()
+	}
+
 	version, err :=
 		h.service.CrearVersion(
 			usuario.CodigoUsuario,
 			codigoProyecto,
 			codigoCancion,
-			request,
+			archivo,
 		)
 	switch {
 
@@ -243,6 +305,28 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 			http.StatusBadRequest,
 			gin.H{
 				"error": "Debés cargar una pista de audio para la nueva versión",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El formato del archivo debe ser MP3, WAV o FLAC",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionArchivoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusRequestEntityTooLarge,
+			gin.H{
+				"error": "El archivo de audio supera el tamaño máximo permitido",
 			},
 		)
 
@@ -268,6 +352,15 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 			},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al almacenar el archivo de audio"},
+		)
+
 	case err != nil:
 		log.Println(
 			"Error al crear versión:",
@@ -283,6 +376,351 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		c.JSON(
 			http.StatusCreated,
 			version,
+		)
+	}
+}
+
+func (h *CancionHandler) ListarPorProyecto(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	canciones, err :=
+		h.service.ListarPorProyecto(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionPerfilRequerido,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "Perfil de StemHub requerido"},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al listar canciones:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener las canciones"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			canciones,
+		)
+	}
+}
+
+func (h *CancionHandler) ListarVersiones(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err := strconv.ParseInt(
+		c.Param("proyectoId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err := strconv.ParseInt(
+		c.Param("cancionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	versiones, err :=
+		h.service.ListarVersiones(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La canción no existe en este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al listar versiones:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener las versiones"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			versiones,
+		)
+	}
+}
+
+func (h *CancionHandler) ObtenerAudioVersion(
+	c *gin.Context,
+) {
+
+	codigoProyecto, err := strconv.ParseInt(
+		c.Param("proyectoId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err := strconv.ParseInt(
+		c.Param("cancionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	codigoVersion, err := strconv.ParseInt(
+		c.Param("versionId"),
+		10,
+		64,
+	)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Versión inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	audio, err :=
+		h.service.ObtenerURLDescargaVersion(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+			codigoVersion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La versión no existe en esta canción"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionSinArchivo,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "La versión no tiene un archivo de audio cargado"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinAccesoProyecto,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al generar la URL del archivo de audio"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al obtener audio de versión:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener el audio de la versión"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			audio,
 		)
 	}
 }

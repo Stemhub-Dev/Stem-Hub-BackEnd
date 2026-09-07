@@ -8,11 +8,6 @@ import (
 
 type IntegranteRepository interface {
 	BuscarPorCodigoUsuario(codigoUsuario int64) (*model.Integrante, error)
-	Crear(
-		codigoUsuario int64,
-		nombre string,
-		descripcion *string,
-	) (*model.Integrante, error)
 }
 
 type integranteRepository struct {
@@ -60,45 +55,3 @@ func (r *integranteRepository) BuscarPorCodigoUsuario(
 	return &integrante, nil
 }
 
-func (r *integranteRepository) Crear(
-	codigoUsuario int64,
-	nombre string,
-	descripcion *string,
-) (*model.Integrante, error) {
-
-	query := `
-		INSERT INTO integrante (
-			codigousuario,
-			nombreintegrante,
-			descripcionintegrante
-		)
-		VALUES ($1, $2, $3)
-		RETURNING
-			codintegrante,
-			codigousuario,
-			nombreintegrante,
-			descripcionintegrante,
-			fechahorabajaintegrante
-	`
-
-	var integrante model.Integrante
-
-	err := r.db.QueryRow(
-		query,
-		codigoUsuario,
-		nombre,
-		descripcion,
-	).Scan(
-		&integrante.CodIntegrante,
-		&integrante.CodigoUsuario,
-		&integrante.NombreIntegrante,
-		&integrante.DescripcionIntegrante,
-		&integrante.FechaHoraBajaIntegrante,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &integrante, nil
-}

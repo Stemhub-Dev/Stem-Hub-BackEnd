@@ -41,6 +41,10 @@ type ProyectoService interface {
 		codigoUsuario int64,
 		request dto.CrearProyectoRequest,
 	) (*dto.CrearProyectoResponse, error)
+
+	ListarProyectos(
+		codigoUsuario int64,
+	) ([]dto.ProyectoListadoResponse, error)
 }
 
 type proyectoService struct {
@@ -153,4 +157,30 @@ func (s *proyectoService) CrearProyecto(
 		CodRol:             request.CodRol,
 		EsPropietario:      true,
 	}, nil
+}
+
+func (s *proyectoService) ListarProyectos(
+	codigoUsuario int64,
+) ([]dto.ProyectoListadoResponse, error) {
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return []dto.ProyectoListadoResponse{}, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return []dto.ProyectoListadoResponse{}, nil
+	}
+
+	return s.proyectoRepository.ListarPorIntegrante(
+		integrante.CodIntegrante,
+	)
 }

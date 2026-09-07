@@ -12,7 +12,9 @@ type UsuarioRepository interface {
 	Registrar(
 		idAutenticacion string,
 		email string,
-	) (*model.Usuario, bool, error)
+		nombre string,
+		descripcion *string,
+	) (*model.Usuario, *model.Integrante, bool, error)
 }
 
 type usuarioRepository struct {
@@ -54,27 +56,64 @@ func (r *usuarioRepository) BuscarPorIDAutenticacion(idAutenticacion string) (*m
 	return &usuario, nil
 }
 
+func (r *usuarioRepository) buscarIntegrantePorCodigoUsuario(
+	codigoUsuario int64,
+) (*model.Integrante, error) {
+
+	query := `
+		SELECT
+			codintegrante,
+			codigousuario,
+			nombreintegrante,
+			descripcionintegrante,
+			fechahorabajaintegrante
+		FROM integrante
+		WHERE codigousuario = $1
+	`
+
+	var integrante model.Integrante
+
+	err := r.db.QueryRow(query, codigoUsuario).Scan(
+		&integrante.CodIntegrante,
+		&integrante.CodigoUsuario,
+		&integrante.NombreIntegrante,
+		&integrante.DescripcionIntegrante,
+		&integrante.FechaHoraBajaIntegrante,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &integrante, nil
+}
+
 func (r *usuarioRepository) Registrar(
 	idAutenticacion string,
 	email string,
-) (*model.Usuario, bool, error) {
+	nombre string,
+	descripcion *string,
+) (*model.Usuario, *model.Integrante, bool, error) {
 
-	query := `
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer tx.Rollback()
+
+	var usuario model.Usuario
+
+	err = tx.QueryRow(`
 		INSERT INTO usuario (idautenticacion, email)
 		VALUES ($1, $2)
 		ON CONFLICT (idautenticacion) DO NOTHING
-			RETURNING
+		RETURNING
 			codigousuario,
 			idautenticacion,
 			email,
 			ultimologin,
 			fechahorabajausuario
-	`
-
-	var usuario model.Usuario
-
-	err := r.db.QueryRow(
-		query,
+	`,
 		idAutenticacion,
 		email,
 	).Scan(
@@ -85,18 +124,58 @@ func (r *usuarioRepository) Registrar(
 		&usuario.FechaHoraBajaUsuario,
 	)
 
-	if err == nil {
-		return &usuario, true, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		usuarioExistente, errBusqueda := r.BuscarPorIDAutenticacion(idAutenticacion)
+		if errBusqueda != nil {
+			return nil, nil, false, errBusqueda
+		}
+
+		integranteExistente, errIntegrante := r.buscarIntegrantePorCodigoUsuario(usuarioExistente.CodigoUsuario)
+		if errIntegrante != nil {
+			return nil, nil, false, errIntegrante
+		}
+
+		return usuarioExistente, integranteExistente, false, nil
 	}
 
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
-	}
-
-	usuarioExiste, err := r.BuscarPorIDAutenticacion(idAutenticacion)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
-	return usuarioExiste, false, nil
+	var integrante model.Integrante
+
+	err = tx.QueryRow(`
+		INSERT INTO integrante (
+			codigousuario,
+			nombreintegrante,
+			descripcionintegrante
+		)
+		VALUES ($1, $2, $3)
+		RETURNING
+			codintegrante,
+			codigousuario,
+			nombreintegrante,
+			descripcionintegrante,
+			fechahorabajaintegrante
+	`,
+		usuario.CodigoUsuario,
+		nombre,
+		descripcion,
+	).Scan(
+		&integrante.CodIntegrante,
+		&integrante.CodigoUsuario,
+		&integrante.NombreIntegrante,
+		&integrante.DescripcionIntegrante,
+		&integrante.FechaHoraBajaIntegrante,
+	)
+
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, nil, false, err
+	}
+
+	return &usuario, &integrante, true, nil
 }

@@ -9,16 +9,23 @@ import (
 
 func NewRouter(rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
+	tipoProyectoHandler *handler.TipoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
 	integranteHandler *handler.IntegranteHandler,
 	proyectoHandler *handler.ProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
+	permisoHandler *handler.PermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 	corsAllowedOrigins []string,
 ) *gin.Engine {
 	router := gin.Default()
+
+	// Debe ser mayor al tamaño máximo de archivo de audio aceptado
+	// (service.TamanoMaximoArchivoAudio) para no cortar el multipart antes
+	// de que el handler pueda devolver un 413 controlado.
+	router.MaxMultipartMemory = 110 << 20 // 110 MiB
 
 	router.Use(middleware.Cors(corsAllowedOrigins))
 
@@ -34,9 +41,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 		authMiddleware.UsuarioActivo,
 	)
 
+	// Catálogo de solo lectura: cualquier usuario autenticado y activo lo
+	// necesita para crear un proyecto, no solo quienes tengan un rol de
+	// SISTEMA. CONSULTAR_GENEROS queda reservado para gestión (crear/editar).
 	configuracion.GET(
 		"/generos",
-		permisoMiddleware.RequerirPermiso("CONSULTAR_GENEROS"),
 		generoMusicalHandler.Listar,
 	)
 
@@ -58,6 +67,12 @@ func NewRouter(rolHandler *handler.RolHandler,
 		generoMusicalHandler.CambiarEstado,
 	)
 
+	// Mismo criterio que /generos: catálogo de solo lectura, sin permiso.
+	configuracion.GET(
+		"/tipos-proyecto",
+		tipoProyectoHandler.Listar,
+	)
+
 	usuarios.POST(
 		"/:codigoUsuario/roles",
 		authMiddleware.UsuarioActivo,
@@ -73,9 +88,9 @@ func NewRouter(rolHandler *handler.RolHandler,
 		authMiddleware.UsuarioActivo,
 	)
 
-	perfil.POST(
-		"/integrante",
-		integranteHandler.CrearPerfil,
+	perfil.GET(
+		"",
+		integranteHandler.ObtenerPerfil,
 	)
 
 	proyectos := router.Group("/proyectos")
@@ -102,6 +117,46 @@ func NewRouter(rolHandler *handler.RolHandler,
 	proyectos.POST(
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
 		comentarioHandler.Crear,
+	)
+
+	proyectos.GET(
+		"",
+		proyectoHandler.Listar,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones",
+		cancionHandler.ListarPorProyecto,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones",
+		cancionHandler.ListarVersiones,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/audio",
+		cancionHandler.ObtenerAudioVersion,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
+		comentarioHandler.ListarPorVersion,
+	)
+
+	permisos := router.Group("/permisos")
+
+	permisos.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ROLES",
+		),
+	)
+
+	permisos.GET(
+		"",
+		permisoHandler.Listar,
 	)
 
 	return router

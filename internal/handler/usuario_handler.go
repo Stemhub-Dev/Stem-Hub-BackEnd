@@ -50,31 +50,56 @@ func (h *UsuarioHandler) Registrar(c *gin.Context) {
 		return
 	}
 
-	usuario, creado, err := h.service.RegistrarUsuario(
-		claims.Subject,
-		claims.Email,
-	)
+	var request dto.RegistrarUsuarioRequest
 
-	if err != nil {
-		if errors.Is(err, service.ErrUsuarioInactivo) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "usuario inactivo",
-			})
-			return
-		}
-
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error": "error interno del servidor",
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Solicitud inválida",
 		})
 		return
 	}
 
-	if creado {
-		c.JSON(http.StatusCreated, usuario)
+	usuario, integrante, creado, err := h.service.RegistrarUsuario(
+		claims.Subject,
+		claims.Email,
+		request.Nombre,
+		request.Descripcion,
+	)
+
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrNombreIntegranteObligatorio):
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": "El nombre es obligatorio",
+			})
+
+		case errors.Is(err, service.ErrUsuarioInactivo):
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "usuario inactivo",
+			})
+
+		default:
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error": "error interno del servidor",
+			})
+		}
 		return
 	}
 
-	c.JSON(http.StatusOK, usuario)
+	respuesta := dto.RegistrarUsuarioResponse{
+		CodigoUsuario:    usuario.CodigoUsuario,
+		Email:            usuario.Email,
+		CodigoIntegrante: integrante.CodIntegrante,
+		Nombre:           integrante.NombreIntegrante,
+		Descripcion:      integrante.DescripcionIntegrante,
+	}
+
+	if creado {
+		c.JSON(http.StatusCreated, respuesta)
+		return
+	}
+
+	c.JSON(http.StatusOK, respuesta)
 }
 
 func (h *UsuarioHandler) AsignarRol(c *gin.Context) {

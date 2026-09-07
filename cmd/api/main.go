@@ -11,9 +11,17 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No se encontró archivo .env, se usarán variables de entorno del sistema")
+	}
+
 	db, err := database.NewPostgresConnection()
 	if err != nil {
 		log.Fatal(err)
@@ -21,6 +29,13 @@ func main() {
 	defer db.Close()
 
 	log.Println("Conexión con PostgreSQL establecida correctamente")
+
+	audioStorage, err := storage.NewMinioAudioStorage()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Conexión con MinIO establecida correctamente")
 
 	//Rol
 	rolRepository := repository.NewRolRepository(db)
@@ -31,6 +46,11 @@ func main() {
 	generoMusicalRepository := repository.NewGeneroMusicalRepository(db)
 	generoMusicalService := service.NewGeneroMusicalService(generoMusicalRepository)
 	generoMusicalHandler := handler.NewGeneroMusicalHandler(generoMusicalService)
+
+	// Tipo de proyecto
+	tipoProyectoRepository := repository.NewTipoProyectoRepository(db)
+	tipoProyectoService := service.NewTipoProyectoService(tipoProyectoRepository)
+	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
 
 	// Usuario y UsuarioRol
 	usuarioRolRepository := repository.NewUsuarioRolRepository(db)
@@ -60,6 +80,7 @@ func main() {
 	permisoRepository := repository.NewPermisoRepository(db)
 	permisoService := service.NewPermisoService(permisoRepository)
 	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
+	permisoHandler := handler.NewPermisoHandler(permisoService)
 
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
@@ -80,6 +101,7 @@ func main() {
 		cancionRepository,
 		proyectoRepository,
 		integranteRepository,
+		audioStorage,
 	)
 	cancionHandler := handler.NewCancionHandler(cancionService)
 
@@ -98,11 +120,13 @@ func main() {
 	r := router.NewRouter(
 		rolHandler,
 		generoMusicalHandler,
+		tipoProyectoHandler,
 		usuarioHandler,
 		integranteHandler,
 		proyectoHandler,
 		cancionHandler,
 		comentarioHandler,
+		permisoHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,

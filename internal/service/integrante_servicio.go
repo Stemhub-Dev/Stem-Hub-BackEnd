@@ -3,27 +3,20 @@ package service
 import (
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
 var (
-	ErrPerfilIntegranteYaExiste = errors.New(
-		"el usuario ya posee un perfil de integrante",
-	)
-
-	ErrNombreIntegranteObligatorio = errors.New(
-		"el nombre del integrante es obligatorio",
+	ErrPerfilNoEncontrado = errors.New(
+		"el usuario no posee un perfil",
 	)
 )
 
 type IntegranteService interface {
-	CrearPerfil(
+	ObtenerPerfil(
 		codigoUsuario int64,
-		nombre string,
-		descripcion *string,
 	) (*model.Integrante, error)
 }
 
@@ -39,37 +32,24 @@ func NewIntegranteService(
 	}
 }
 
-func (s *integranteService) CrearPerfil(
+func (s *integranteService) ObtenerPerfil(
 	codigoUsuario int64,
-	nombre string,
-	descripcion *string,
 ) (*model.Integrante, error) {
 
-	nombre = strings.TrimSpace(nombre)
-
-	if nombre == "" {
-		return nil, ErrNombreIntegranteObligatorio
-	}
-
-	perfilExistente, err :=
+	integrante, err :=
 		s.repository.BuscarPorCodigoUsuario(codigoUsuario)
 
-	if err == nil && perfilExistente != nil {
-		return nil, ErrPerfilIntegranteYaExiste
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPerfilNoEncontrado
 	}
 
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return nil, err
 	}
 
-	if descripcion != nil {
-		descripcionLimpia := strings.TrimSpace(*descripcion)
-		descripcion = &descripcionLimpia
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil, ErrPerfilNoEncontrado
 	}
 
-	return s.repository.Crear(
-		codigoUsuario,
-		nombre,
-		descripcion,
-	)
+	return integrante, nil
 }

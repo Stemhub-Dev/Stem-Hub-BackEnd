@@ -1,6 +1,10 @@
 package repository
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+)
 
 type ComentarioRepository interface {
 	Crear(
@@ -8,6 +12,11 @@ type ComentarioRepository interface {
 		codigoVersion int64,
 		texto string,
 	) (int64, error)
+
+	ListarPorVersion(
+		codigoVersion int64,
+		codigoIntegranteActual int64,
+	) ([]dto.ComentarioListadoResponse, error)
 }
 
 type comentarioRepository struct {
@@ -20,6 +29,7 @@ func NewComentarioRepository(
 	return &comentarioRepository{
 		db: db,
 	}
+
 }
 
 func (r *comentarioRepository) Crear(
@@ -55,4 +65,73 @@ func (r *comentarioRepository) Crear(
 	).Scan(&codigoComentario)
 
 	return codigoComentario, err
+}
+
+func (r *comentarioRepository) ListarPorVersion(
+	codigoVersion int64,
+	codigoIntegranteActual int64,
+) ([]dto.ComentarioListadoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			c.codigocomentario,
+			c.descripcioncomentario,
+			ec.nombreestadocom,
+			c.fechahoraaltacomentario,
+			i.codintegrante,
+			i.nombreintegrante,
+			(c.codintegrante = $2) AS espropio
+		FROM comentario c
+		INNER JOIN integrante i
+			ON i.codintegrante = c.codintegrante
+		INNER JOIN estadocomentario ec
+			ON ec.codestadocom = c.codestadocom
+		WHERE c.codigocancionversion = $1
+		  AND c.fechahorabajacomentario IS NULL
+		ORDER BY c.fechahoraaltacomentario DESC
+	`,
+		codigoVersion,
+		codigoIntegranteActual,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	comentarios := make(
+		[]dto.ComentarioListadoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var comentario dto.ComentarioListadoResponse
+
+		err := rows.Scan(
+			&comentario.CodigoComentario,
+			&comentario.Texto,
+			&comentario.Estado,
+			&comentario.FechaHoraAlta,
+			&comentario.Autor.CodigoIntegrante,
+			&comentario.Autor.Nombre,
+			&comentario.EsPropio,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		comentarios = append(
+			comentarios,
+			comentario,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return comentarios, nil
 }
