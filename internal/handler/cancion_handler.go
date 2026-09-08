@@ -33,6 +33,53 @@ func extraerArchivoAudio(c *gin.Context) (service.ArchivoAudio, multipart.File, 
 	}, archivo, nil
 }
 
+// extraerArchivosStems lee los stems opcionales del multipart: un campo
+// repetido "stemsArchivo" (uno por archivo) emparejado por orden con
+// "stemsNombre" (uno por nombre, mismo índice). Ambos deben venir en la
+// misma cantidad y orden — el frontend los agrega siempre en pares.
+func extraerArchivosStems(c *gin.Context) ([]service.ArchivoStem, []multipart.File, error) {
+
+	form, err := c.MultipartForm()
+
+	if err != nil {
+		return nil, nil, nil
+	}
+
+	fileHeaders := form.File["stemsArchivo"]
+	nombres := form.Value["stemsNombre"]
+
+	if len(fileHeaders) == 0 {
+		return nil, nil, nil
+	}
+
+	if len(fileHeaders) != len(nombres) {
+		return nil, nil, errors.New("cada stem debe tener un nombre y un archivo")
+	}
+
+	stems := make([]service.ArchivoStem, 0, len(fileHeaders))
+	archivosAbiertos := make([]multipart.File, 0, len(fileHeaders))
+
+	for i, fileHeader := range fileHeaders {
+
+		archivo, err := fileHeader.Open()
+
+		if err != nil {
+			return nil, archivosAbiertos, err
+		}
+
+		archivosAbiertos = append(archivosAbiertos, archivo)
+
+		stems = append(stems, service.ArchivoStem{
+			Nombre:         nombres[i],
+			Contenido:      archivo,
+			NombreOriginal: fileHeader.Filename,
+			Tamano:         fileHeader.Size,
+		})
+	}
+
+	return stems, archivosAbiertos, nil
+}
+
 type CancionHandler struct {
 	service service.CancionService
 }
@@ -288,14 +335,63 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 		defer archivoAbierto.Close()
 	}
 
+	stems, stemsAbiertos, err := extraerArchivosStems(c)
+
+	for _, stemAbierto := range stemsAbiertos {
+		defer stemAbierto.Close()
+	}
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Solicitud inválida"},
+		)
+		return
+	}
+
+	var notas *string
+
+	if valor, existe := c.GetPostForm("notas"); existe {
+		notas = &valor
+	}
+
 	version, err :=
 		h.service.CrearVersion(
 			usuario.CodigoUsuario,
 			codigoProyecto,
 			codigoCancion,
 			archivo,
+			notas,
+			stems,
 		)
 	switch {
+
+	case errors.Is(
+		err,
+		service.ErrStemNombreObligatorio,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Cada stem debe tener un nombre"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrStemFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El formato de un stem debe ser MP3, WAV o FLAC"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrStemArchivoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusRequestEntityTooLarge,
+			gin.H{"error": "Un stem supera el tamaño máximo permitido"},
+		)
 
 	case errors.Is(
 		err,

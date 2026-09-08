@@ -7,5 +7,6 @@ type Integrante struct {
 	CodigoUsuario           int64      `json:"-"`
 	NombreIntegrante        string     `json:"nombreIntegrante"`
 	DescripcionIntegrante   *string    `json:"descripcionIntegrante"`
+	AvatarObjectKey         *string    `json:"-"`
 	FechaHoraBajaIntegrante *time.Time `json:"-"`
 }

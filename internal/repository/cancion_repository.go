@@ -35,12 +35,21 @@ type CancionRepository interface {
 		codigoCancion int64,
 	) (tx *sql.Tx, siguienteVersion int, err error)
 
-	FinalizarCreacionVersion(
+	InsertarVersion(
 		tx *sql.Tx,
 		codigoCancion int64,
 		numeroVersion int,
 		urlArchivo string,
 		formatoArchivo string,
+		notas *string,
+	) (int64, error)
+
+	InsertarStem(
+		tx *sql.Tx,
+		codigoCancionVersion int64,
+		nombre string,
+		urlArchivo string,
+		formato string,
 	) (int64, error)
 
 	ExisteVersionActivaEnCancion(
@@ -241,15 +250,18 @@ func (r *cancionRepository) IniciarCreacionVersion(
 	return tx, siguienteVersion, nil
 }
 
-func (r *cancionRepository) FinalizarCreacionVersion(
+// InsertarVersion inserta la fila de cancionversion dentro de la
+// transacción abierta por IniciarCreacionVersion, sin commitear — el caller
+// (el service) controla el commit/rollback una vez que también subió y
+// registró los stems opcionales, para que todo quede atómico.
+func (r *cancionRepository) InsertarVersion(
 	tx *sql.Tx,
 	codigoCancion int64,
 	numeroVersion int,
 	urlArchivo string,
 	formatoArchivo string,
+	notas *string,
 ) (int64, error) {
-
-	defer tx.Rollback()
 
 	var codigoCancionVersion int64
 
@@ -259,14 +271,16 @@ func (r *cancionRepository) FinalizarCreacionVersion(
 			numeroversion,
 			fechahoraaltaversion,
 			urlarchivocancionver,
-			formatoarchivocancionver
+			formatoarchivocancionver,
+			notasversion
 		)
 		VALUES (
 			$1,
 			$2,
 			CURRENT_TIMESTAMP,
 			$3,
-			$4
+			$4,
+			$5
 		)
 		RETURNING codigocancionversion
 	`,
@@ -274,17 +288,65 @@ func (r *cancionRepository) FinalizarCreacionVersion(
 		numeroVersion,
 		urlArchivo,
 		formatoArchivo,
+		notas,
 	).Scan(&codigoCancionVersion)
 
 	if err != nil {
 		return 0, err
 	}
 
-	if err := tx.Commit(); err != nil {
+	return codigoCancionVersion, nil
+}
+
+// InsertarStem inserta un stem opcional dentro de la misma transacción que
+// InsertarVersion. El archivo se guarda en la columna correspondiente a su
+// formato (wav o mp3) — la tabla stem no tiene columna de "formato" propia,
+// a diferencia de cancionversion.
+func (r *cancionRepository) InsertarStem(
+	tx *sql.Tx,
+	codigoCancionVersion int64,
+	nombre string,
+	urlArchivo string,
+	formato string,
+) (int64, error) {
+
+	var codStem int64
+
+	var urlWav, urlMp3 *string
+
+	switch formato {
+	case "wav":
+		urlWav = &urlArchivo
+	default:
+		urlMp3 = &urlArchivo
+	}
+
+	err := tx.QueryRow(`
+		INSERT INTO stem (
+			codigocancionversion,
+			nombrestem,
+			urlversionwav,
+			urlversionmp3
+		)
+		VALUES (
+			$1,
+			$2,
+			$3,
+			$4
+		)
+		RETURNING codstem
+	`,
+		codigoCancionVersion,
+		nombre,
+		urlWav,
+		urlMp3,
+	).Scan(&codStem)
+
+	if err != nil {
 		return 0, err
 	}
 
-	return codigoCancionVersion, nil
+	return codStem, nil
 }
 
 func (r *cancionRepository) ExisteVersionActivaEnCancion(
@@ -319,6 +381,7 @@ func (r *cancionRepository) BuscarVersionPorCodigo(
 
 	var urlArchivo sql.NullString
 	var formatoArchivo sql.NullString
+	var notas sql.NullString
 
 	err := r.db.QueryRow(`
 		SELECT
@@ -327,7 +390,8 @@ func (r *cancionRepository) BuscarVersionPorCodigo(
 			numeroversion,
 			fechahoraaltaversion,
 			urlarchivocancionver,
-			formatoarchivocancionver
+			formatoarchivocancionver,
+			notasversion
 		FROM cancionversion
 		WHERE codigocancionversion = $1
 		  AND codigocancion = $2
@@ -342,6 +406,7 @@ func (r *cancionRepository) BuscarVersionPorCodigo(
 		&version.FechaHoraAltaVersion,
 		&urlArchivo,
 		&formatoArchivo,
+		&notas,
 	)
 
 	if err != nil {
@@ -354,6 +419,10 @@ func (r *cancionRepository) BuscarVersionPorCodigo(
 
 	if formatoArchivo.Valid {
 		version.FormatoArchivoCancionVer = &formatoArchivo.String
+	}
+
+	if notas.Valid {
+		version.NotasVersion = &notas.String
 	}
 
 	return &version, nil
@@ -469,7 +538,8 @@ func (r *cancionRepository) ListarVersiones(
 			numeroversion,
 			fechahoraaltaversion,
 			urlarchivocancionver,
-			formatoarchivocancionver
+			formatoarchivocancionver,
+			notasversion
 		FROM cancionversion
 		WHERE codigocancion = $1
 		  AND fechahorabajaversion IS NULL
@@ -495,6 +565,7 @@ func (r *cancionRepository) ListarVersiones(
 
 		var urlArchivo sql.NullString
 		var formatoArchivo sql.NullString
+		var notas sql.NullString
 
 		err := rows.Scan(
 			&version.CodigoCancionVersion,
@@ -502,6 +573,7 @@ func (r *cancionRepository) ListarVersiones(
 			&version.FechaHoraAlta,
 			&urlArchivo,
 			&formatoArchivo,
+			&notas,
 		)
 
 		if err != nil {
@@ -519,6 +591,10 @@ func (r *cancionRepository) ListarVersiones(
 
 		if formatoArchivo.Valid {
 			version.FormatoArchivo = &formatoArchivo.String
+		}
+
+		if notas.Valid {
+			version.Notas = &notas.String
 		}
 
 		versiones = append(versiones, version)

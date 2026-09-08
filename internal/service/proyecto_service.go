@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
 
 const (
@@ -34,6 +36,14 @@ var (
 	ErrNombreProyectoObligatorio = errors.New(
 		"el nombre del proyecto es obligatorio",
 	)
+
+	ErrProyectoNoEncontrado = errors.New(
+		"el proyecto no existe",
+	)
+
+	ErrProyectoSinAcceso = errors.New(
+		"el usuario no pertenece al proyecto",
+	)
 )
 
 type ProyectoService interface {
@@ -45,21 +55,29 @@ type ProyectoService interface {
 	ListarProyectos(
 		codigoUsuario int64,
 	) ([]dto.ProyectoListadoResponse, error)
+
+	ListarColaboradores(
+		codigoUsuario int64,
+		codigoProyecto int64,
+	) ([]dto.ColaboradorProyectoResponse, error)
 }
 
 type proyectoService struct {
 	proyectoRepository   repository.ProyectoRepository
 	integranteRepository repository.IntegranteRepository
+	audioStorage         storage.AudioStorage
 }
 
 func NewProyectoService(
 	proyectoRepository repository.ProyectoRepository,
 	integranteRepository repository.IntegranteRepository,
+	audioStorage storage.AudioStorage,
 ) ProyectoService {
 
 	return &proyectoService{
 		proyectoRepository:   proyectoRepository,
 		integranteRepository: integranteRepository,
+		audioStorage:         audioStorage,
 	}
 }
 
@@ -183,4 +201,99 @@ func (s *proyectoService) ListarProyectos(
 	return s.proyectoRepository.ListarPorIntegrante(
 		integrante.CodIntegrante,
 	)
+}
+
+func (s *proyectoService) ListarColaboradores(
+	codigoUsuario int64,
+	codigoProyecto int64,
+) ([]dto.ColaboradorProyectoResponse, error) {
+
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrProyectoNoEncontrado
+	}
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	esIntegrante, err :=
+		s.proyectoRepository.EsIntegranteActivo(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !esIntegrante {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	colaboradores, err :=
+		s.proyectoRepository.ListarColaboradores(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta := make(
+		[]dto.ColaboradorProyectoResponse,
+		0,
+		len(colaboradores),
+	)
+
+	for _, colaborador := range colaboradores {
+
+		var avatarUrl *string
+
+		if colaborador.AvatarObjectKey != nil {
+
+			url, err := s.audioStorage.ObtenerURLDescarga(
+				context.Background(),
+				*colaborador.AvatarObjectKey,
+				VigenciaURLAvatar,
+			)
+
+			if err != nil {
+				return nil, err
+			}
+
+			avatarUrl = &url
+		}
+
+		respuesta = append(
+			respuesta,
+			dto.ColaboradorProyectoResponse{
+				CodigoIntegrante: colaborador.CodIntegrante,
+				Nombre:           colaborador.NombreIntegrante,
+				AvatarUrl:        avatarUrl,
+				CodRol:           colaborador.CodRol,
+				NombreRol:        colaborador.NombreRol,
+				EsPropietario:    colaborador.EsPropietario,
+			},
+		)
+	}
+
+	return respuesta, nil
 }

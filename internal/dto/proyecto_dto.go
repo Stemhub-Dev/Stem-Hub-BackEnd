@@ -31,3 +31,12 @@ type ProyectoListadoResponse struct {
 	NombreRol     string `json:"nombreRol"`
 	EsPropietario bool   `json:"esPropietario"`
 }
+
+type ColaboradorProyectoResponse struct {
+	CodigoIntegrante int64   `json:"codigoIntegrante"`
+	Nombre           string  `json:"nombre"`
+	AvatarUrl        *string `json:"avatarUrl"`
+	CodRol           int64   `json:"codRol"`
+	NombreRol        string  `json:"nombreRol"`
+	EsPropietario    bool    `json:"esPropietario"`
+}

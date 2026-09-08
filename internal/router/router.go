@@ -93,6 +93,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 		integranteHandler.ObtenerPerfil,
 	)
 
+	perfil.PUT(
+		"",
+		integranteHandler.EditarPerfil,
+	)
+
 	proyectos := router.Group("/proyectos")
 	proyectos.Use(
 		authMiddleware.ValidarJWT,
@@ -122,6 +127,11 @@ func NewRouter(rolHandler *handler.RolHandler,
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/integrantes",
+		proyectoHandler.ListarColaboradores,
 	)
 
 	proyectos.GET(
