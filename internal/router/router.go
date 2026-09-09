@@ -11,11 +11,13 @@ func NewRouter(rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	tipoProyectoHandler *handler.TipoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
+	usuarioAdministracionHandler *handler.UsuarioAdministracionHandler,
 	integranteHandler *handler.IntegranteHandler,
 	proyectoHandler *handler.ProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
 	permisoHandler *handler.PermisoHandler,
+	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 	corsAllowedOrigins []string,
@@ -147,6 +149,46 @@ func NewRouter(rolHandler *handler.RolHandler,
 	permisos.GET(
 		"",
 		permisoHandler.Listar,
+	)
+
+	router.GET(
+		"/roles/:id/permisos",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_ROLES"),
+		rolPermisoHandler.ObtenerPorRol,
+	)
+
+	router.GET(
+		"/usuarios",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.Listar,
+	)
+
+	router.GET(
+		"/usuarios/:id",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.ObtenerPorID,
+	)
+
+	router.GET(
+		"/usuarios/:id/roles",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.ObtenerRolesSistema,
+	)
+
+	router.GET(
+		"/usuarios/:id/proyectos",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.ObtenerProyectosPorUsuario,
 	)
 
 	return router
