@@ -82,6 +82,16 @@ func main() {
 	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
 	permisoHandler := handler.NewPermisoHandler(permisoService)
 
+	// RolPermiso
+	rolPermisoRepository := repository.NewRolPermisoRepository(db)
+	rolPermisoService := service.NewRolPermisoService(rolPermisoRepository)
+	rolPermisoHandler := handler.NewRolPermisoHandler(rolPermisoService)
+
+	// UsuarioAdministracion
+	usuarioAdministracionRepository := repository.NewUsuarioAdministracionRepository(db)
+	usuarioAdministracionService := service.NewUsuarioAdministracionService(usuarioAdministracionRepository)
+	usuarioAdministracionHandler := handler.NewUsuarioAdministracionHandler(usuarioAdministracionService)
+
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
 	integranteService := service.NewIntegranteService(integranteRepository, audioStorage)
@@ -123,11 +133,13 @@ func main() {
 		generoMusicalHandler,
 		tipoProyectoHandler,
 		usuarioHandler,
+		usuarioAdministracionHandler,
 		integranteHandler,
 		proyectoHandler,
 		cancionHandler,
 		comentarioHandler,
 		permisoHandler,
+		rolPermisoHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,
