@@ -11,6 +11,7 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 	"github.com/joho/godotenv"
 )
 
@@ -28,6 +29,13 @@ func main() {
 	defer db.Close()
 
 	log.Println("Conexión con PostgreSQL establecida correctamente")
+
+	audioStorage, err := storage.NewMinioAudioStorage()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Conexión con MinIO establecida correctamente")
 
 	//Rol
 	rolRepository := repository.NewRolRepository(db)
@@ -86,7 +94,7 @@ func main() {
 
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
-	integranteService := service.NewIntegranteService(integranteRepository)
+	integranteService := service.NewIntegranteService(integranteRepository, audioStorage)
 	integranteHandler := handler.NewIntegranteHandler(integranteService)
 
 	//Proyecto
@@ -94,6 +102,7 @@ func main() {
 	proyectoService := service.NewProyectoService(
 		proyectoRepository,
 		integranteRepository,
+		audioStorage,
 	)
 	proyectoHandler := handler.NewProyectoHandler(proyectoService)
 
@@ -103,6 +112,7 @@ func main() {
 		cancionRepository,
 		proyectoRepository,
 		integranteRepository,
+		audioStorage,
 	)
 	cancionHandler := handler.NewCancionHandler(cancionService)
 

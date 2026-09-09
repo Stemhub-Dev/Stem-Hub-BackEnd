@@ -124,6 +124,15 @@ func (h *ComentarioHandler) Crear(c *gin.Context) {
 
 	case errors.Is(
 		err,
+		service.ErrComentarioRangoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El rango de tiempo del comentario es inválido"},
+		)
+
+	case errors.Is(
+		err,
 		service.ErrComentarioProyectoNoEncontrado,
 	),
 		errors.Is(

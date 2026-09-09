@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 type ProyectoRepository interface {
@@ -45,6 +46,10 @@ type ProyectoRepository interface {
 	ListarPorIntegrante(
 		codigoIntegrante int64,
 	) ([]dto.ProyectoListadoResponse, error)
+
+	ListarColaboradores(
+		codigoProyecto int64,
+	) ([]model.ColaboradorProyecto, error)
 }
 
 type proyectoRepository struct {
@@ -423,4 +428,71 @@ func (r *proyectoRepository) ListarPorIntegrante(
 	}
 
 	return proyectos, nil
+}
+
+func (r *proyectoRepository) ListarColaboradores(
+	codigoProyecto int64,
+) ([]model.ColaboradorProyecto, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			i.codintegrante,
+			i.nombreintegrante,
+			i.urlavatarintegrante,
+			ip.codrol,
+			r.nombrerol,
+			ip.espropietario
+		FROM integranteproyecto ip
+		JOIN integrante i
+		  ON i.codintegrante = ip.codintegrante
+		JOIN rol r
+		  ON r.codrol = ip.codrol
+		 AND r.ambitorol = ip.ambitorol
+		WHERE ip.codigoproyecto = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND i.fechahorabajaintegrante IS NULL
+		ORDER BY ip.espropietario DESC, i.nombreintegrante ASC
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	colaboradores := make(
+		[]model.ColaboradorProyecto,
+		0,
+	)
+
+	for rows.Next() {
+
+		var colaborador model.ColaboradorProyecto
+
+		err := rows.Scan(
+			&colaborador.CodIntegrante,
+			&colaborador.NombreIntegrante,
+			&colaborador.AvatarObjectKey,
+			&colaborador.CodRol,
+			&colaborador.NombreRol,
+			&colaborador.EsPropietario,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		colaboradores = append(
+			colaboradores,
+			colaborador,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return colaboradores, nil
 }

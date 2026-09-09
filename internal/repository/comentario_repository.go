@@ -11,6 +11,8 @@ type ComentarioRepository interface {
 		codigoIntegrante int64,
 		codigoVersion int64,
 		texto string,
+		tiempoInicioSegundos *float64,
+		tiempoFinSegundos *float64,
 	) (int64, error)
 
 	ListarPorVersion(
@@ -36,6 +38,8 @@ func (r *comentarioRepository) Crear(
 	codigoIntegrante int64,
 	codigoVersion int64,
 	texto string,
+	tiempoInicioSegundos *float64,
+	tiempoFinSegundos *float64,
 ) (int64, error) {
 
 	var codigoComentario int64
@@ -46,6 +50,8 @@ func (r *comentarioRepository) Crear(
 			codestadocom,
 			codigocancionversion,
 			descripcioncomentario,
+			tiempoiniciosegundos,
+			tiempofinsegundos,
 			fechahoraaltacomentario
 		)
 		SELECT
@@ -53,6 +59,8 @@ func (r *comentarioRepository) Crear(
 			ec.codestadocom,
 			$2,
 			$3,
+			$4,
+			$5,
 			CURRENT_TIMESTAMP
 		FROM estadocomentario ec
 		WHERE LOWER(ec.nombreestadocom) = LOWER('Pendiente')
@@ -62,6 +70,8 @@ func (r *comentarioRepository) Crear(
 		codigoIntegrante,
 		codigoVersion,
 		texto,
+		tiempoInicioSegundos,
+		tiempoFinSegundos,
 	).Scan(&codigoComentario)
 
 	return codigoComentario, err
@@ -77,6 +87,8 @@ func (r *comentarioRepository) ListarPorVersion(
 			c.codigocomentario,
 			c.descripcioncomentario,
 			ec.nombreestadocom,
+			c.tiempoiniciosegundos,
+			c.tiempofinsegundos,
 			c.fechahoraaltacomentario,
 			i.codintegrante,
 			i.nombreintegrante,
@@ -113,6 +125,8 @@ func (r *comentarioRepository) ListarPorVersion(
 			&comentario.CodigoComentario,
 			&comentario.Texto,
 			&comentario.Estado,
+			&comentario.TiempoInicioSegundos,
+			&comentario.TiempoFinSegundos,
 			&comentario.FechaHoraAlta,
 			&comentario.Autor.CodigoIntegrante,
 			&comentario.Autor.Nombre,
