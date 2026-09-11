@@ -95,7 +95,7 @@ func main() {
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
 	integranteService := service.NewIntegranteService(integranteRepository, audioStorage)
-	integranteHandler := handler.NewIntegranteHandler(integranteService)
+	integranteHandler := handler.NewIntegranteHandler(integranteService, usuarioRolService)
 
 	//Proyecto
 	proyectoRepository := repository.NewProyectoRepository(db)

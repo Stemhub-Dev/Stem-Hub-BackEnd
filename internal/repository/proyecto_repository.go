@@ -261,19 +261,16 @@ func (r *proyectoRepository) PuedeGestionarCanciones(
 			WHERE ip.codintegrante = $1
 			  AND ip.codigoproyecto = $2
 			  AND ip.fechahorabajaintegranteproy IS NULL
-			  AND (
-					ip.espropietario = TRUE
-					OR EXISTS (
-						SELECT 1
-						FROM rolpermiso rp
-						JOIN permiso p
-						  ON p.codigopermiso = rp.codigopermiso
-						WHERE rp.codrol = ip.codrol
-						  AND rp.ambitorolpermiso = ip.ambitorol
-						  AND rp.fechahorabajarolpermiso IS NULL
-						  AND p.fechahorabajapermiso IS NULL
-						  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
-					)
+			  AND EXISTS (
+					SELECT 1
+					FROM rolpermiso rp
+					JOIN permiso p
+					  ON p.codigopermiso = rp.codigopermiso
+					WHERE rp.codrol = ip.codrol
+					  AND rp.ambitorolpermiso = ip.ambitorol
+					  AND rp.fechahorabajarolpermiso IS NULL
+					  AND p.fechahorabajapermiso IS NULL
+					  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
 			  )
 		)
 	`,
@@ -299,19 +296,16 @@ func (r *proyectoRepository) PuedeRealizarEnProyecto(
 			WHERE ip.codintegrante = $1
 			  AND ip.codigoproyecto = $2
 			  AND ip.fechahorabajaintegranteproy IS NULL
-			  AND (
-					ip.espropietario = TRUE
-					OR EXISTS (
-						SELECT 1
-						FROM rolpermiso rp
-						JOIN permiso p
-						  ON p.codigopermiso = rp.codigopermiso
-						WHERE rp.codrol = ip.codrol
-						  AND rp.ambitorolpermiso = ip.ambitorol
-						  AND rp.fechahorabajarolpermiso IS NULL
-						  AND p.fechahorabajapermiso IS NULL
-						  AND p.clavepermiso = $3
-					)
+			  AND EXISTS (
+					SELECT 1
+					FROM rolpermiso rp
+					JOIN permiso p
+					  ON p.codigopermiso = rp.codigopermiso
+					WHERE rp.codrol = ip.codrol
+					  AND rp.ambitorolpermiso = ip.ambitorol
+					  AND rp.fechahorabajarolpermiso IS NULL
+					  AND p.fechahorabajapermiso IS NULL
+					  AND p.clavepermiso = $3
 			  )
 		)
 	`,

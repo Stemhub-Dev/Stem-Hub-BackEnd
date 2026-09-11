@@ -7,6 +7,7 @@ type UsuarioRolRepository interface {
 	ExisteRolActivo(codRol int64) (bool, error)
 	TieneRolActivo(codigoUsuario int64, codRol int64) (bool, error)
 	AsignarRol(codigoUsuario int64, codRol int64) error
+	EsAdministradorSistema(codigoUsuario int64) (bool, error)
 }
 
 type usuarioRolRepository struct {
@@ -120,4 +121,33 @@ func (r *usuarioRolRepository) AsignarRol(
 	)
 
 	return err
+}
+
+func (r *usuarioRolRepository) EsAdministradorSistema(
+	codigoUsuario int64,
+) (bool, error) {
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM usuariorol ur
+			INNER JOIN rol r
+				ON r.codrol = ur.codrol
+			   AND r.ambitorol = ur.ambitorol
+			WHERE ur.codigousuario = $1
+			  AND ur.fechahorabajausuariorol IS NULL
+			  AND ur.ambitorol = 'SISTEMA'
+			  AND r.fechahorabajarol IS NULL
+			  AND r.nombrerol = 'Administrador'
+		)
+	`
+
+	var esAdministrador bool
+
+	err := r.db.QueryRow(
+		query,
+		codigoUsuario,
+	).Scan(&esAdministrador)
+
+	return esAdministrador, err
 }
