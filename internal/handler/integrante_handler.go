@@ -14,14 +14,17 @@ import (
 )
 
 type IntegranteHandler struct {
-	service service.IntegranteService
+	service           service.IntegranteService
+	usuarioRolService service.UsuarioRolService
 }
 
 func NewIntegranteHandler(
 	service service.IntegranteService,
+	usuarioRolService service.UsuarioRolService,
 ) *IntegranteHandler {
 	return &IntegranteHandler{
-		service: service,
+		service:           service,
+		usuarioRolService: usuarioRolService,
 	}
 }
 
@@ -97,14 +100,33 @@ func (h *IntegranteHandler) ObtenerPerfil(c *gin.Context) {
 		)
 
 	default:
+		esAdministradorSistema, err :=
+			h.usuarioRolService.EsAdministradorSistema(
+				usuario.CodigoUsuario,
+			)
+
+		if err != nil {
+			log.Println(
+				"Error al consultar rol de sistema:",
+				err,
+			)
+
+			c.JSON(
+				http.StatusInternalServerError,
+				gin.H{"error": "Error al obtener el perfil"},
+			)
+			return
+		}
+
 		c.JSON(
 			http.StatusOK,
 			dto.ObtenerPerfilResponse{
-				CodigoIntegrante: integrante.CodIntegrante,
-				Email:            usuario.Email,
-				Nombre:           integrante.NombreIntegrante,
-				Descripcion:      integrante.DescripcionIntegrante,
-				AvatarUrl:        avatarUrl,
+				CodigoIntegrante:       integrante.CodIntegrante,
+				Email:                  usuario.Email,
+				Nombre:                 integrante.NombreIntegrante,
+				Descripcion:            integrante.DescripcionIntegrante,
+				AvatarUrl:              avatarUrl,
+				EsAdministradorSistema: esAdministradorSistema,
 			},
 		)
 	}
