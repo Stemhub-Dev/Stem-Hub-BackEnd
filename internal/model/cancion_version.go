@@ -10,4 +10,5 @@ type CancionVersion struct {
 	FechaHoraBajaVersion     *time.Time `json:"fechaHoraBajaVersion"`
 	URLArchivoCancionVer     *string    `json:"urlArchivoCancionVer"`
 	FormatoArchivoCancionVer *string    `json:"formatoArchivoCancionVer"`
+	NotasVersion             *string    `json:"notasVersion"`
 }

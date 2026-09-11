@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
@@ -175,4 +176,84 @@ func (h *ProyectoHandler) Listar(c *gin.Context) {
 		http.StatusOK,
 		proyectos,
 	)
+}
+
+func (h *ProyectoHandler) ListarColaboradores(c *gin.Context) {
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	codigoProyecto, err :=
+		strconv.ParseInt(c.Param("proyectoId"), 10, 64)
+
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	colaboradores, err :=
+		h.service.ListarColaboradores(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinAcceso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "No tenés acceso a este proyecto"},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al listar colaboradores:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener los colaboradores"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			colaboradores,
+		)
+	}
 }

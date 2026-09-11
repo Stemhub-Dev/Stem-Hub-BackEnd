@@ -19,6 +19,10 @@ var (
 		"el comentario supera los 200 caracteres",
 	)
 
+	ErrComentarioRangoInvalido = errors.New(
+		"el rango de tiempo del comentario es inválido",
+	)
+
 	ErrComentarioProyectoNoEncontrado = errors.New(
 		"el proyecto no existe",
 	)
@@ -92,6 +96,19 @@ func (s *comentarioService) Crear(
 	if len([]rune(request.Texto)) > 200 {
 		return nil, ErrComentarioTextoMuyLargo
 	}
+
+	tieneInicio := request.TiempoInicioSegundos != nil
+	tieneFin := request.TiempoFinSegundos != nil
+
+	if tieneInicio != tieneFin {
+		return nil, ErrComentarioRangoInvalido
+	}
+
+	if tieneInicio && tieneFin &&
+		*request.TiempoFinSegundos < *request.TiempoInicioSegundos {
+		return nil, ErrComentarioRangoInvalido
+	}
+
 	integrante, err :=
 		s.validarAccesoVersion(
 			codigoUsuario,
@@ -108,6 +125,8 @@ func (s *comentarioService) Crear(
 		integrante.CodIntegrante,
 		codigoVersion,
 		request.Texto,
+		request.TiempoInicioSegundos,
+		request.TiempoFinSegundos,
 	)
 
 	if err != nil {
@@ -115,9 +134,11 @@ func (s *comentarioService) Crear(
 	}
 
 	return &dto.CrearComentarioResponse{
-		CodigoComentario: codigoComentario,
-		Texto:            request.Texto,
-		Estado:           "Pendiente",
+		CodigoComentario:     codigoComentario,
+		Texto:                request.Texto,
+		Estado:               "Pendiente",
+		TiempoInicioSegundos: request.TiempoInicioSegundos,
+		TiempoFinSegundos:    request.TiempoFinSegundos,
 		Autor: dto.AutorComentarioResponse{
 			CodigoIntegrante: integrante.CodIntegrante,
 			Nombre:           integrante.NombreIntegrante,

@@ -1,0 +1,10 @@
+Hola,
+
+{{.NombreInvitador}} te invitó a colaborar en el proyecto "{{.NombreProyecto}}" en StemHub, con el rol de {{.NombreRol}}.
+
+Para aceptar la invitación, ingresá al siguiente link:
+{{.LinkAceptacion}}
+
+Este link vence en {{.DiasVencimiento}} días.
+
+Si no esperabas esta invitación, podés ignorar este mensaje.

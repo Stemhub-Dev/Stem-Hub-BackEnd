@@ -11,10 +11,17 @@ type CrearCancionResponse struct {
 }
 
 type CrearVersionCancionResponse struct {
-	CodigoCancionVersion int64  `json:"codigoCancionVersion"`
-	CodigoCancion        int64  `json:"codigoCancion"`
-	NumeroVersion        int    `json:"numeroVersion"`
-	EtiquetaVersion      string `json:"etiquetaVersion"`
+	CodigoCancionVersion int64          `json:"codigoCancionVersion"`
+	CodigoCancion        int64          `json:"codigoCancion"`
+	NumeroVersion        int            `json:"numeroVersion"`
+	EtiquetaVersion      string         `json:"etiquetaVersion"`
+	Notas                *string        `json:"notas"`
+	Stems                []StemResponse `json:"stems"`
+}
+
+type StemResponse struct {
+	CodStem int64  `json:"codStem"`
+	Nombre  string `json:"nombre"`
 }
 
 type VersionActualCancionResponse struct {
@@ -38,6 +45,7 @@ type VersionCancionListadoResponse struct {
 	FechaHoraAlta        time.Time `json:"fechaHoraAlta"`
 	URLArchivo           *string   `json:"urlArchivo"`
 	FormatoArchivo       *string   `json:"formatoArchivo"`
+	Notas                *string   `json:"notas"`
 }
 
 type AudioVersionResponse struct {

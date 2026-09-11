@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mailer"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
@@ -82,18 +84,61 @@ func main() {
 	permisoMiddleware := middleware.NewPermisoMiddleware(permisoService)
 	permisoHandler := handler.NewPermisoHandler(permisoService)
 
+	// RolPermiso
+	rolPermisoRepository := repository.NewRolPermisoRepository(db)
+	rolPermisoService := service.NewRolPermisoService(rolPermisoRepository)
+	rolPermisoHandler := handler.NewRolPermisoHandler(rolPermisoService)
+
+	// UsuarioAdministracion
+	usuarioAdministracionRepository := repository.NewUsuarioAdministracionRepository(db)
+	usuarioAdministracionService := service.NewUsuarioAdministracionService(usuarioAdministracionRepository)
+	usuarioAdministracionHandler := handler.NewUsuarioAdministracionHandler(usuarioAdministracionService)
+
 	//Integrante
 	integranteRepository := repository.NewIntegranteRepository(db)
-	integranteService := service.NewIntegranteService(integranteRepository)
-	integranteHandler := handler.NewIntegranteHandler(integranteService)
+	integranteService := service.NewIntegranteService(integranteRepository, audioStorage)
+	integranteHandler := handler.NewIntegranteHandler(integranteService, usuarioRolService)
 
 	//Proyecto
 	proyectoRepository := repository.NewProyectoRepository(db)
 	proyectoService := service.NewProyectoService(
 		proyectoRepository,
 		integranteRepository,
+		audioStorage,
 	)
 	proyectoHandler := handler.NewProyectoHandler(proyectoService)
+
+	//Mailer (SMTP directo, separado del auth.email.smtp de GoTrue)
+	smtpMailer, err := mailer.NewSMTPMailer(
+		os.Getenv("SMTP_HOST"),
+		os.Getenv("SMTP_PORT"),
+		os.Getenv("SMTP_USER"),
+		os.Getenv("SMTP_PASSWORD"),
+		os.Getenv("SMTP_REMITENTE"),
+	)
+
+	if err != nil {
+		log.Fatalf("error al configurar el mailer: %v", err)
+	}
+
+	//Invitación a proyecto
+	diasVencimientoInvitacion, err := strconv.Atoi(os.Getenv("INVITACION_DIAS_VENCIMIENTO"))
+	if err != nil {
+		diasVencimientoInvitacion = 7
+	}
+
+	invitacionProyectoRepository := repository.NewInvitacionProyectoRepository(db)
+	invitacionProyectoService := service.NewInvitacionProyectoService(
+		invitacionProyectoRepository,
+		proyectoRepository,
+		integranteRepository,
+		usuarioRepository,
+		rolRepository,
+		smtpMailer,
+		os.Getenv("FRONTEND_BASE_URL"),
+		diasVencimientoInvitacion,
+	)
+	invitacionProyectoHandler := handler.NewInvitacionProyectoHandler(invitacionProyectoService)
 
 	//Canción
 	cancionRepository := repository.NewCancionRepository(db)
@@ -122,11 +167,14 @@ func main() {
 		generoMusicalHandler,
 		tipoProyectoHandler,
 		usuarioHandler,
+		usuarioAdministracionHandler,
 		integranteHandler,
 		proyectoHandler,
+		invitacionProyectoHandler,
 		cancionHandler,
 		comentarioHandler,
 		permisoHandler,
+		rolPermisoHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,

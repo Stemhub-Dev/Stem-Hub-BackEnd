@@ -8,6 +8,13 @@ import (
 
 type IntegranteRepository interface {
 	BuscarPorCodigoUsuario(codigoUsuario int64) (*model.Integrante, error)
+
+	ActualizarPerfil(
+		codigoIntegrante int64,
+		nombre string,
+		descripcion *string,
+		avatarObjectKey *string,
+	) error
 }
 
 type integranteRepository struct {
@@ -30,6 +37,7 @@ func (r *integranteRepository) BuscarPorCodigoUsuario(
 			codigousuario,
 			nombreintegrante,
 			descripcionintegrante,
+			urlavatarintegrante,
 			fechahorabajaintegrante
 		FROM integrante
 		WHERE codigousuario = $1
@@ -45,6 +53,7 @@ func (r *integranteRepository) BuscarPorCodigoUsuario(
 		&integrante.CodigoUsuario,
 		&integrante.NombreIntegrante,
 		&integrante.DescripcionIntegrante,
+		&integrante.AvatarObjectKey,
 		&integrante.FechaHoraBajaIntegrante,
 	)
 
@@ -55,3 +64,27 @@ func (r *integranteRepository) BuscarPorCodigoUsuario(
 	return &integrante, nil
 }
 
+func (r *integranteRepository) ActualizarPerfil(
+	codigoIntegrante int64,
+	nombre string,
+	descripcion *string,
+	avatarObjectKey *string,
+) error {
+
+	_, err := r.db.Exec(
+		`
+			UPDATE integrante
+			SET
+				nombreintegrante = $1,
+				descripcionintegrante = $2,
+				urlavatarintegrante = $3
+			WHERE codintegrante = $4
+		`,
+		nombre,
+		descripcion,
+		avatarObjectKey,
+		codigoIntegrante,
+	)
+
+	return err
+}

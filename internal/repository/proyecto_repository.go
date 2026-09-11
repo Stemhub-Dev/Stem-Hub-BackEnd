@@ -4,11 +4,13 @@ import (
 	"database/sql"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 type ProyectoRepository interface {
 	ExisteTipoProyectoActivo(codigoTipoProyecto int64) (bool, error)
 	ObtenerAmbitoRolActivo(codRol int64) (string, error)
+	ObtenerNombreProyecto(codigoProyecto int64) (string, error)
 	ExistenGeneros(codigosGeneros []int64) (bool, error)
 
 	Crear(
@@ -42,9 +44,18 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) (bool, error)
 
+	EsPropietarioActivo(
+		codigoIntegrante int64,
+		codigoProyecto int64,
+	) (bool, error)
+
 	ListarPorIntegrante(
 		codigoIntegrante int64,
 	) ([]dto.ProyectoListadoResponse, error)
+
+	ListarColaboradores(
+		codigoProyecto int64,
+	) ([]model.ColaboradorProyecto, error)
 }
 
 type proyectoRepository struct {
@@ -99,6 +110,23 @@ func (r *proyectoRepository) ObtenerAmbitoRolActivo(
 	).Scan(&ambito)
 
 	return ambito, err
+}
+
+func (r *proyectoRepository) ObtenerNombreProyecto(
+	codigoProyecto int64,
+) (string, error) {
+
+	var nombre string
+
+	err := r.db.QueryRow(`
+		SELECT nombreproyecto
+		FROM proyecto
+		WHERE codigoproyecto = $1
+	`,
+		codigoProyecto,
+	).Scan(&nombre)
+
+	return nombre, err
 }
 
 func (r *proyectoRepository) ExistenGeneros(
@@ -256,19 +284,16 @@ func (r *proyectoRepository) PuedeGestionarCanciones(
 			WHERE ip.codintegrante = $1
 			  AND ip.codigoproyecto = $2
 			  AND ip.fechahorabajaintegranteproy IS NULL
-			  AND (
-					ip.espropietario = TRUE
-					OR EXISTS (
-						SELECT 1
-						FROM rolpermiso rp
-						JOIN permiso p
-						  ON p.codigopermiso = rp.codigopermiso
-						WHERE rp.codrol = ip.codrol
-						  AND rp.ambitorolpermiso = ip.ambitorol
-						  AND rp.fechahorabajarolpermiso IS NULL
-						  AND p.fechahorabajapermiso IS NULL
-						  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
-					)
+			  AND EXISTS (
+					SELECT 1
+					FROM rolpermiso rp
+					JOIN permiso p
+					  ON p.codigopermiso = rp.codigopermiso
+					WHERE rp.codrol = ip.codrol
+					  AND rp.ambitorolpermiso = ip.ambitorol
+					  AND rp.fechahorabajarolpermiso IS NULL
+					  AND p.fechahorabajapermiso IS NULL
+					  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
 			  )
 		)
 	`,
@@ -294,19 +319,16 @@ func (r *proyectoRepository) PuedeRealizarEnProyecto(
 			WHERE ip.codintegrante = $1
 			  AND ip.codigoproyecto = $2
 			  AND ip.fechahorabajaintegranteproy IS NULL
-			  AND (
-					ip.espropietario = TRUE
-					OR EXISTS (
-						SELECT 1
-						FROM rolpermiso rp
-						JOIN permiso p
-						  ON p.codigopermiso = rp.codigopermiso
-						WHERE rp.codrol = ip.codrol
-						  AND rp.ambitorolpermiso = ip.ambitorol
-						  AND rp.fechahorabajarolpermiso IS NULL
-						  AND p.fechahorabajapermiso IS NULL
-						  AND p.clavepermiso = $3
-					)
+			  AND EXISTS (
+					SELECT 1
+					FROM rolpermiso rp
+					JOIN permiso p
+					  ON p.codigopermiso = rp.codigopermiso
+					WHERE rp.codrol = ip.codrol
+					  AND rp.ambitorolpermiso = ip.ambitorol
+					  AND rp.fechahorabajarolpermiso IS NULL
+					  AND p.fechahorabajapermiso IS NULL
+					  AND p.clavepermiso = $3
 			  )
 		)
 	`,
@@ -339,6 +361,30 @@ func (r *proyectoRepository) EsIntegranteActivo(
 	).Scan(&esIntegrante)
 
 	return esIntegrante, err
+}
+
+func (r *proyectoRepository) EsPropietarioActivo(
+	codigoIntegrante int64,
+	codigoProyecto int64,
+) (bool, error) {
+
+	var esPropietario bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM integranteproyecto
+			WHERE codintegrante = $1
+			  AND codigoproyecto = $2
+			  AND espropietario = TRUE
+			  AND fechahorabajaintegranteproy IS NULL
+		)
+	`,
+		codigoIntegrante,
+		codigoProyecto,
+	).Scan(&esPropietario)
+
+	return esPropietario, err
 }
 
 func (r *proyectoRepository) ListarPorIntegrante(
@@ -423,4 +469,71 @@ func (r *proyectoRepository) ListarPorIntegrante(
 	}
 
 	return proyectos, nil
+}
+
+func (r *proyectoRepository) ListarColaboradores(
+	codigoProyecto int64,
+) ([]model.ColaboradorProyecto, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			i.codintegrante,
+			i.nombreintegrante,
+			i.urlavatarintegrante,
+			ip.codrol,
+			r.nombrerol,
+			ip.espropietario
+		FROM integranteproyecto ip
+		JOIN integrante i
+		  ON i.codintegrante = ip.codintegrante
+		JOIN rol r
+		  ON r.codrol = ip.codrol
+		 AND r.ambitorol = ip.ambitorol
+		WHERE ip.codigoproyecto = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND i.fechahorabajaintegrante IS NULL
+		ORDER BY ip.espropietario DESC, i.nombreintegrante ASC
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	colaboradores := make(
+		[]model.ColaboradorProyecto,
+		0,
+	)
+
+	for rows.Next() {
+
+		var colaborador model.ColaboradorProyecto
+
+		err := rows.Scan(
+			&colaborador.CodIntegrante,
+			&colaborador.NombreIntegrante,
+			&colaborador.AvatarObjectKey,
+			&colaborador.CodRol,
+			&colaborador.NombreRol,
+			&colaborador.EsPropietario,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		colaboradores = append(
+			colaboradores,
+			colaborador,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return colaboradores, nil
 }
