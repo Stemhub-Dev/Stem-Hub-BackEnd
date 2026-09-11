@@ -10,6 +10,7 @@ import (
 type ProyectoRepository interface {
 	ExisteTipoProyectoActivo(codigoTipoProyecto int64) (bool, error)
 	ObtenerAmbitoRolActivo(codRol int64) (string, error)
+	ObtenerNombreProyecto(codigoProyecto int64) (string, error)
 	ExistenGeneros(codigosGeneros []int64) (bool, error)
 
 	Crear(
@@ -39,6 +40,11 @@ type ProyectoRepository interface {
 	) (bool, error)
 
 	EsIntegranteActivo(
+		codigoIntegrante int64,
+		codigoProyecto int64,
+	) (bool, error)
+
+	EsPropietarioActivo(
 		codigoIntegrante int64,
 		codigoProyecto int64,
 	) (bool, error)
@@ -104,6 +110,23 @@ func (r *proyectoRepository) ObtenerAmbitoRolActivo(
 	).Scan(&ambito)
 
 	return ambito, err
+}
+
+func (r *proyectoRepository) ObtenerNombreProyecto(
+	codigoProyecto int64,
+) (string, error) {
+
+	var nombre string
+
+	err := r.db.QueryRow(`
+		SELECT nombreproyecto
+		FROM proyecto
+		WHERE codigoproyecto = $1
+	`,
+		codigoProyecto,
+	).Scan(&nombre)
+
+	return nombre, err
 }
 
 func (r *proyectoRepository) ExistenGeneros(
@@ -344,6 +367,30 @@ func (r *proyectoRepository) EsIntegranteActivo(
 	).Scan(&esIntegrante)
 
 	return esIntegrante, err
+}
+
+func (r *proyectoRepository) EsPropietarioActivo(
+	codigoIntegrante int64,
+	codigoProyecto int64,
+) (bool, error) {
+
+	var esPropietario bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM integranteproyecto
+			WHERE codintegrante = $1
+			  AND codigoproyecto = $2
+			  AND espropietario = TRUE
+			  AND fechahorabajaintegranteproy IS NULL
+		)
+	`,
+		codigoIntegrante,
+		codigoProyecto,
+	).Scan(&esPropietario)
+
+	return esPropietario, err
 }
 
 func (r *proyectoRepository) ListarPorIntegrante(

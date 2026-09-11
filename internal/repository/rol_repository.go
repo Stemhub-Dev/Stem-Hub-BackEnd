@@ -73,3 +73,22 @@ func (r *RolRepository) Listar() ([]model.Rol, error) {
 
 	return roles, nil
 }
+
+// ObtenerNombreRol devuelve el nombre de un rol activo puntual, para no
+// tener que traer todo el catálogo cuando solo se necesita mostrar un
+// nombre (ej. armar el mail de invitación).
+func (r *RolRepository) ObtenerNombreRol(codRol int64) (string, error) {
+
+	var nombre string
+
+	err := r.db.QueryRow(`
+		SELECT nombrerol
+		FROM rol
+		WHERE codrol = $1
+		  AND fechahorabajarol IS NULL
+	`,
+		codRol,
+	).Scan(&nombre)
+
+	return nombre, err
+}

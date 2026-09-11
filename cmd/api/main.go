@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mailer"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
@@ -106,6 +108,38 @@ func main() {
 	)
 	proyectoHandler := handler.NewProyectoHandler(proyectoService)
 
+	//Mailer (SMTP directo, separado del auth.email.smtp de GoTrue)
+	smtpMailer, err := mailer.NewSMTPMailer(
+		os.Getenv("SMTP_HOST"),
+		os.Getenv("SMTP_PORT"),
+		os.Getenv("SMTP_USER"),
+		os.Getenv("SMTP_PASSWORD"),
+		os.Getenv("SMTP_REMITENTE"),
+	)
+
+	if err != nil {
+		log.Fatalf("error al configurar el mailer: %v", err)
+	}
+
+	//Invitación a proyecto
+	diasVencimientoInvitacion, err := strconv.Atoi(os.Getenv("INVITACION_DIAS_VENCIMIENTO"))
+	if err != nil {
+		diasVencimientoInvitacion = 7
+	}
+
+	invitacionProyectoRepository := repository.NewInvitacionProyectoRepository(db)
+	invitacionProyectoService := service.NewInvitacionProyectoService(
+		invitacionProyectoRepository,
+		proyectoRepository,
+		integranteRepository,
+		usuarioRepository,
+		rolRepository,
+		smtpMailer,
+		os.Getenv("FRONTEND_BASE_URL"),
+		diasVencimientoInvitacion,
+	)
+	invitacionProyectoHandler := handler.NewInvitacionProyectoHandler(invitacionProyectoService)
+
 	//Canción
 	cancionRepository := repository.NewCancionRepository(db)
 	cancionService := service.NewCancionService(
@@ -136,6 +170,7 @@ func main() {
 		usuarioAdministracionHandler,
 		integranteHandler,
 		proyectoHandler,
+		invitacionProyectoHandler,
 		cancionHandler,
 		comentarioHandler,
 		permisoHandler,

@@ -107,7 +107,7 @@ enabled = true
 # Port to use for the email testing server web interface.
 port = 54324
 # Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
+smtp_port = 54325
 # pop3_port = 54326
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
@@ -234,14 +234,22 @@ otp_length = 6
 otp_expiry = 3600
 
 # Use a production-ready SMTP server
+#
+# Esto es SOLO para los mails propios de GoTrue (confirmación de registro,
+# recuperación de contraseña). El mail de invitación a proyecto NUNCA pasa
+# por acá: es un envío SMTP directo hecho por el backend Go (ver
+# internal/mailer y las env vars SMTP_* en .env.example), que en
+# producción casualmente comparte proveedor/credencial (SendGrid) pero es
+# un mecanismo independiente. En producción, descomentar este bloque y
+# definir SENDGRID_API_KEY en el entorno donde corre `supabase start`.
 # [auth.email.smtp]
 # enabled = true
 # host = "smtp.sendgrid.net"
 # port = 587
 # user = "apikey"
 # pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# admin_email = "no-reply@stemhub.app"
+# sender_name = "StemHub"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

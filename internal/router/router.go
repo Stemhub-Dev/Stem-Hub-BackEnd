@@ -14,6 +14,7 @@ func NewRouter(rolHandler *handler.RolHandler,
 	usuarioAdministracionHandler *handler.UsuarioAdministracionHandler,
 	integranteHandler *handler.IntegranteHandler,
 	proyectoHandler *handler.ProyectoHandler,
+	invitacionProyectoHandler *handler.InvitacionProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
 	permisoHandler *handler.PermisoHandler,
@@ -136,6 +137,21 @@ func NewRouter(rolHandler *handler.RolHandler,
 		proyectoHandler.ListarColaboradores,
 	)
 
+	proyectos.POST(
+		"/:proyectoId/invitaciones",
+		invitacionProyectoHandler.Crear,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/invitaciones",
+		invitacionProyectoHandler.ListarPendientes,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/invitaciones/:invitacionId",
+		invitacionProyectoHandler.Cancelar,
+	)
+
 	proyectos.GET(
 		"/:proyectoId/canciones",
 		cancionHandler.ListarPorProyecto,
@@ -209,6 +225,24 @@ func NewRouter(rolHandler *handler.RolHandler,
 		authMiddleware.UsuarioActivo,
 		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
 		usuarioAdministracionHandler.ObtenerProyectosPorUsuario,
+	)
+
+	// Público: debe poder mostrar el detalle de la invitación (proyecto,
+	// quién invita, rol) antes de que la persona tenga sesión iniciada.
+	router.GET(
+		"/invitaciones/:token",
+		invitacionProyectoHandler.ObtenerDetalle,
+	)
+
+	invitaciones := router.Group("/invitaciones")
+	invitaciones.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+
+	invitaciones.POST(
+		"/:token/aceptar",
+		invitacionProyectoHandler.Aceptar,
 	)
 
 	return router

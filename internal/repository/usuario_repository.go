@@ -9,6 +9,7 @@ import (
 
 type UsuarioRepository interface {
 	BuscarPorIDAutenticacion(idAutenticacion string) (*model.Usuario, error)
+	BuscarPorEmail(email string) (*model.Usuario, error)
 	Registrar(
 		idAutenticacion string,
 		email string,
@@ -42,6 +43,35 @@ func (r *usuarioRepository) BuscarPorIDAutenticacion(idAutenticacion string) (*m
 	var usuario model.Usuario
 
 	err := r.db.QueryRow(query, idAutenticacion).Scan(
+		&usuario.CodigoUsuario,
+		&usuario.IDAutenticacion,
+		&usuario.Email,
+		&usuario.UltimoLogin,
+		&usuario.FechaHoraBajaUsuario,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &usuario, nil
+}
+
+func (r *usuarioRepository) BuscarPorEmail(email string) (*model.Usuario, error) {
+	query := `
+		SELECT
+			codigousuario,
+			idautenticacion,
+			email,
+			ultimologin,
+			fechahorabajausuario
+		FROM usuario
+		WHERE LOWER(email) = LOWER($1)
+	`
+
+	var usuario model.Usuario
+
+	err := r.db.QueryRow(query, email).Scan(
 		&usuario.CodigoUsuario,
 		&usuario.IDAutenticacion,
 		&usuario.Email,
