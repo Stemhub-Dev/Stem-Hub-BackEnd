@@ -88,4 +88,3 @@ func (r *integranteRepository) ActualizarPerfil(
 
 	return err
 }
-

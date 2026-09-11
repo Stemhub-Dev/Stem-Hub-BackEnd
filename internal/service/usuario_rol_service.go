@@ -14,6 +14,7 @@ var (
 
 type UsuarioRolService interface {
 	AsignarRol(codigoUsuario int64, codRol int64) error
+	EsAdministradorSistema(codigoUsuario int64) (bool, error)
 }
 
 type usuarioRolService struct {
@@ -73,5 +74,14 @@ func (s *usuarioRolService) AsignarRol(
 	return s.repository.AsignarRol(
 		codigoUsuario,
 		codRol,
+	)
+}
+
+func (s *usuarioRolService) EsAdministradorSistema(
+	codigoUsuario int64,
+) (bool, error) {
+
+	return s.repository.EsAdministradorSistema(
+		codigoUsuario,
 	)
 }
