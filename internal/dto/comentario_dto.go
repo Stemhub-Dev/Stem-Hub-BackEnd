@@ -23,12 +23,47 @@ type CrearComentarioResponse struct {
 }
 
 type ComentarioListadoResponse struct {
+	CodigoComentario     int64                         `json:"codigoComentario"`
+	Texto                string                        `json:"texto"`
+	Estado               string                        `json:"estado"`
+	TiempoInicioSegundos *float64                      `json:"tiempoInicioSegundos"`
+	TiempoFinSegundos    *float64                      `json:"tiempoFinSegundos"`
+	FechaHoraAlta        time.Time                     `json:"fechaHoraAlta"`
+	Autor                AutorComentarioResponse       `json:"autor"`
+	EsPropio             bool                          `json:"esPropio"`
+	Respuestas           []RespuestaComentarioResponse `json:"respuestas"`
+}
+
+type CrearRespuestaComentarioRequest struct {
+	Texto string `json:"texto" binding:"required,max=200"`
+}
+
+type RespuestaComentarioResponse struct {
+	CodigoRespuesta int64                   `json:"codigoRespuesta"`
+	Texto           string                  `json:"texto"`
+	FechaHoraAlta   time.Time               `json:"fechaHoraAlta"`
+	Autor           AutorComentarioResponse `json:"autor"`
+	EsPropia        bool                    `json:"esPropia"`
+}
+
+type ModificarComentarioRequest struct {
+	Texto string `json:"texto" binding:"required,max=200"`
+}
+
+type ModificarComentarioResponse struct {
 	CodigoComentario     int64                   `json:"codigoComentario"`
 	Texto                string                  `json:"texto"`
 	Estado               string                  `json:"estado"`
 	TiempoInicioSegundos *float64                `json:"tiempoInicioSegundos"`
 	TiempoFinSegundos    *float64                `json:"tiempoFinSegundos"`
-	FechaHoraAlta        time.Time               `json:"fechaHoraAlta"`
 	Autor                AutorComentarioResponse `json:"autor"`
-	EsPropio             bool                    `json:"esPropio"`
+}
+
+type CambiarEstadoComentarioRequest struct {
+	Estado string `json:"estado" binding:"required"`
+}
+
+type CambiarEstadoComentarioResponse struct {
+	CodigoComentario int64  `json:"codigoComentario"`
+	Estado           string `json:"estado"`
 }
