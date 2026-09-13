@@ -127,6 +127,26 @@ func NewRouter(rolHandler *handler.RolHandler,
 		comentarioHandler.Crear,
 	)
 
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId/respuestas",
+		comentarioHandler.Responder,
+	)
+
+	proyectos.PATCH(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId",
+		comentarioHandler.Modificar,
+	)
+
+	proyectos.PATCH(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId/estado",
+		comentarioHandler.CambiarEstado,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId",
+		comentarioHandler.Eliminar,
+	)
+
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
