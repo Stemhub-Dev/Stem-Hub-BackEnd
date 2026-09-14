@@ -78,12 +78,18 @@ Responsabilidad de cada capa:
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
-├── compose.yaml
 ├── Dockerfile
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
+
+> Este repo **no tiene `docker-compose.yml`/`compose.yaml` propio** — el
+> compose que levanta el stack completo (Postgres, MinIO, ML, Backend,
+> Frontend) vive en el orquestador
+> [`stemhub-system`](https://github.com/Stemhub-Dev/stemhub-system). Acá solo
+> vive el `Dockerfile`, que es standalone-*buildable* (`docker build .`) para
+> CI y para debug puntual de la imagen sola.
 
 ---
 
@@ -163,8 +169,8 @@ un Supabase local levantado con la **Supabase CLI** (`supabase start`),
 para no depender de un proyecto de Supabase Cloud en desarrollo.
 
 La CLI gestiona su propio Postgres (para `auth.users`), separado del
-Postgres de negocio de este `docker compose` — es el mismo modelo que
-Supabase Cloud, donde tampoco hay una base compartida entre ambos.
+Postgres de negocio del orquestador — es el mismo modelo que Supabase Cloud,
+donde tampoco hay una base compartida entre ambos.
 
 ```env
 SUPABASE_URL=http://127.0.0.1:54321
@@ -177,86 +183,41 @@ firma los tokens con ese valor fijo como `iss`. `SUPABASE_JWKS_BASE_URL`
 solo aplica con el Backend dockerizado — ver
 [`supabase/README.md`](./supabase/README.md) para el porqué.
 
-Antes de levantar el Backend hay que levantar Supabase (comando aparte):
-
-```bash
-npx supabase start
-docker compose up --build -d
-```
-
 Ver [`supabase/README.md`](./supabase/README.md) para el setup completo,
 cómo crear un usuario de prueba y cómo volver a usar Supabase Cloud si hace
 falta.
 
 ---
 
-## Levantar el proyecto completo con Docker
+## Levantar el proyecto completo
 
-Validar primero la configuración:
-
-```bash
-docker compose config
-```
-
-Levantar PostgreSQL y Backend:
-
-```bash
-docker compose up --build -d
-```
-
-Verificar contenedores:
-
-```bash
-docker compose ps
-```
-
-Resultado esperado:
-
-```text
-stemhub-postgres-dev   Up (healthy)
-stemhub-backend        Up
-```
-
-Ver logs del Backend:
-
-```bash
-docker compose logs backend
-```
-
-Detener el entorno sin borrar los datos:
-
-```bash
-docker compose down
-```
-
-### Importante
-
-No utilizar normalmente:
-
-```bash
-docker compose down -v
-```
-
-La opción `-v` elimina el volumen de PostgreSQL y, por lo tanto, borra la base DEV local.
+El stack completo (Postgres, MinIO, ML, Backend, Frontend) se levanta desde
+el orquestador [`stemhub-system`](https://github.com/Stemhub-Dev/stemhub-system)
+(`./up.sh` / `./up.ps1` ahí), no desde este repo. Este repo solo aporta el
+`Dockerfile` que ese compose construye en dev (`docker-compose.override.yml`)
+o consume como imagen publicada en producción
+(`ghcr.io/stemhub-dev/backend`, vía `.github/workflows/publish-image.yml`).
 
 ---
 
 ## Desarrollo local recomendado
 
-Durante el desarrollo activo se recomienda:
+Durante el desarrollo activo del Backend, conviene correr Postgres vía el
+orquestador y el Backend Go local, sin Docker:
 
 ```text
-PostgreSQL  → Docker
+PostgreSQL  → Docker (orquestador stemhub-system)
 Backend Go  → local
 ```
 
-Detener solamente el Backend Docker:
+Desde `stemhub-system`, detener solo el contenedor del Backend (libera el
+puerto 8080):
 
 ```bash
 docker compose stop backend
 ```
 
-Ejecutar el Backend local:
+Ejecutar el Backend local desde este repo:
 
 ```bash
 go run ./cmd/api
@@ -277,7 +238,7 @@ go run ./cmd/api
 
 ### Volver a probar el Backend dentro de Docker
 
-Detener el proceso local de Go y reconstruir el servicio:
+Desde `stemhub-system`, reconstruir y levantar de nuevo el servicio:
 
 ```bash
 docker compose up --build -d backend
