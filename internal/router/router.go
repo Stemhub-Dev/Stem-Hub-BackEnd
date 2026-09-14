@@ -223,6 +223,22 @@ func NewRouter(rolHandler *handler.RolHandler,
 		usuarioAdministracionHandler.Listar,
 	)
 
+	router.PATCH(
+		"/usuarios/:id/administracion",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.ActualizarAdministracion,
+	)
+
+	router.PATCH(
+		"/usuarios/:id/estado",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_USUARIOS"),
+		usuarioAdministracionHandler.CambiarEstado,
+	)
+
 	router.GET(
 		"/usuarios/:id",
 		authMiddleware.ValidarJWT,
