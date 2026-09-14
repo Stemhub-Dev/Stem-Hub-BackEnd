@@ -11,6 +11,8 @@ type UsuarioAdministracionRepository interface {
 	ObtenerPorID(codigoUsuario int64) (*dto.UsuarioAdministracionResponse, error)
 	ObtenerRolesSistema(codigoUsuario int64) (*dto.UsuarioRolesResponse, error)
 	ObtenerProyectosPorUsuario(codigoUsuario int64) (*dto.UsuarioProyectosResponse, error)
+	ActualizarAdministracion(codigoUsuario int64, esAdministradorSistema bool, activo bool) (*dto.ActualizarAdministracionUsuarioResponse, error)
+	CambiarEstado(codigoUsuario int64, activo bool) (*dto.CambiarEstadoUsuarioResponse, error)
 }
 
 type usuarioAdministracionRepository struct {
@@ -412,4 +414,161 @@ func (r *usuarioAdministracionRepository) ObtenerProyectosPorUsuario(
 	}
 
 	return response, nil
+}
+
+func (r *usuarioAdministracionRepository) ActualizarAdministracion(
+	codigoUsuario int64,
+	esAdministradorSistema bool,
+	activo bool,
+) (*dto.ActualizarAdministracionUsuarioResponse, error) {
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// 1. Actualizar estado activo/inactivo del usuario.
+	result, err := tx.Exec(`
+		UPDATE usuario
+		SET fechahorabajausuario =
+			CASE
+				WHEN $2 THEN NULL
+				ELSE COALESCE(
+					fechahorabajausuario,
+					CURRENT_TIMESTAMP
+				)
+			END
+		WHERE codigousuario = $1
+	`,
+		codigoUsuario,
+		activo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	filas, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if filas == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	// 2. Administrar únicamente el rol global
+	//    "Administrador del sistema".
+	if esAdministradorSistema {
+
+		// Si ya lo tiene activo, no vuelve a insertarlo.
+		_, err = tx.Exec(`
+			INSERT INTO usuariorol (
+				codigousuario,
+				codrol,
+				ambitorol,
+				fechahoraaltausuariorol
+			)
+			SELECT
+				$1,
+				r.codrol,
+				r.ambitorol,
+				CURRENT_TIMESTAMP
+			FROM rol r
+			WHERE LOWER(r.nombrerol) =
+				  LOWER('Administrador del sistema')
+			  AND r.ambitorol = 'SISTEMA'
+			  AND r.fechahorabajarol IS NULL
+			  AND NOT EXISTS (
+					SELECT 1
+					FROM usuariorol ur
+					WHERE ur.codigousuario = $1
+					  AND ur.codrol = r.codrol
+					  AND ur.ambitorol = 'SISTEMA'
+					  AND ur.fechahorabajausuariorol IS NULL
+			  )
+		`,
+			codigoUsuario,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+
+		// Quitar el rol significa darle fecha de baja.
+		// No eliminamos físicamente el registro.
+		_, err = tx.Exec(`
+			UPDATE usuariorol ur
+			SET fechahorabajausuariorol = CURRENT_TIMESTAMP
+			FROM rol r
+			WHERE ur.codigousuario = $1
+			  AND ur.codrol = r.codrol
+			  AND ur.ambitorol = r.ambitorol
+			  AND ur.ambitorol = 'SISTEMA'
+			  AND ur.fechahorabajausuariorol IS NULL
+			  AND LOWER(r.nombrerol) =
+				  LOWER('Administrador')
+			  AND r.fechahorabajarol IS NULL
+		`,
+			codigoUsuario,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. Si las dos operaciones salieron bien,
+	//    recién ahí confirmamos la transacción.
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &dto.ActualizarAdministracionUsuarioResponse{
+		CodigoUsuario:          codigoUsuario,
+		EsAdministradorSistema: esAdministradorSistema,
+		Activo:                 activo,
+	}, nil
+}
+
+func (r *usuarioAdministracionRepository) CambiarEstado(
+	codigoUsuario int64,
+	activo bool,
+) (*dto.CambiarEstadoUsuarioResponse, error) {
+
+	result, err := r.db.Exec(`
+		UPDATE usuario
+		SET fechahorabajausuario =
+			CASE
+				WHEN $2 THEN NULL
+				ELSE COALESCE(
+					fechahorabajausuario,
+					CURRENT_TIMESTAMP
+				)
+			END
+		WHERE codigousuario = $1
+	`,
+		codigoUsuario,
+		activo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	filas, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if filas == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return &dto.CambiarEstadoUsuarioResponse{
+		CodigoUsuario: codigoUsuario,
+		Activo:        activo,
+	}, nil
 }
