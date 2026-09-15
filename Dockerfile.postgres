@@ -1,0 +1,12 @@
+# Imagen de Postgres con las migraciones ya empaquetadas, para producción.
+#
+# docker-entrypoint-initdb.d solo se ejecuta cuando Postgres inicializa un
+# volumen vacío ("initdb"), y necesita los .sql presentes en el filesystem
+# del contenedor en ese momento. Un bind-mount desde el host (./migrations)
+# funciona en dev porque el código fuente está en disco junto al compose,
+# pero en prod el servidor solo tiene las imágenes publicadas a GHCR, no el
+# repo — el bind-mount montaría un directorio vacío y la base quedaría sin
+# tablas. Empaquetar las migraciones en la imagen elimina esa dependencia.
+FROM postgres:17
+
+COPY migrations/ /docker-entrypoint-initdb.d/

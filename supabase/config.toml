@@ -236,18 +236,21 @@ otp_expiry = 3600
 # Use a production-ready SMTP server
 #
 # Esto es SOLO para los mails propios de GoTrue (confirmación de registro,
-# recuperación de contraseña). El mail de invitación a proyecto NUNCA pasa
-# por acá: es un envío SMTP directo hecho por el backend Go (ver
-# internal/mailer y las env vars SMTP_* en .env.example), que en
-# producción casualmente comparte proveedor/credencial (SendGrid) pero es
-# un mecanismo independiente. En producción, descomentar este bloque y
-# definir SENDGRID_API_KEY en el entorno donde corre `supabase start`.
+# recuperación de contraseña) cuando se corre la CLI local con SMTP real en
+# vez de Inbucket. El mail de invitación a proyecto NUNCA pasa por acá: es
+# un envío SMTP directo hecho por el backend Go (ver internal/mailer y las
+# env vars SMTP_* en .env.example), que en producción casualmente comparte
+# proveedor/credencial (Gmail con contraseña de aplicación) pero es un
+# mecanismo independiente. En Supabase Cloud (producción real) el SMTP de
+# Auth se configura desde el dashboard (Authentication > SMTP Settings), no
+# desde este archivo — este bloque solo aplica si algún día hace falta
+# probar SMTP real contra la CLI local.
 # [auth.email.smtp]
 # enabled = true
-# host = "smtp.sendgrid.net"
+# host = "smtp.gmail.com"
 # port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
+# user = "env(GMAIL_SMTP_USER)"
+# pass = "env(GMAIL_SMTP_APP_PASSWORD)"
 # admin_email = "no-reply@stemhub.app"
 # sender_name = "StemHub"
 
