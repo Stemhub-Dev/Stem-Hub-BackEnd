@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -24,6 +25,7 @@ func NewGeneroMusicalHandler(service *service.GeneroMusicalService) *GeneroMusic
 func (h *GeneroMusicalHandler) Listar(c *gin.Context) {
 	generos, err := h.service.Listar()
 	if err != nil {
+		log.Println("Error al obtener géneros musicales:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Error al obtener los géneros musicales",
 		})

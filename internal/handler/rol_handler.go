@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,7 @@ func (h *RolHandler) Listar(c *gin.Context) {
 
 	roles, err := h.service.Listar()
 	if err != nil {
+		log.Println("Error al obtener roles:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener los roles"})
 		return
 	}
