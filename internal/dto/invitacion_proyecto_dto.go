@@ -32,3 +32,15 @@ type InvitacionDetalleResponse struct {
 type AceptarInvitacionResponse struct {
 	CodigoProyecto int64 `json:"codigoProyecto"`
 }
+
+// InvitacionPendienteResponse es una fila de la bandeja de notificaciones
+// del usuario invitado (GET /invitaciones). Incluye el token para poder
+// aceptar/rechazar inline sin un segundo viaje a buscarlo.
+type InvitacionPendienteResponse struct {
+	CodigoInvitacionProy int64     `json:"codigoInvitacionProy"`
+	Token                string    `json:"token"`
+	NombreProyecto       string    `json:"nombreProyecto"`
+	InvitadoPor          string    `json:"invitadoPor"`
+	NombreRol            string    `json:"nombreRol"`
+	FechaHoraExpiracion  time.Time `json:"fechaHoraExpiracion"`
+}

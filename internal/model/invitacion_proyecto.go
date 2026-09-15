@@ -28,3 +28,17 @@ type InvitacionDetalle struct {
 	YaAceptada             bool
 	Cancelada              bool
 }
+
+// InvitacionPendienteUsuario es una invitación pendiente tal como la ve el
+// usuario invitado en su bandeja de notificaciones dentro de la app (no el
+// owner del proyecto que invitó). Incluye el token: es el mismo dato que ya
+// recibe por mail, así que exponerlo acá (detrás de auth, solo para su
+// propio email) no agrega superficie nueva.
+type InvitacionPendienteUsuario struct {
+	CodigoInvitacionProy   int64
+	TokenInvitacion        string
+	NombreProyecto         string
+	NombreIntegranteInvito string
+	NombreRol              string
+	FechaHoraExpiracion    time.Time
+}

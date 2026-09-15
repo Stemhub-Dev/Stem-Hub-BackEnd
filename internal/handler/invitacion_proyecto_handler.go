@@ -193,7 +193,7 @@ func (h *InvitacionProyectoHandler) ObtenerDetalle(c *gin.Context) {
 	}
 }
 
-func (h *InvitacionProyectoHandler) Aceptar(c *gin.Context) {
+func (h *InvitacionProyectoHandler) MisInvitaciones(c *gin.Context) {
 
 	usuario, ok := usuarioAutenticado(c)
 
@@ -201,11 +201,28 @@ func (h *InvitacionProyectoHandler) Aceptar(c *gin.Context) {
 		return
 	}
 
-	token := c.Param("token")
+	invitaciones, err := h.service.ListarMisInvitaciones(usuario)
 
-	codigoProyecto, err := h.service.Aceptar(usuario, token)
+	if err != nil {
+		log.Println("Error al listar mis invitaciones:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener las invitaciones"})
+		return
+	}
+
+	c.JSON(http.StatusOK, invitaciones)
+}
+
+// responderErrorInvitacionToken centraliza los códigos de error comunes a
+// las operaciones sobre una invitación resuelta por token (Aceptar,
+// Rechazar). Devuelve true si ya escribió una respuesta de error, para que
+// el caller solo tenga que escribir su respuesta de éxito en el resto de
+// los casos.
+func responderErrorInvitacionToken(c *gin.Context, err error, accion string) bool {
 
 	switch {
+
+	case err == nil:
+		return false
 
 	case errors.Is(err, service.ErrInvitacionNoEncontrada):
 		c.JSON(http.StatusNotFound, gin.H{"error": "La invitación no existe"})
@@ -222,11 +239,48 @@ func (h *InvitacionProyectoHandler) Aceptar(c *gin.Context) {
 	case errors.Is(err, service.ErrInvitacionEmailNoCoincide):
 		c.JSON(http.StatusForbidden, gin.H{"error": "El email de tu cuenta no coincide con el de la invitación"})
 
-	case err != nil:
-		log.Println("Error al aceptar invitación:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al aceptar la invitación"})
-
 	default:
-		c.JSON(http.StatusOK, dto.AceptarInvitacionResponse{CodigoProyecto: codigoProyecto})
+		log.Println("Error al "+accion+" invitación:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al " + accion + " la invitación"})
 	}
+
+	return true
+}
+
+func (h *InvitacionProyectoHandler) Rechazar(c *gin.Context) {
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	token := c.Param("token")
+
+	err := h.service.Rechazar(usuario, token)
+
+	if responderErrorInvitacionToken(c, err, "rechazar") {
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
+}
+
+func (h *InvitacionProyectoHandler) Aceptar(c *gin.Context) {
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	token := c.Param("token")
+
+	codigoProyecto, err := h.service.Aceptar(usuario, token)
+
+	if responderErrorInvitacionToken(c, err, "aceptar") {
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.AceptarInvitacionResponse{CodigoProyecto: codigoProyecto})
 }
