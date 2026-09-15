@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,7 @@ func NewTipoProyectoHandler(service *service.TipoProyectoService) *TipoProyectoH
 func (h *TipoProyectoHandler) Listar(c *gin.Context) {
 	tipos, err := h.service.Listar()
 	if err != nil {
+		log.Println("Error al obtener tipos de proyecto:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Error al obtener los tipos de proyecto",
 		})
