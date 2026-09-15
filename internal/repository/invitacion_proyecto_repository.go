@@ -74,6 +74,33 @@ const columnasInvitacionProyecto = `
 	fechahoraaceptacioninvitacion, fechahorabajainvitacionproy
 `
 
+// escanearFilas recorre rows aplicando scan a cada una y devuelve el slice
+// resultante. Centraliza el manejo de errores y el cierre de rows para que
+// cada query de listado solo tenga que declarar su SELECT y su Scan.
+func escanearFilas[T any](rows *sql.Rows, scan func(*sql.Rows, *T) error) ([]T, error) {
+
+	defer rows.Close()
+
+	resultado := make([]T, 0)
+
+	for rows.Next() {
+
+		var item T
+
+		if err := scan(rows, &item); err != nil {
+			return nil, err
+		}
+
+		resultado = append(resultado, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return resultado, nil
+}
+
 func escanearInvitacion(row *sql.Row, invitacion *model.InvitacionProyecto) error {
 	return row.Scan(
 		&invitacion.CodigoInvitacionProy,
@@ -239,15 +266,8 @@ func (r *invitacionProyectoRepository) ListarPendientesPorProyecto(
 		return nil, err
 	}
 
-	defer rows.Close()
-
-	invitaciones := make([]model.InvitacionProyecto, 0)
-
-	for rows.Next() {
-
-		var invitacion model.InvitacionProyecto
-
-		err := rows.Scan(
+	return escanearFilas(rows, func(rows *sql.Rows, invitacion *model.InvitacionProyecto) error {
+		return rows.Scan(
 			&invitacion.CodigoInvitacionProy,
 			&invitacion.CodigoProyecto,
 			&invitacion.EmailInvitado,
@@ -260,19 +280,7 @@ func (r *invitacionProyectoRepository) ListarPendientesPorProyecto(
 			&invitacion.FechaHoraAceptacion,
 			&invitacion.FechaHoraBajaInvitacionProy,
 		)
-
-		if err != nil {
-			return nil, err
-		}
-
-		invitaciones = append(invitaciones, invitacion)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return invitaciones, nil
+	})
 }
 
 func (r *invitacionProyectoRepository) BuscarPendientePorID(
@@ -331,15 +339,8 @@ func (r *invitacionProyectoRepository) ListarPendientesPorEmail(
 		return nil, err
 	}
 
-	defer rows.Close()
-
-	invitaciones := make([]model.InvitacionPendienteUsuario, 0)
-
-	for rows.Next() {
-
-		var invitacion model.InvitacionPendienteUsuario
-
-		err := rows.Scan(
+	return escanearFilas(rows, func(rows *sql.Rows, invitacion *model.InvitacionPendienteUsuario) error {
+		return rows.Scan(
 			&invitacion.CodigoInvitacionProy,
 			&invitacion.TokenInvitacion,
 			&invitacion.NombreProyecto,
@@ -347,19 +348,7 @@ func (r *invitacionProyectoRepository) ListarPendientesPorEmail(
 			&invitacion.NombreRol,
 			&invitacion.FechaHoraExpiracion,
 		)
-
-		if err != nil {
-			return nil, err
-		}
-
-		invitaciones = append(invitaciones, invitacion)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return invitaciones, nil
+	})
 }
 
 func (r *invitacionProyectoRepository) MarcarCancelada(
