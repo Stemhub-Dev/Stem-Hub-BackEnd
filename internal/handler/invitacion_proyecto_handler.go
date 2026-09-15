@@ -193,6 +193,63 @@ func (h *InvitacionProyectoHandler) ObtenerDetalle(c *gin.Context) {
 	}
 }
 
+func (h *InvitacionProyectoHandler) MisInvitaciones(c *gin.Context) {
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	invitaciones, err := h.service.ListarMisInvitaciones(usuario)
+
+	if err != nil {
+		log.Println("Error al listar mis invitaciones:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener las invitaciones"})
+		return
+	}
+
+	c.JSON(http.StatusOK, invitaciones)
+}
+
+func (h *InvitacionProyectoHandler) Rechazar(c *gin.Context) {
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	token := c.Param("token")
+
+	err := h.service.Rechazar(usuario, token)
+
+	switch {
+
+	case errors.Is(err, service.ErrInvitacionNoEncontrada):
+		c.JSON(http.StatusNotFound, gin.H{"error": "La invitación no existe"})
+
+	case errors.Is(err, service.ErrInvitacionVencida):
+		c.JSON(http.StatusGone, gin.H{"error": "La invitación venció"})
+
+	case errors.Is(err, service.ErrInvitacionCancelada):
+		c.JSON(http.StatusGone, gin.H{"error": "La invitación fue cancelada"})
+
+	case errors.Is(err, service.ErrInvitacionYaAceptada):
+		c.JSON(http.StatusConflict, gin.H{"error": "La invitación ya fue aceptada"})
+
+	case errors.Is(err, service.ErrInvitacionEmailNoCoincide):
+		c.JSON(http.StatusForbidden, gin.H{"error": "El email de tu cuenta no coincide con el de la invitación"})
+
+	case err != nil:
+		log.Println("Error al rechazar invitación:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al rechazar la invitación"})
+
+	default:
+		c.JSON(http.StatusNoContent, nil)
+	}
+}
+
 func (h *InvitacionProyectoHandler) Aceptar(c *gin.Context) {
 
 	usuario, ok := usuarioAutenticado(c)

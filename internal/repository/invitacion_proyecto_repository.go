@@ -36,6 +36,13 @@ type InvitacionProyectoRepository interface {
 		codigoProyecto int64,
 	) (*model.InvitacionProyecto, error)
 
+	// ListarPendientesPorEmail trae las invitaciones pendientes y vigentes
+	// (ni aceptadas, ni canceladas, ni vencidas) para el email del usuario
+	// que consulta su propia bandeja de notificaciones.
+	ListarPendientesPorEmail(
+		email string,
+	) ([]model.InvitacionPendienteUsuario, error)
+
 	MarcarCancelada(codigoInvitacionProy int64) error
 
 	// Aceptar es atómico: inserta en integranteproyecto y marca la
@@ -289,6 +296,70 @@ func (r *invitacionProyectoRepository) BuscarPendientePorID(
 	}
 
 	return &invitacion, nil
+}
+
+func (r *invitacionProyectoRepository) ListarPendientesPorEmail(
+	email string,
+) ([]model.InvitacionPendienteUsuario, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			ip.codigoinvitacionproy,
+			ip.tokeninvitacion,
+			p.nombreproyecto,
+			i.nombreintegrante,
+			r.nombrerol,
+			ip.fechahoraexpiracioninvitacion
+		FROM invitacionproyecto ip
+		JOIN proyecto p
+		  ON p.codigoproyecto = ip.codigoproyecto
+		JOIN integrante i
+		  ON i.codintegrante = ip.codintegranteinvito
+		JOIN rol r
+		  ON r.codrol = ip.codrol
+		 AND r.ambitorol = ip.ambitorol
+		WHERE LOWER(ip.emailinvitado) = LOWER($1)
+		  AND ip.fechahoraaceptacioninvitacion IS NULL
+		  AND ip.fechahorabajainvitacionproy IS NULL
+		  AND ip.fechahoraexpiracioninvitacion > CURRENT_TIMESTAMP
+		ORDER BY ip.fechahoraaltainvitacionproy DESC
+	`,
+		email,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	invitaciones := make([]model.InvitacionPendienteUsuario, 0)
+
+	for rows.Next() {
+
+		var invitacion model.InvitacionPendienteUsuario
+
+		err := rows.Scan(
+			&invitacion.CodigoInvitacionProy,
+			&invitacion.TokenInvitacion,
+			&invitacion.NombreProyecto,
+			&invitacion.NombreIntegranteInvito,
+			&invitacion.NombreRol,
+			&invitacion.FechaHoraExpiracion,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		invitaciones = append(invitaciones, invitacion)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return invitaciones, nil
 }
 
 func (r *invitacionProyectoRepository) MarcarCancelada(

@@ -77,6 +77,17 @@ type InvitacionProyectoService interface {
 		usuario *model.Usuario,
 		token string,
 	) (int64, error)
+
+	// ListarMisInvitaciones trae las invitaciones pendientes del usuario
+	// autenticado, por su propio email, para la bandeja de notificaciones.
+	ListarMisInvitaciones(
+		usuario *model.Usuario,
+	) ([]dto.InvitacionPendienteResponse, error)
+
+	Rechazar(
+		usuario *model.Usuario,
+		token string,
+	) error
 }
 
 type invitacionProyectoService struct {
@@ -464,6 +475,50 @@ func (s *invitacionProyectoService) Aceptar(
 	}
 
 	return invitacion.CodigoProyecto, nil
+}
+
+func (s *invitacionProyectoService) ListarMisInvitaciones(
+	usuario *model.Usuario,
+) ([]dto.InvitacionPendienteResponse, error) {
+
+	invitaciones, err := s.invitacionRepository.ListarPendientesPorEmail(usuario.Email)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta := make([]dto.InvitacionPendienteResponse, 0, len(invitaciones))
+
+	for _, invitacion := range invitaciones {
+		respuesta = append(respuesta, dto.InvitacionPendienteResponse{
+			CodigoInvitacionProy: invitacion.CodigoInvitacionProy,
+			Token:                invitacion.TokenInvitacion,
+			NombreProyecto:       invitacion.NombreProyecto,
+			InvitadoPor:          invitacion.NombreIntegranteInvito,
+			NombreRol:            invitacion.NombreRol,
+			FechaHoraExpiracion:  invitacion.FechaHoraExpiracion,
+		})
+	}
+
+	return respuesta, nil
+}
+
+func (s *invitacionProyectoService) Rechazar(
+	usuario *model.Usuario,
+	token string,
+) error {
+
+	invitacion, err := s.buscarInvitacionValidaPorToken(token)
+
+	if err != nil {
+		return err
+	}
+
+	if !strings.EqualFold(usuario.Email, invitacion.EmailInvitado) {
+		return ErrInvitacionEmailNoCoincide
+	}
+
+	return s.invitacionRepository.MarcarCancelada(invitacion.CodigoInvitacionProy)
 }
 
 // buscarInvitacionValidaPorToken resuelve la invitación por token y valida

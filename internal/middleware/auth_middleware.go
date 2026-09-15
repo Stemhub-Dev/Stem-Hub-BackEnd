@@ -153,9 +153,17 @@ func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
 		ObtenerUsuarioActivoPorIDAutenticacion(claims.Subject)
 
 	if err != nil {
-		if errors.Is(err, service.ErrUsuarioNoEncontrado) ||
-			errors.Is(err, service.ErrUsuarioInactivo) {
+		if errors.Is(err, service.ErrUsuarioNoEncontrado) {
+			// El frontend distingue este caso (usuario autenticado en
+			// Supabase pero todavía no registrado en StemHub) por el 404
+			// para redirigir a /registro — ver SessionProvider.tsx.
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
+				"error": "usuario no registrado en StemHub",
+			})
+			return
+		}
 
+		if errors.Is(err, service.ErrUsuarioInactivo) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "usuario sin acceso a StemHub",
 			})
