@@ -1,13 +1,17 @@
 package router
 
 import (
+	"database/sql"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 )
 
-func NewRouter(rolHandler *handler.RolHandler,
+func NewRouter(db *sql.DB,
+	rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	tipoProyectoHandler *handler.TipoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
@@ -31,6 +35,22 @@ func NewRouter(rolHandler *handler.RolHandler,
 	router.MaxMultipartMemory = 110 << 20 // 110 MiB
 
 	router.Use(middleware.Cors(corsAllowedOrigins))
+
+	// Sin auth a propósito: lo consulta el healthcheck de Docker Compose
+	// (ver docker-compose.prod.yml), no un cliente autenticado. Verifica el
+	// pool de conexiones a Postgres, no solo que el proceso Go esté vivo —
+	// el puerto HTTP queda escuchando apenas arranca Gin, antes de que el
+	// pool haya abierto ninguna conexión real (database/sql las abre
+	// perezosamente, bajo demanda), así que sin este chequeo el proxy podría
+	// enrutarle tráfico al backend en esa ventana y las primeras requests
+	// fallarían con 500 mientras el pool recién se establece.
+	router.GET("/health", func(c *gin.Context) {
+		if err := db.PingContext(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "sin conexión a la base de datos"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	router.GET("/roles", rolHandler.Listar)
 

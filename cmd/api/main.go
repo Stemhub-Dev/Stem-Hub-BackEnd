@@ -163,6 +163,7 @@ func main() {
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
+		db,
 		rolHandler,
 		generoMusicalHandler,
 		tipoProyectoHandler,
