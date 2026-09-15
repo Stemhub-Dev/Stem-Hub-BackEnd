@@ -40,7 +40,7 @@ func (r *RolRepository) Listar() ([]model.Rol, error) {
 
 	//nil = valor nulo.
 	if err != nil {
-		return nil, fmt.Errorf("Error al consultar roles: %W", err)
+		return nil, fmt.Errorf("Error al consultar roles: %w", err)
 	}
 	//defer significa ejecutar row.close() cuando la función termine.
 	defer rows.Close()
@@ -60,13 +60,13 @@ func (r *RolRepository) Listar() ([]model.Rol, error) {
 		)
 
 		if err != nil {
-			return nil, fmt.Errorf("Error al leer rol: %W", err)
+			return nil, fmt.Errorf("Error al leer rol: %w", err)
 		}
 
 		roles = append(roles, rol)
 
 		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("Error al recorrer roles: %W", err)
+			return nil, fmt.Errorf("Error al recorrer roles: %w", err)
 		}
 
 	}

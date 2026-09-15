@@ -29,7 +29,7 @@ func (r *GeneroMusicalRepository) Listar() ([]model.GeneroMusicalProyecto, error
 	rows, err := r.db.Query(query)
 
 	if err != nil {
-		return nil, fmt.Errorf("error al consultar géneros musicales: %W", err)
+		return nil, fmt.Errorf("error al consultar géneros musicales: %w", err)
 	}
 	defer rows.Close()
 
@@ -46,13 +46,13 @@ func (r *GeneroMusicalRepository) Listar() ([]model.GeneroMusicalProyecto, error
 		)
 
 		if err != nil {
-			return nil, fmt.Errorf("Error al leer rol: %W", err)
+			return nil, fmt.Errorf("Error al leer género musical: %w", err)
 		}
 
 		generos = append(generos, genero)
 
 		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("Error al recorrer roles: %W", err)
+			return nil, fmt.Errorf("Error al recorrer géneros musicales: %w", err)
 		}
 	}
 
@@ -73,7 +73,7 @@ func (r *GeneroMusicalRepository) ExistePorNombre(nombre string) (bool, error) {
 
 	err := r.db.QueryRow(query, nombre).Scan(&existe)
 	if err != nil {
-		return false, fmt.Errorf("error al verificar género musical existente: %W", err)
+		return false, fmt.Errorf("error al verificar género musical existente: %w", err)
 	}
 
 	return existe, nil
@@ -103,7 +103,7 @@ func (r *GeneroMusicalRepository) Crear(
 	)
 
 	if err != nil {
-		return model.GeneroMusicalProyecto{}, fmt.Errorf("Error al crear género musical: %W", err)
+		return model.GeneroMusicalProyecto{}, fmt.Errorf("Error al crear género musical: %w", err)
 	}
 
 	return genero, nil
