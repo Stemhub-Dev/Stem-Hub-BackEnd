@@ -101,5 +101,6 @@ jobs:
     steps:
       - name: Disparar webhook de deploy
         run: |
-          curl -fsS -X GET "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}"
+          curl -fsS -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
+            -H "Content-Length: 0"
