@@ -1,0 +1,8 @@
+{
+  "name": "stem-hub-backend",
+  "private": true,
+  "description": "Fija la versión de la Supabase CLI para que 'npx supabase' sea reproducible (sin esto, npx descarga siempre la última versión disponible).",
+  "devDependencies": {
+    "supabase": "2.117.0"
+  }
+}

@@ -113,8 +113,13 @@ Para **desarrollar el Backend localmente**:
 
 ## Clonar el repositorio
 
+> Si vas a levantar el stack completo, no clones este repo suelto: usá
+> `./setup.sh` desde [`stemhub-system`](https://github.com/Stemhub-Dev/stemhub-system),
+> que clona los 3 repos en `main` (rama que consume producción/CI). Lo de
+> abajo es solo para clonar este repo de forma aislada.
+
 ```bash
-git clone https://github.com/facu-1538/Stem-Hub-BackEnd.git
+git clone https://github.com/Stemhub-Dev/Stem-Hub-BackEnd.git
 cd Stem-Hub-BackEnd
 git switch dev
 git pull origin dev
