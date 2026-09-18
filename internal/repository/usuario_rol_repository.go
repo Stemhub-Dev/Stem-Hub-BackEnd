@@ -1,6 +1,10 @@
 package repository
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+)
 
 type UsuarioRolRepository interface {
 	ExisteUsuarioActivo(codigoUsuario int64) (bool, error)
@@ -138,7 +142,7 @@ func (r *usuarioRolRepository) EsAdministradorSistema(
 			  AND ur.fechahorabajausuariorol IS NULL
 			  AND ur.ambitorol = 'SISTEMA'
 			  AND r.fechahorabajarol IS NULL
-			  AND r.nombrerol = 'Administrador'
+			  AND LOWER(r.nombrerol) = LOWER($2)
 		)
 	`
 
@@ -147,6 +151,7 @@ func (r *usuarioRolRepository) EsAdministradorSistema(
 	err := r.db.QueryRow(
 		query,
 		codigoUsuario,
+		model.NombreRolAdministradorSistema,
 	).Scan(&esAdministrador)
 
 	return esAdministrador, err
