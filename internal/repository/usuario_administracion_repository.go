@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 type UsuarioAdministracionRepository interface {
@@ -479,7 +480,7 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 				CURRENT_TIMESTAMP
 			FROM rol r
 			WHERE LOWER(r.nombrerol) =
-				  LOWER('Administrador del sistema')
+				  LOWER($2)
 			  AND r.ambitorol = 'SISTEMA'
 			  AND r.fechahorabajarol IS NULL
 			  AND NOT EXISTS (
@@ -492,6 +493,7 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 			  )
 		`,
 			codigoUsuario,
+			model.NombreRolAdministradorSistema,
 		)
 		if err != nil {
 			return nil, err
@@ -511,10 +513,11 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 			  AND ur.ambitorol = 'SISTEMA'
 			  AND ur.fechahorabajausuariorol IS NULL
 			  AND LOWER(r.nombrerol) =
-				  LOWER('Administrador')
+				  LOWER($2)
 			  AND r.fechahorabajarol IS NULL
 		`,
 			codigoUsuario,
+			model.NombreRolAdministradorSistema,
 		)
 		if err != nil {
 			return nil, err

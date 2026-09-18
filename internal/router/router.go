@@ -301,5 +301,17 @@ func NewRouter(db *sql.DB,
 		invitacionProyectoHandler.Aceptar,
 	)
 
+	invitaciones.POST(
+		"/:token/rechazar",
+		invitacionProyectoHandler.Rechazar,
+	)
+
+	// Bandeja de notificaciones: invitaciones pendientes del usuario
+	// autenticado por su propio email.
+	invitaciones.GET(
+		"",
+		invitacionProyectoHandler.MisInvitaciones,
+	)
+
 	return router
 }

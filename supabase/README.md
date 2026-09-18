@@ -63,9 +63,13 @@ ser la misma URL, como siempre.
 ## Setup inicial
 
 Requiere Docker (ya usado por el resto del proyecto). No hace falta
-instalar la CLI globalmente, `npx` la descarga on-demand:
+instalar la CLI globalmente: `npx` usa la versión fijada en
+`package.json`/`package-lock.json` (mismo mecanismo que cualquier
+dependencia de Node) en vez de descargar siempre la última disponible,
+para que todo el equipo use la misma versión de la CLI:
 
 ```bash
+npm install       # una sola vez, instala la versión pineada de la CLI
 npx supabase start
 ```
 

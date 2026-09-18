@@ -21,3 +21,6 @@ coverage.out
 
 .out-of-code-insights
 
+# Supabase CLI (instalada vía npx, ver package.json)
+node_modules/
+
