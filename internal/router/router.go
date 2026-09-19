@@ -212,6 +212,13 @@ func NewRouter(db *sql.DB,
 		comentarioHandler.ListarPorVersion,
 	)
 
+	router.GET(
+		"/canciones",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		cancionHandler.ListarMisCanciones,
+	)
+
 	permisos := router.Group("/permisos")
 
 	permisos.Use(

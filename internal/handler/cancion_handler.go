@@ -820,3 +820,65 @@ func (h *CancionHandler) ObtenerAudioVersion(
 		)
 	}
 }
+
+func (h *CancionHandler) ListarMisCanciones(
+	c *gin.Context,
+) {
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	canciones, err :=
+		h.service.ListarMisCanciones(
+			usuario.CodigoUsuario,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionPerfilRequerido,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{"error": "Perfil de StemHub requerido"},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al listar mis canciones:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al obtener las canciones"},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			canciones,
+		)
+	}
+}

@@ -69,6 +69,10 @@ type CancionRepository interface {
 	ListarVersiones(
 		codigoCancion int64,
 	) ([]dto.VersionCancionListadoResponse, error)
+
+	ListarPorIntegrante(
+		codigoIntegrante int64,
+	) ([]dto.MiCancionListadoResponse, error)
 }
 
 type cancionRepository struct {
@@ -605,4 +609,114 @@ func (r *cancionRepository) ListarVersiones(
 	}
 
 	return versiones, nil
+}
+
+func (r *cancionRepository) ListarPorIntegrante(
+	codigoIntegrante int64,
+) ([]dto.MiCancionListadoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			c.codigocancion,
+			c.nombrecancion,
+			p.codigoproyecto,
+			p.nombreproyecto,
+			cv.codigocancionversion,
+			cv.numeroversion,
+			cv.urlarchivocancionver,
+			cv.formatoarchivocancionver
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		LEFT JOIN LATERAL (
+			SELECT
+				cvv.codigocancionversion,
+				cvv.numeroversion,
+				cvv.urlarchivocancionver,
+				cvv.formatoarchivocancionver
+			FROM cancionversion cvv
+			WHERE cvv.codigocancion = c.codigocancion
+			  AND cvv.fechahorabajaversion IS NULL
+			ORDER BY cvv.numeroversion DESC
+			LIMIT 1
+		) cv ON TRUE
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		ORDER BY c.codigocancion DESC
+	`,
+		codigoIntegrante,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	canciones := make(
+		[]dto.MiCancionListadoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var cancion dto.MiCancionListadoResponse
+
+		var codigoVersion sql.NullInt64
+		var numeroVersion sql.NullInt64
+		var urlArchivo sql.NullString
+		var formatoArchivo sql.NullString
+
+		err := rows.Scan(
+			&cancion.CodigoCancion,
+			&cancion.Nombre,
+			&cancion.CodigoProyecto,
+			&cancion.NombreProyecto,
+			&codigoVersion,
+			&numeroVersion,
+			&urlArchivo,
+			&formatoArchivo,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if codigoVersion.Valid {
+
+			version := dto.VersionActualCancionResponse{
+				CodigoCancionVersion: codigoVersion.Int64,
+				NumeroVersion:        int(numeroVersion.Int64),
+				EtiquetaVersion: fmt.Sprintf(
+					"v1.%d.0",
+					numeroVersion.Int64-1,
+				),
+			}
+
+			if urlArchivo.Valid {
+				version.URLArchivo = &urlArchivo.String
+			}
+
+			if formatoArchivo.Valid {
+				version.FormatoArchivo = &formatoArchivo.String
+			}
+
+			cancion.VersionActual = &version
+		}
+
+		canciones = append(
+			canciones,
+			cancion,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return canciones, nil
 }
