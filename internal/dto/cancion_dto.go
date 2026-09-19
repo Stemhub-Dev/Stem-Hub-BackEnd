@@ -54,3 +54,12 @@ type AudioVersionResponse struct {
 	FormatoArchivo       string `json:"formatoArchivo"`
 	ExpiraEnSegundos     int    `json:"expiraEnSegundos"`
 }
+
+type MiCancionListadoResponse struct {
+	CodigoCancion  int64  `json:"codigoCancion"`
+	Nombre         string `json:"nombre"`
+	CodigoProyecto int64  `json:"codigoProyecto"`
+	NombreProyecto string `json:"nombreProyecto"`
+
+	VersionActual *VersionActualCancionResponse `json:"versionActual"`
+}

@@ -167,6 +167,10 @@ type CancionService interface {
 		codigoCancion int64,
 		codigoVersion int64,
 	) (*dto.AudioVersionResponse, error)
+
+	ListarMisCanciones(
+		codigoUsuario int64,
+	) ([]dto.MiCancionListadoResponse, error)
 }
 
 type cancionService struct {
@@ -733,4 +737,26 @@ func (s *cancionService) ObtenerURLDescargaVersion(
 		FormatoArchivo:       *version.FormatoArchivoCancionVer,
 		ExpiraEnSegundos:     int(VigenciaURLDescargaAudio.Seconds()),
 	}, nil
+}
+
+func (s *cancionService) ListarMisCanciones(
+	codigoUsuario int64,
+) ([]dto.MiCancionListadoResponse, error) {
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return s.cancionRepository.ListarPorIntegrante(
+		integrante.CodIntegrante,
+	)
 }
