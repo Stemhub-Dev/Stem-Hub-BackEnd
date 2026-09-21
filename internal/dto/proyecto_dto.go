@@ -40,3 +40,46 @@ type ColaboradorProyectoResponse struct {
 	NombreRol        string  `json:"nombreRol"`
 	EsPropietario    bool    `json:"esPropietario"`
 }
+
+type GeneroProyectoResponse struct {
+	CodigoGenero int64  `json:"codigoGenero"`
+	NombreGenero string `json:"nombreGenero"`
+}
+
+type ProyectoDetalleResponse struct {
+	CodigoProyecto int64   `json:"codigoProyecto"`
+	Nombre         string  `json:"nombre"`
+	Descripcion    *string `json:"descripcion"`
+
+	LogoUrl *string `json:"logoUrl"`
+
+	CodigoTipoProyecto int64  `json:"codigoTipoProyecto"`
+	NombreTipoProyecto string `json:"nombreTipoProyecto"`
+
+	CodigoEstadoProyecto int64  `json:"codigoEstadoProyecto"`
+	NombreEstadoProyecto string `json:"nombreEstadoProyecto"`
+
+	Generos []GeneroProyectoResponse `json:"generos"`
+
+	EsPropietario bool `json:"esPropietario"`
+}
+
+type EditarProyectoRequest struct {
+	Nombre               *string `json:"nombre" form:"nombre"`
+	Descripcion          *string `json:"descripcion" form:"descripcion"`
+	CodigoTipoProyecto   *int64  `json:"codigoTipoProyecto" form:"codigoTipoProyecto"`
+	CodigoEstadoProyecto *int64  `json:"codigoEstadoProyecto" form:"codigoEstadoProyecto"`
+	CodigosGeneros       []int64 `json:"codigosGeneros" form:"codigosGeneros"`
+}
+
+type EditarProyectoResponse struct {
+	CodigoProyecto int64   `json:"codigoProyecto"`
+	Nombre         string  `json:"nombre"`
+	Descripcion    *string `json:"descripcion"`
+
+	LogoUrl *string `json:"logoUrl"`
+
+	CodigoTipoProyecto   int64   `json:"codigoTipoProyecto"`
+	CodigoEstadoProyecto int64   `json:"codigoEstadoProyecto"`
+	CodigosGeneros       []int64 `json:"codigosGeneros"`
+}

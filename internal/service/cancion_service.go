@@ -92,6 +92,10 @@ var (
 	ErrStemArchivoDemasiadoGrande = errors.New(
 		"un stem supera el tamaño máximo permitido",
 	)
+
+	ErrCancionNoEncontrada = errors.New(
+		"la canción no existe en el proyecto",
+	)
 )
 
 // VigenciaURLDescargaAudio es el tiempo de validez de la URL presignada
@@ -171,6 +175,19 @@ type CancionService interface {
 	ListarMisCanciones(
 		codigoUsuario int64,
 	) ([]dto.MiCancionListadoResponse, error)
+
+	Editar(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		request dto.EditarCancionRequest,
+	) (*dto.EditarCancionResponse, error)
+
+	DarDeBaja(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+	) error
 }
 
 type cancionService struct {
@@ -759,4 +776,201 @@ func (s *cancionService) ListarMisCanciones(
 	return s.cancionRepository.ListarPorIntegrante(
 		integrante.CodIntegrante,
 	)
+}
+
+func (s *cancionService) Editar(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	request dto.EditarCancionRequest,
+) (*dto.EditarCancionResponse, error) {
+
+	nombre := strings.TrimSpace(
+		request.Nombre,
+	)
+
+	if nombre == "" {
+		return nil, ErrCancionNombreObligatorio
+	}
+
+	// Verificar que el proyecto siga activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrCancionProyectoNoEncontrado
+	}
+
+	// Verificar que la canción pertenezca a ese proyecto
+	// y que no esté dada de baja.
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeCancion {
+		return nil, ErrCancionNoEncontrada
+	}
+
+	// Obtener el perfil del usuario autenticado.
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// La misma regla que para crear canciones:
+	// debe tener GESTIONAR_CANCIONES en el proyecto.
+	puedeGestionar, err :=
+		s.proyectoRepository.PuedeGestionarCanciones(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puedeGestionar {
+		return nil, ErrCancionSinPermiso
+	}
+
+	// Comprobar que no exista OTRA canción activa
+	// con ese mismo nombre dentro del proyecto.
+	existeNombre, err :=
+		s.cancionRepository.
+			ExisteNombreEnProyectoExceptoCancion(
+				codigoProyecto,
+				codigoCancion,
+				nombre,
+			)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if existeNombre {
+		return nil, ErrCancionNombreDuplicado
+	}
+
+	// Actualizar únicamente el nombre.
+	err = s.cancionRepository.ActualizarNombre(
+		codigoProyecto,
+		codigoCancion,
+		nombre,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionNoEncontrada
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.EditarCancionResponse{
+		CodigoCancion:  codigoCancion,
+		CodigoProyecto: codigoProyecto,
+		Nombre:         nombre,
+	}, nil
+}
+
+func (s *cancionService) DarDeBaja(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+) error {
+
+	// Verificar que el proyecto esté activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !existeProyecto {
+		return ErrCancionProyectoNoEncontrado
+	}
+
+	// Verificar que la canción exista,
+	// pertenezca al proyecto y esté activa.
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !existeCancion {
+		return ErrCancionNoEncontrada
+	}
+
+	// Obtener el integrante asociado al usuario.
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Debe poder gestionar canciones en ese proyecto.
+	puedeGestionar, err :=
+		s.proyectoRepository.PuedeGestionarCanciones(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !puedeGestionar {
+		return ErrCancionSinPermiso
+	}
+
+	// Baja lógica.
+	err = s.cancionRepository.DarDeBaja(
+		codigoProyecto,
+		codigoCancion,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCancionNoEncontrada
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

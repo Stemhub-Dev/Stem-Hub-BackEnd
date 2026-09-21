@@ -227,7 +227,7 @@ func (r *invitacionProyectoRepository) BuscarDetallePorToken(
 		JOIN rol r
 		  ON r.codrol = ip.codrol
 		 AND r.ambitorol = ip.ambitorol
-		WHERE ip.tokeninvitacion = $1
+		WHERE ip.tokeninvitacion = $1 AND p.fechahorabajaproyecto IS NULL
 	`,
 		token,
 	).Scan(
@@ -330,6 +330,7 @@ func (r *invitacionProyectoRepository) ListarPendientesPorEmail(
 		  AND ip.fechahoraaceptacioninvitacion IS NULL
 		  AND ip.fechahorabajainvitacionproy IS NULL
 		  AND ip.fechahoraexpiracioninvitacion > CURRENT_TIMESTAMP
+		  AND p.fechahorabajaproyecto IS NULL
 		ORDER BY ip.fechahoraaltainvitacionproy DESC
 	`,
 		email,

@@ -63,3 +63,13 @@ type MiCancionListadoResponse struct {
 
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
 }
+
+type EditarCancionRequest struct {
+	Nombre string `json:"nombre"`
+}
+
+type EditarCancionResponse struct {
+	CodigoCancion  int64  `json:"codigoCancion"`
+	CodigoProyecto int64  `json:"codigoProyecto"`
+	Nombre         string `json:"nombre"`
+}

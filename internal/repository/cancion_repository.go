@@ -73,6 +73,23 @@ type CancionRepository interface {
 	ListarPorIntegrante(
 		codigoIntegrante int64,
 	) ([]dto.MiCancionListadoResponse, error)
+
+	ExisteNombreEnProyectoExceptoCancion(
+		codigoProyecto int64,
+		codigoCancion int64,
+		nombre string,
+	) (bool, error)
+
+	ActualizarNombre(
+		codigoProyecto int64,
+		codigoCancion int64,
+		nombre string,
+	) error
+
+	DarDeBaja(
+		codigoProyecto int64,
+		codigoCancion int64,
+	) error
 }
 
 type cancionRepository struct {
@@ -719,4 +736,96 @@ func (r *cancionRepository) ListarPorIntegrante(
 	}
 
 	return canciones, nil
+}
+
+func (r *cancionRepository) ExisteNombreEnProyectoExceptoCancion(
+	codigoProyecto int64,
+	codigoCancion int64,
+	nombre string,
+) (bool, error) {
+
+	var existe bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM cancion
+			WHERE codigoproyecto = $1
+			  AND codigocancion <> $2
+			  AND LOWER(TRIM(nombrecancion)) = LOWER(TRIM($3))
+			  AND fechahorabajacancion IS NULL
+		)
+	`,
+		codigoProyecto,
+		codigoCancion,
+		nombre,
+	).Scan(&existe)
+
+	return existe, err
+}
+
+func (r *cancionRepository) ActualizarNombre(
+	codigoProyecto int64,
+	codigoCancion int64,
+	nombre string,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE cancion
+		SET nombrecancion = $1
+		WHERE codigocancion = $2
+		  AND codigoproyecto = $3
+		  AND fechahorabajacancion IS NULL
+	`,
+		nombre,
+		codigoCancion,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *cancionRepository) DarDeBaja(
+	codigoProyecto int64,
+	codigoCancion int64,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE cancion
+		SET fechahorabajacancion = CURRENT_TIMESTAMP
+		WHERE codigocancion = $1
+		  AND codigoproyecto = $2
+		  AND fechahorabajacancion IS NULL
+	`,
+		codigoCancion,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
