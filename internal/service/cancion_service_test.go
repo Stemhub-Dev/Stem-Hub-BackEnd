@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
@@ -36,29 +37,26 @@ type cancionRepositoryFalso struct {
 	errCanciones error
 
 	listarLlamado  bool
-	busquedaContar string
-	busquedaListar string
-	limite         int
+	filtroContar   dto.ListarMisCancionesFiltro
+	filtroListar   dto.ListarMisCancionesFiltro
 	desplazamiento int
 }
 
 func (r *cancionRepositoryFalso) ContarPorIntegrante(
 	_ int64,
-	busqueda string,
+	filtro dto.ListarMisCancionesFiltro,
 ) (int, error) {
-	r.busquedaContar = busqueda
+	r.filtroContar = filtro
 	return r.total, r.errTotal
 }
 
 func (r *cancionRepositoryFalso) ListarPorIntegrante(
 	_ int64,
-	busqueda string,
-	limite int,
+	filtro dto.ListarMisCancionesFiltro,
 	desplazamiento int,
 ) ([]dto.MiCancionListadoResponse, error) {
 	r.listarLlamado = true
-	r.busquedaListar = busqueda
-	r.limite = limite
+	r.filtroListar = filtro
 	r.desplazamiento = desplazamiento
 	return r.canciones, r.errCanciones
 }
@@ -79,6 +77,8 @@ func nuevoServicioMisCanciones(
 func filtro(pagina, tamano int) dto.ListarMisCancionesFiltro {
 	return dto.ListarMisCancionesFiltro{
 		Busqueda:     "bal",
+		Proyectos:    []int64{7, 9},
+		Orden:        dto.OrdenMisCancionesNombreAsc,
 		Pagina:       pagina,
 		TamanoPagina: tamano,
 	}
@@ -133,11 +133,18 @@ func TestListarMisCanciones_CalculaDesplazamientoYPasaBusqueda(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if repo.limite != 10 || repo.desplazamiento != 10 {
-		t.Fatalf("limite/desplazamiento = %d/%d, se esperaba 10/10", repo.limite, repo.desplazamiento)
+	if repo.desplazamiento != 10 {
+		t.Fatalf("desplazamiento = %d, se esperaba 10", repo.desplazamiento)
 	}
-	if repo.busquedaContar != "bal" || repo.busquedaListar != "bal" {
-		t.Fatal("la búsqueda debe aplicarse tanto al conteo como al listado")
+	// El mismo filtro debe llegar al conteo y al listado: si difirieran,
+	// totalItems no correspondería a las filas paginadas.
+	if !reflect.DeepEqual(repo.filtroContar, repo.filtroListar) {
+		t.Fatalf("filtros distintos: conteo %+v, listado %+v", repo.filtroContar, repo.filtroListar)
+	}
+	if repo.filtroListar.Busqueda != "bal" ||
+		repo.filtroListar.Orden != dto.OrdenMisCancionesNombreAsc ||
+		!reflect.DeepEqual(repo.filtroListar.Proyectos, []int64{7, 9}) {
+		t.Fatalf("el filtro no llegó completo al repositorio: %+v", repo.filtroListar)
 	}
 	if resultado.CurrentPage != 2 || len(resultado.Data) != 2 {
 		t.Fatalf("resultado inesperado: %+v", resultado)

@@ -73,13 +73,12 @@ type CancionRepository interface {
 
 	ContarPorIntegrante(
 		codigoIntegrante int64,
-		busqueda string,
+		filtro dto.ListarMisCancionesFiltro,
 	) (int, error)
 
 	ListarPorIntegrante(
 		codigoIntegrante int64,
-		busqueda string,
-		limite int,
+		filtro dto.ListarMisCancionesFiltro,
 		desplazamiento int,
 	) ([]dto.MiCancionListadoResponse, error)
 }
@@ -626,8 +625,12 @@ func (r *cancionRepository) ListarVersiones(
 // totalItems tiene que reflejar el mismo subconjunto que se pagina;
 // TestConsultasMisCancionesCompartenFiltro lo verifica.
 //
-// En ambas, $1 es el integrante y $2 el patrón de búsqueda ya escapado
-// (cadena vacía = sin filtro por nombre).
+// En ambas, $1 es el integrante, $2 el patrón de búsqueda ya escapado
+// (cadena vacía = sin filtro por nombre) y $3 los proyectos por los que se
+// filtra (arreglo vacío o NULL = todos los del integrante).
+//
+// El orden también viaja como parámetro ($4 en el listado) y se resuelve con
+// CASE, en lugar de armar el ORDER BY concatenando texto.
 
 const consultaContarMisCanciones = `
 		SELECT COUNT(*)
@@ -643,6 +646,10 @@ const consultaContarMisCanciones = `
 		  AND (
 			$2::text = ''
 			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
 		  )
 `
 
@@ -682,10 +689,28 @@ const consultaListarMisCanciones = `
 			$2::text = ''
 			OR c.nombrecancion ILIKE '%' || $2::text || '%'
 		  )
-		ORDER BY cv.fechahoraaltaversion DESC NULLS LAST,
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
+		  )
+		ORDER BY
+			CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
+			CASE WHEN $4::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
+			CASE WHEN $4::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
 			c.codigocancion DESC
-		LIMIT $3 OFFSET $4
+		LIMIT $5 OFFSET $6
 `
+
+// proyectosComoArreglo adapta los códigos de proyecto al bigint[] que espera
+// la consulta. Un filtro vacío viaja como NULL, que la consulta interpreta
+// como "todos los proyectos del integrante".
+func proyectosComoArreglo(proyectos []int64) any {
+	if len(proyectos) == 0 {
+		return nil
+	}
+
+	return proyectos
+}
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
 // de escape por defecto de PostgreSQL (\) para que la búsqueda sea literal.
@@ -699,7 +724,7 @@ func escaparPatronLike(texto string) string {
 
 func (r *cancionRepository) ContarPorIntegrante(
 	codigoIntegrante int64,
-	busqueda string,
+	filtro dto.ListarMisCancionesFiltro,
 ) (int, error) {
 
 	var total int
@@ -707,7 +732,8 @@ func (r *cancionRepository) ContarPorIntegrante(
 	err := r.db.QueryRow(
 		consultaContarMisCanciones,
 		codigoIntegrante,
-		escaparPatronLike(busqueda),
+		escaparPatronLike(filtro.Busqueda),
+		proyectosComoArreglo(filtro.Proyectos),
 	).Scan(&total)
 
 	if err != nil {
@@ -718,21 +744,23 @@ func (r *cancionRepository) ContarPorIntegrante(
 }
 
 // ListarPorIntegrante devuelve una página de las canciones de los proyectos
-// en los que participa el integrante. Se ordena por la fecha de la versión
-// actual (proxy de "última modificación"); las canciones sin versión quedan
-// al final y codigocancion desempata para que la paginación sea estable.
+// en los que participa el integrante, según el orden pedido. Con el orden por
+// defecto manda la fecha de la versión actual (proxy de "última
+// modificación") y las canciones sin versión quedan al final; en todos los
+// casos codigocancion desempata para que la paginación sea estable.
 func (r *cancionRepository) ListarPorIntegrante(
 	codigoIntegrante int64,
-	busqueda string,
-	limite int,
+	filtro dto.ListarMisCancionesFiltro,
 	desplazamiento int,
 ) ([]dto.MiCancionListadoResponse, error) {
 
 	rows, err := r.db.Query(
 		consultaListarMisCanciones,
 		codigoIntegrante,
-		escaparPatronLike(busqueda),
-		limite,
+		escaparPatronLike(filtro.Busqueda),
+		proyectosComoArreglo(filtro.Proyectos),
+		filtro.Orden,
+		filtro.TamanoPagina,
 		desplazamiento,
 	)
 

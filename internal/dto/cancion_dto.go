@@ -64,10 +64,22 @@ type MiCancionListadoResponse struct {
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
 }
 
-// ListarMisCancionesFiltro agrupa los criterios de búsqueda y paginación
-// de GET /canciones. Pagina y TamanoPagina ya vienen validados (>= 1).
+// Valores admitidos por el parámetro sort de GET /canciones. El repositorio
+// los recibe tal cual y los compara dentro de la consulta, así que cualquier
+// otro valor debe rechazarse en el handler.
+const (
+	OrdenMisCancionesReciente   = "reciente"
+	OrdenMisCancionesNombreAsc  = "nombreAsc"
+	OrdenMisCancionesNombreDesc = "nombreDesc"
+)
+
+// ListarMisCancionesFiltro agrupa los criterios de búsqueda, filtrado,
+// orden y paginación de GET /canciones. Pagina y TamanoPagina ya vienen
+// validados (>= 1) y Orden es uno de los OrdenMisCanciones*.
 type ListarMisCancionesFiltro struct {
 	Busqueda     string
+	Proyectos    []int64
+	Orden        string
 	Pagina       int
 	TamanoPagina int
 }

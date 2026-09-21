@@ -1,18 +1,31 @@
 package repository
 
 import (
+	"database/sql/driver"
 	"errors"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 )
+
+// convertidorDirecto deja pasar los argumentos tal cual, igual que hace el
+// driver pgx con el bigint[] del filtro por proyecto; el convertidor por
+// defecto de database/sql rechazaría un []int64.
+type convertidorDirecto struct{}
+
+func (convertidorDirecto) ConvertValue(valor any) (driver.Value, error) {
+	return valor, nil
+}
 
 func nuevoRepositorioConMock(t *testing.T) (CancionRepository, sqlmock.Sqlmock) {
 	t.Helper()
 
-	db, mock, err := sqlmock.New()
+	db, mock, err := sqlmock.New(
+		sqlmock.ValueConverterOption(convertidorDirecto{}),
+	)
 	if err != nil {
 		t.Fatalf("no se pudo crear sqlmock: %v", err)
 	}
@@ -38,6 +51,17 @@ var columnasMisCanciones = []string{
 	"formatoarchivocancionver",
 }
 
+// filtroBase arma el filtro con todos los criterios puestos; cada test ajusta
+// lo que necesita.
+func filtroBase() dto.ListarMisCancionesFiltro {
+	return dto.ListarMisCancionesFiltro{
+		Busqueda:     "bal",
+		Orden:        dto.OrdenMisCancionesReciente,
+		Pagina:       2,
+		TamanoPagina: 10,
+	}
+}
+
 // El conteo y el listado repiten el FROM/WHERE porque ambas consultas se
 // escriben completas (sin concatenar fragmentos). Si una se edita y la otra
 // no, totalItems dejaría de reflejar lo que se pagina.
@@ -52,6 +76,8 @@ func TestConsultasMisCancionesCompartenFiltro(t *testing.T) {
 		"c.fechahorabajacancion IS NULL",
 		"$2::text = ''",
 		"c.nombrecancion ILIKE '%' || $2::text || '%'",
+		"COALESCE(array_length($3::bigint[], 1), 0) = 0",
+		"c.codigoproyecto = ANY($3::bigint[])",
 	}
 
 	for _, condicion := range condiciones {
@@ -60,6 +86,20 @@ func TestConsultasMisCancionesCompartenFiltro(t *testing.T) {
 		}
 		if !strings.Contains(consultaListarMisCanciones, condicion) {
 			t.Errorf("falta %q en la consulta de listado", condicion)
+		}
+	}
+}
+
+// El ORDER BY se resuelve con CASE sobre un parámetro: los valores de orden
+// nunca se concatenan a la consulta.
+func TestConsultaListarCubreTodosLosOrdenes(t *testing.T) {
+	for _, orden := range []string{
+		dto.OrdenMisCancionesReciente,
+		dto.OrdenMisCancionesNombreAsc,
+		dto.OrdenMisCancionesNombreDesc,
+	} {
+		if !strings.Contains(consultaListarMisCanciones, "$4::text = '"+orden+"'") {
+			t.Errorf("la consulta no contempla el orden %q", orden)
 		}
 	}
 }
@@ -82,6 +122,20 @@ func TestEscaparPatronLike(t *testing.T) {
 	}
 }
 
+func TestProyectosComoArreglo(t *testing.T) {
+	if proyectosComoArreglo(nil) != nil {
+		t.Error("un filtro sin proyectos debe viajar como NULL")
+	}
+	if proyectosComoArreglo([]int64{}) != nil {
+		t.Error("un filtro con lista vacía debe viajar como NULL")
+	}
+
+	arreglo, ok := proyectosComoArreglo([]int64{3, 7}).([]int64)
+	if !ok || len(arreglo) != 2 || arreglo[0] != 3 || arreglo[1] != 7 {
+		t.Errorf("proyectosComoArreglo = %v, se esperaba []int64{3, 7}", arreglo)
+	}
+}
+
 func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
@@ -90,11 +144,16 @@ func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 		`ip\.fechahorabajaintegranteproy IS NULL.*` +
 		`p\.fechahorabajaproyecto IS NULL.*` +
 		`c\.fechahorabajacancion IS NULL.*` +
-		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'`).
-		WithArgs(int64(42), `50\%`).
+		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*` +
+		`c\.codigoproyecto = ANY\(\$3::bigint\[\]\)`).
+		WithArgs(int64(42), `50\%`, []int64{9}).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
-	total, err := repo.ContarPorIntegrante(42, "50%")
+	filtro := filtroBase()
+	filtro.Busqueda = "50%"
+	filtro.Proyectos = []int64{9}
+
+	total, err := repo.ContarPorIntegrante(42, filtro)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -104,14 +163,18 @@ func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 	}
 }
 
-func TestContarPorIntegrante_SinBusquedaPasaCadenaVacia(t *testing.T) {
+func TestContarPorIntegrante_SinFiltrosPasaVaciosYNull(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).
-		WithArgs(int64(42), "").
+		WithArgs(int64(42), "", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	total, err := repo.ContarPorIntegrante(42, "")
+	filtro := filtroBase()
+	filtro.Busqueda = ""
+	filtro.Proyectos = nil
+
+	total, err := repo.ContarPorIntegrante(42, filtro)
 
 	if err != nil || total != 0 {
 		t.Fatalf("total/err = %d/%v, se esperaba 0/nil", total, err)
@@ -124,27 +187,34 @@ func TestContarPorIntegrante_PropagaError(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).WillReturnError(errBase)
 
-	if _, err := repo.ContarPorIntegrante(42, ""); !errors.Is(err, errBase) {
+	if _, err := repo.ContarPorIntegrante(42, filtroBase()); !errors.Is(err, errBase) {
 		t.Fatalf("err = %v, se esperaba %v", err, errBase)
 	}
 }
 
-func TestListarPorIntegrante_PaginaOrdenaYMapeaFilas(t *testing.T) {
+func TestListarPorIntegrante_PasaFiltrosOrdenYPaginacion(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
 	mock.ExpectQuery(
 		`ip\.codintegrante = \$1.*` +
 			`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*` +
-			regexp.QuoteMeta(`ORDER BY cv.fechahoraaltaversion DESC NULLS LAST,`) +
-			`\s+c\.codigocancion DESC\s+LIMIT \$3 OFFSET \$4`).
-		WithArgs(int64(42), "bal", 10, 10).
+			`c\.codigoproyecto = ANY\(\$3::bigint\[\]\).*` +
+			regexp.QuoteMeta(`CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC`) +
+			`.*` +
+			regexp.QuoteMeta(`c.codigocancion DESC`) +
+			`\s+LIMIT \$5 OFFSET \$6`).
+		WithArgs(int64(42), "bal", []int64{9, 4}, dto.OrdenMisCancionesNombreAsc, 10, 10).
 		WillReturnRows(
 			sqlmock.NewRows(columnasMisCanciones).
 				AddRow(5, "Balada", 9, "Disco", 50, 3, "proyectos/9/canciones/5/v3.mp3", "mp3").
 				AddRow(4, "Balada sin versión", 9, "Disco", nil, nil, nil, nil),
 		)
 
-	canciones, err := repo.ListarPorIntegrante(42, "bal", 10, 10)
+	filtro := filtroBase()
+	filtro.Proyectos = []int64{9, 4}
+	filtro.Orden = dto.OrdenMisCancionesNombreAsc
+
+	canciones, err := repo.ListarPorIntegrante(42, filtro, 10)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -173,11 +243,15 @@ func TestListarPorIntegrante_PaginaOrdenaYMapeaFilas(t *testing.T) {
 func TestListarPorIntegrante_SinFilasDevuelveSliceVacio(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
-	mock.ExpectQuery(`LIMIT \$3 OFFSET \$4`).
-		WithArgs(int64(42), "", 10, 0).
+	mock.ExpectQuery(`LIMIT \$5 OFFSET \$6`).
+		WithArgs(int64(42), "", nil, dto.OrdenMisCancionesReciente, 10, 0).
 		WillReturnRows(sqlmock.NewRows(columnasMisCanciones))
 
-	canciones, err := repo.ListarPorIntegrante(42, "", 10, 0)
+	filtro := filtroBase()
+	filtro.Busqueda = ""
+	filtro.Pagina = 1
+
+	canciones, err := repo.ListarPorIntegrante(42, filtro, 0)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -191,9 +265,9 @@ func TestListarPorIntegrante_PropagaError(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 	errBase := errors.New("fallo de base")
 
-	mock.ExpectQuery(`LIMIT \$3 OFFSET \$4`).WillReturnError(errBase)
+	mock.ExpectQuery(`LIMIT \$5 OFFSET \$6`).WillReturnError(errBase)
 
-	if _, err := repo.ListarPorIntegrante(42, "", 10, 0); !errors.Is(err, errBase) {
+	if _, err := repo.ListarPorIntegrante(42, filtroBase(), 0); !errors.Is(err, errBase) {
 		t.Fatalf("err = %v, se esperaba %v", err, errBase)
 	}
 }

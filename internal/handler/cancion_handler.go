@@ -827,7 +827,18 @@ const (
 	PaginaPorDefecto       = 1
 	TamanoPaginaPorDefecto = 10
 	TamanoPaginaMaximo     = 100
+
+	// Tope defensivo: el filtro por proyecto viaja repetido en la query
+	// string y no tiene sentido pedir más proyectos de los que existen.
+	MaximoProyectosFiltro = 100
 )
+
+// ordenesMisCanciones son los valores admitidos por el parámetro sort.
+var ordenesMisCanciones = map[string]bool{
+	dto.OrdenMisCancionesReciente:   true,
+	dto.OrdenMisCancionesNombreAsc:  true,
+	dto.OrdenMisCancionesNombreDesc: true,
+}
 
 // parsearEnteroPositivo lee un query param entero >= 1; si no viene, usa
 // valorPorDefecto. Devuelve false si el valor es inválido.
@@ -852,11 +863,67 @@ func parsearEnteroPositivo(
 	return valor, true
 }
 
+// parsearProyectosFiltro lee el parámetro repetible proyectoId. Sin valores
+// devuelve nil, que el repositorio interpreta como "todos los proyectos".
+func parsearProyectosFiltro(
+	c *gin.Context,
+) ([]int64, bool) {
+
+	valores := c.QueryArray("proyectoId")
+
+	if len(valores) == 0 {
+		return nil, true
+	}
+
+	if len(valores) > MaximoProyectosFiltro {
+		return nil, false
+	}
+
+	proyectos := make([]int64, 0, len(valores))
+
+	for _, valor := range valores {
+
+		codigo, err := strconv.ParseInt(
+			strings.TrimSpace(valor),
+			10,
+			64,
+		)
+
+		if err != nil || codigo < 1 {
+			return nil, false
+		}
+
+		proyectos = append(proyectos, codigo)
+	}
+
+	return proyectos, true
+}
+
 // parsearFiltroMisCanciones arma el filtro de GET /canciones a partir de
-// q, page y pageSize. Devuelve un mensaje de error si algún valor es inválido.
+// q, proyectoId, sort, page y pageSize. Devuelve un mensaje de error si
+// algún valor es inválido.
 func parsearFiltroMisCanciones(
 	c *gin.Context,
 ) (dto.ListarMisCancionesFiltro, string) {
+
+	proyectos, ok := parsearProyectosFiltro(c)
+
+	if !ok {
+		return dto.ListarMisCancionesFiltro{},
+			"proyectoId debe ser un entero mayor o igual a 1, hasta " +
+				strconv.Itoa(MaximoProyectosFiltro) + " valores"
+	}
+
+	orden := strings.TrimSpace(c.Query("sort"))
+
+	if orden == "" {
+		orden = dto.OrdenMisCancionesReciente
+	}
+
+	if !ordenesMisCanciones[orden] {
+		return dto.ListarMisCancionesFiltro{},
+			"sort debe ser reciente, nombreAsc o nombreDesc"
+	}
 
 	pagina, ok := parsearEnteroPositivo(
 		c,
@@ -883,6 +950,8 @@ func parsearFiltroMisCanciones(
 
 	return dto.ListarMisCancionesFiltro{
 		Busqueda:     strings.TrimSpace(c.Query("q")),
+		Proyectos:    proyectos,
+		Orden:        orden,
 		Pagina:       pagina,
 		TamanoPagina: tamanoPagina,
 	}, ""

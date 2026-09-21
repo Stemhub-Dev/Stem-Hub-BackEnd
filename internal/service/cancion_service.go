@@ -761,7 +761,7 @@ func (s *cancionService) ListarMisCanciones(
 	total, err :=
 		s.cancionRepository.ContarPorIntegrante(
 			integrante.CodIntegrante,
-			filtro.Busqueda,
+			filtro,
 		)
 
 	if err != nil {
@@ -787,8 +787,7 @@ func (s *cancionService) ListarMisCanciones(
 	canciones, err :=
 		s.cancionRepository.ListarPorIntegrante(
 			integrante.CodIntegrante,
-			filtro.Busqueda,
-			filtro.TamanoPagina,
+			filtro,
 			(filtro.Pagina-1)*filtro.TamanoPagina,
 		)
 

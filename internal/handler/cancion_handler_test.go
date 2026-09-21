@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
@@ -103,10 +105,12 @@ func TestListarMisCanciones_SinParametrosUsaValoresPorDefecto(t *testing.T) {
 
 	esperado := dto.ListarMisCancionesFiltro{
 		Busqueda:     "",
+		Proyectos:    nil,
+		Orden:        dto.OrdenMisCancionesReciente,
 		Pagina:       1,
 		TamanoPagina: 10,
 	}
-	if servicio.filtro != esperado {
+	if !reflect.DeepEqual(servicio.filtro, esperado) {
 		t.Fatalf("filtro = %+v, se esperaba %+v", servicio.filtro, esperado)
 	}
 	if servicio.codigoUsuario != 7 {
@@ -114,23 +118,51 @@ func TestListarMisCanciones_SinParametrosUsaValoresPorDefecto(t *testing.T) {
 	}
 }
 
-func TestListarMisCanciones_PasaBusquedaYPaginacion(t *testing.T) {
+func TestListarMisCanciones_PasaBusquedaFiltrosYPaginacion(t *testing.T) {
 	servicio := &cancionServiceFalso{respuesta: respuestaVacia()}
 
 	ejecutarListarMisCanciones(
 		t,
 		servicio,
 		&model.Usuario{CodigoUsuario: 7},
-		"/canciones?q=%20Balada%20&page=2&pageSize=25",
+		"/canciones?q=%20Balada%20&proyectoId=9&proyectoId=4&sort=nombreAsc&page=2&pageSize=25",
 	)
 
 	esperado := dto.ListarMisCancionesFiltro{
 		Busqueda:     "Balada",
+		Proyectos:    []int64{9, 4},
+		Orden:        dto.OrdenMisCancionesNombreAsc,
 		Pagina:       2,
 		TamanoPagina: 25,
 	}
-	if servicio.filtro != esperado {
+	if !reflect.DeepEqual(servicio.filtro, esperado) {
 		t.Fatalf("filtro = %+v, se esperaba %+v", servicio.filtro, esperado)
+	}
+}
+
+func TestListarMisCanciones_OrdenesAdmitidos(t *testing.T) {
+	for _, orden := range []string{
+		dto.OrdenMisCancionesReciente,
+		dto.OrdenMisCancionesNombreAsc,
+		dto.OrdenMisCancionesNombreDesc,
+	} {
+		t.Run(orden, func(t *testing.T) {
+			servicio := &cancionServiceFalso{respuesta: respuestaVacia()}
+
+			grabador := ejecutarListarMisCanciones(
+				t,
+				servicio,
+				&model.Usuario{CodigoUsuario: 7},
+				"/canciones?sort="+orden,
+			)
+
+			if grabador.Code != http.StatusOK {
+				t.Fatalf("status = %d, se esperaba 200", grabador.Code)
+			}
+			if servicio.filtro.Orden != orden {
+				t.Fatalf("orden = %q, se esperaba %q", servicio.filtro.Orden, orden)
+			}
+		})
 	}
 }
 
@@ -143,6 +175,12 @@ func TestListarMisCanciones_ParametrosInvalidosResponden400(t *testing.T) {
 		"/canciones?pageSize=abc",
 		"/canciones?pageSize=101",
 		"/canciones?page=1.5",
+		"/canciones?sort=fechaAlta",
+		"/canciones?sort=c.nombrecancion",
+		"/canciones?proyectoId=0",
+		"/canciones?proyectoId=-3",
+		"/canciones?proyectoId=abc",
+		"/canciones?proyectoId=9&proyectoId=abc",
 	}
 
 	for _, url := range casos {
@@ -163,6 +201,29 @@ func TestListarMisCanciones_ParametrosInvalidosResponden400(t *testing.T) {
 				t.Fatal("no se debía llamar al service con parámetros inválidos")
 			}
 		})
+	}
+}
+
+func TestListarMisCanciones_DemasiadosProyectosResponde400(t *testing.T) {
+	servicio := &cancionServiceFalso{respuesta: respuestaVacia()}
+
+	valores := make([]string, 0, MaximoProyectosFiltro+1)
+	for i := 0; i <= MaximoProyectosFiltro; i++ {
+		valores = append(valores, "proyectoId=1")
+	}
+
+	grabador := ejecutarListarMisCanciones(
+		t,
+		servicio,
+		&model.Usuario{CodigoUsuario: 7},
+		"/canciones?"+strings.Join(valores, "&"),
+	)
+
+	if grabador.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, se esperaba 400", grabador.Code)
+	}
+	if servicio.llamado {
+		t.Fatal("no se debía llamar al service con demasiados proyectos")
 	}
 }
 
