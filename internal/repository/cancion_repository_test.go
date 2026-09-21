@@ -139,12 +139,12 @@ func TestProyectosComoArreglo(t *testing.T) {
 func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM integranteproyecto ip.*` +
-		`ip\.codintegrante = \$1.*` +
-		`ip\.fechahorabajaintegranteproy IS NULL.*` +
-		`p\.fechahorabajaproyecto IS NULL.*` +
-		`c\.fechahorabajacancion IS NULL.*` +
-		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*` +
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM integranteproyecto ip.*`+
+		`ip\.codintegrante = \$1.*`+
+		`ip\.fechahorabajaintegranteproy IS NULL.*`+
+		`p\.fechahorabajaproyecto IS NULL.*`+
+		`c\.fechahorabajacancion IS NULL.*`+
+		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*`+
 		`c\.codigoproyecto = ANY\(\$3::bigint\[\]\)`).
 		WithArgs(int64(42), `50\%`, []int64{9}).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
@@ -196,12 +196,12 @@ func TestListarPorIntegrante_PasaFiltrosOrdenYPaginacion(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
 	mock.ExpectQuery(
-		`ip\.codintegrante = \$1.*` +
-			`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*` +
-			`c\.codigoproyecto = ANY\(\$3::bigint\[\]\).*` +
-			regexp.QuoteMeta(`CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC`) +
-			`.*` +
-			regexp.QuoteMeta(`c.codigocancion DESC`) +
+		`ip\.codintegrante = \$1.*`+
+			`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*`+
+			`c\.codigoproyecto = ANY\(\$3::bigint\[\]\).*`+
+			regexp.QuoteMeta(`CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC`)+
+			`.*`+
+			regexp.QuoteMeta(`c.codigocancion DESC`)+
 			`\s+LIMIT \$5 OFFSET \$6`).
 		WithArgs(int64(42), "bal", []int64{9, 4}, dto.OrdenMisCancionesNombreAsc, 10, 10).
 		WillReturnRows(

@@ -90,3 +90,13 @@ type MisCancionesPaginadasResponse struct {
 	TotalPages  int                        `json:"totalPages"`
 	CurrentPage int                        `json:"currentPage"`
 }
+
+type EditarCancionRequest struct {
+	Nombre string `json:"nombre"`
+}
+
+type EditarCancionResponse struct {
+	CodigoCancion  int64  `json:"codigoCancion"`
+	CodigoProyecto int64  `json:"codigoProyecto"`
+	Nombre         string `json:"nombre"`
+}

@@ -23,6 +23,7 @@ func nuevoRouterDePrueba(t *testing.T) *gin.Engine {
 		&handler.RolHandler{},
 		&handler.GeneroMusicalHandler{},
 		&handler.TipoProyectoHandler{},
+		&handler.EstadoProyectoHandler{},
 		&handler.UsuarioHandler{},
 		&handler.UsuarioAdministracionHandler{},
 		&handler.IntegranteHandler{},
