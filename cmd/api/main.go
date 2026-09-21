@@ -54,6 +54,20 @@ func main() {
 	tipoProyectoService := service.NewTipoProyectoService(tipoProyectoRepository)
 	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
 
+	// Estado de proyecto
+	estadoProyectoRepository :=
+		repository.NewEstadoProyectoRepository(db)
+
+	estadoProyectoService :=
+		service.NewEstadoProyectoService(
+			estadoProyectoRepository,
+		)
+
+	estadoProyectoHandler :=
+		handler.NewEstadoProyectoHandler(
+			estadoProyectoService,
+		)
+
 	// Usuario y UsuarioRol
 	usuarioRolRepository := repository.NewUsuarioRolRepository(db)
 	usuarioRolService := service.NewUsuarioRolService(usuarioRolRepository)
@@ -167,6 +181,7 @@ func main() {
 		rolHandler,
 		generoMusicalHandler,
 		tipoProyectoHandler,
+		estadoProyectoHandler,
 		usuarioHandler,
 		usuarioAdministracionHandler,
 		integranteHandler,

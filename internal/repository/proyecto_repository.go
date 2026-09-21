@@ -28,6 +28,28 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) (bool, error)
 
+	ObtenerDetalle(
+		codigoProyecto int64,
+	) (*model.Proyecto, string, string, error)
+
+	ExisteEstadoProyectoActivo(
+		codigoEstadoProyecto int64,
+	) (bool, error)
+
+	ListarGenerosProyecto(
+		codigoProyecto int64,
+	) ([]dto.GeneroProyectoResponse, error)
+
+	Actualizar(
+		codigoProyecto int64,
+		nombre string,
+		descripcion *string,
+		logoObjectKey *string,
+		codigoEstadoProyecto int64,
+		codigoTipoProyecto int64,
+		codigosGeneros []int64,
+	) error
+
 	PuedeGestionarCanciones(
 		codigoIntegrante int64,
 		codigoProyecto int64,
@@ -56,6 +78,10 @@ type ProyectoRepository interface {
 	ListarColaboradores(
 		codigoProyecto int64,
 	) ([]model.ColaboradorProyecto, error)
+
+	DarDeBaja(
+		codigoProyecto int64,
+	) error
 }
 
 type proyectoRepository struct {
@@ -536,4 +562,243 @@ func (r *proyectoRepository) ListarColaboradores(
 	}
 
 	return colaboradores, nil
+}
+
+func (r *proyectoRepository) ExisteEstadoProyectoActivo(
+	codigoEstadoProyecto int64,
+) (bool, error) {
+
+	var existe bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM estadoproyecto
+			WHERE codestadoproy = $1
+			  AND fechahorabajaestadoproy IS NULL
+		)
+	`,
+		codigoEstadoProyecto,
+	).Scan(&existe)
+
+	return existe, err
+}
+
+func (r *proyectoRepository) ObtenerDetalle(
+	codigoProyecto int64,
+) (*model.Proyecto, string, string, error) {
+
+	var proyecto model.Proyecto
+	var nombreTipoProyecto string
+	var nombreEstadoProyecto string
+
+	err := r.db.QueryRow(`
+		SELECT
+			p.codigoproyecto,
+			p.nombreproyecto,
+			p.descripcionproyecto,
+			p.logoproyecto,
+			p.codestadoproy,
+			p.codtipoproy,
+			p.fechahorabajaproyecto,
+			tp.nombretipoproy,
+			ep.nombreestadoproy
+		FROM proyecto p
+		INNER JOIN tipoproyecto tp
+			ON tp.codtipoproy = p.codtipoproy
+		INNER JOIN estadoproyecto ep
+			ON ep.codestadoproy = p.codestadoproy
+		WHERE p.codigoproyecto = $1
+		  AND p.fechahorabajaproyecto IS NULL
+	`,
+		codigoProyecto,
+	).Scan(
+		&proyecto.CodigoProyecto,
+		&proyecto.NombreProyecto,
+		&proyecto.DescripcionProyecto,
+		&proyecto.LogoProyecto,
+		&proyecto.CodEstadoProy,
+		&proyecto.CodTipoProy,
+		&proyecto.FechaHoraBajaProyecto,
+		&nombreTipoProyecto,
+		&nombreEstadoProyecto,
+	)
+
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	return &proyecto,
+		nombreTipoProyecto,
+		nombreEstadoProyecto,
+		nil
+}
+
+func (r *proyectoRepository) ListarGenerosProyecto(
+	codigoProyecto int64,
+) ([]dto.GeneroProyectoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			g.codigogeneroproy,
+			g.nombregeneroproy
+		FROM proyectogeneromusical pg
+		INNER JOIN generomusicalproyecto g
+			ON g.codigogeneroproy = pg.codigogeneroproy
+		WHERE pg.codigoproyecto = $1
+		  AND g.fechahorabajageneroproy IS NULL
+		ORDER BY g.nombregeneroproy
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	generos := make(
+		[]dto.GeneroProyectoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var genero dto.GeneroProyectoResponse
+
+		if err := rows.Scan(
+			&genero.CodigoGenero,
+			&genero.NombreGenero,
+		); err != nil {
+			return nil, err
+		}
+
+		generos = append(
+			generos,
+			genero,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return generos, nil
+}
+
+func (r *proyectoRepository) Actualizar(
+	codigoProyecto int64,
+	nombre string,
+	descripcion *string,
+	logoObjectKey *string,
+	codigoEstadoProyecto int64,
+	codigoTipoProyecto int64,
+	codigosGeneros []int64,
+) error {
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	resultado, err := tx.Exec(`
+		UPDATE proyecto
+		SET
+			nombreproyecto = $1,
+			descripcionproyecto = $2,
+			logoproyecto = $3,
+			codestadoproy = $4,
+			codtipoproy = $5
+		WHERE codigoproyecto = $6
+		  AND fechahorabajaproyecto IS NULL
+	`,
+		nombre,
+		descripcion,
+		logoObjectKey,
+		codigoEstadoProyecto,
+		codigoTipoProyecto,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	// Eliminamos las relaciones actuales.
+	_, err = tx.Exec(`
+		DELETE FROM proyectogeneromusical
+		WHERE codigoproyecto = $1
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Insertamos nuevamente los géneros seleccionados.
+	for _, codigoGenero := range codigosGeneros {
+
+		_, err = tx.Exec(`
+			INSERT INTO proyectogeneromusical (
+				codigoproyecto,
+				codigogeneroproy
+			)
+			VALUES ($1, $2)
+		`,
+			codigoProyecto,
+			codigoGenero,
+		)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *proyectoRepository) DarDeBaja(
+	codigoProyecto int64,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE proyecto
+		SET fechahorabajaproyecto = CURRENT_TIMESTAMP
+		WHERE codigoproyecto = $1
+		  AND fechahorabajaproyecto IS NULL
+	`,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }

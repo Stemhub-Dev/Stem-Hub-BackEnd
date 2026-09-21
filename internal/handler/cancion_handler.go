@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
@@ -262,6 +263,168 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 	default:
 		c.JSON(
 			http.StatusCreated,
+			cancion,
+		)
+	}
+}
+
+func (h *CancionHandler) Editar(
+	c *gin.Context,
+) {
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoProyecto <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err :=
+		strconv.ParseInt(
+			c.Param("cancionId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoCancion <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	var request dto.EditarCancionRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Solicitud inválida"},
+		)
+		return
+	}
+
+	cancion, err :=
+		h.service.Editar(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoCancion,
+			request,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionNombreObligatorio,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El nombre de la canción es obligatorio",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionNombreDuplicado,
+	):
+		c.JSON(
+			http.StatusConflict,
+			gin.H{
+				"error": "Ya existe una canción con ese nombre en el proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "El proyecto no existe",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "La canción no existe en el proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionPerfilRequerido,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "Perfil de StemHub requerido",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para modificar canciones en este proyecto",
+			},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al editar canción:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al modificar la canción",
+			},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
 			cancion,
 		)
 	}
@@ -879,6 +1042,136 @@ func (h *CancionHandler) ListarMisCanciones(
 		c.JSON(
 			http.StatusOK,
 			canciones,
+		)
+	}
+}
+
+func (h *CancionHandler) DarDeBaja(
+	c *gin.Context,
+) {
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoProyecto <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err :=
+		strconv.ParseInt(
+			c.Param("cancionId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoCancion <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	err = h.service.DarDeBaja(
+		usuario.CodigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+	)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrCancionProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "El proyecto no existe",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionNoEncontrada,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "La canción no existe en el proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionPerfilRequerido,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "Perfil de StemHub requerido",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrCancionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para dar de baja canciones en este proyecto",
+			},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al dar de baja canción:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al dar de baja la canción",
+			},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			gin.H{
+				"mensaje": "Canción dada de baja correctamente",
+			},
 		)
 	}
 }

@@ -14,6 +14,7 @@ func NewRouter(db *sql.DB,
 	rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	tipoProyectoHandler *handler.TipoProyectoHandler,
+	estadoProyectoHandler *handler.EstadoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
 	usuarioAdministracionHandler *handler.UsuarioAdministracionHandler,
 	integranteHandler *handler.IntegranteHandler,
@@ -96,6 +97,11 @@ func NewRouter(db *sql.DB,
 		tipoProyectoHandler.Listar,
 	)
 
+	configuracion.GET(
+		"/estados-proyecto",
+		estadoProyectoHandler.Listar,
+	)
+
 	usuarios.POST(
 		"/:codigoUsuario/roles",
 		authMiddleware.UsuarioActivo,
@@ -137,9 +143,24 @@ func NewRouter(db *sql.DB,
 		cancionHandler.Crear,
 	)
 
+	proyectos.PUT(
+		"/:proyectoId/canciones/:cancionId",
+		cancionHandler.Editar,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId",
+		cancionHandler.DarDeBaja,
+	)
+
 	proyectos.POST(
 		"/:proyectoId/canciones/:cancionId/versiones",
 		cancionHandler.CrearVersion,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId",
+		proyectoHandler.DarDeBaja,
 	)
 
 	proyectos.POST(
@@ -170,6 +191,16 @@ func NewRouter(db *sql.DB,
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
+	)
+
+	proyectos.GET(
+		"/:proyectoId",
+		proyectoHandler.ObtenerDetalle,
+	)
+
+	proyectos.PATCH(
+		"/:proyectoId",
+		proyectoHandler.Editar,
 	)
 
 	proyectos.GET(

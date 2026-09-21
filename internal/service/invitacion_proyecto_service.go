@@ -474,6 +474,19 @@ func (s *invitacionProyectoService) Aceptar(
 		return 0, err
 	}
 
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			invitacion.CodigoProyecto,
+		)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if !existeProyecto {
+		return 0, ErrProyectoNoEncontrado
+	}
+
 	return invitacion.CodigoProyecto, nil
 }
 
