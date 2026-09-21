@@ -122,17 +122,17 @@ func TestEscaparPatronLike(t *testing.T) {
 	}
 }
 
-func TestProyectosComoArreglo(t *testing.T) {
-	if proyectosComoArreglo(nil) != nil {
+func TestCodigosComoArreglo(t *testing.T) {
+	if codigosComoArreglo(nil) != nil {
 		t.Error("un filtro sin proyectos debe viajar como NULL")
 	}
-	if proyectosComoArreglo([]int64{}) != nil {
+	if codigosComoArreglo([]int64{}) != nil {
 		t.Error("un filtro con lista vacía debe viajar como NULL")
 	}
 
-	arreglo, ok := proyectosComoArreglo([]int64{3, 7}).([]int64)
+	arreglo, ok := codigosComoArreglo([]int64{3, 7}).([]int64)
 	if !ok || len(arreglo) != 2 || arreglo[0] != 3 || arreglo[1] != 7 {
-		t.Errorf("proyectosComoArreglo = %v, se esperaba []int64{3, 7}", arreglo)
+		t.Errorf("codigosComoArreglo = %v, se esperaba []int64{3, 7}", arreglo)
 	}
 }
 
