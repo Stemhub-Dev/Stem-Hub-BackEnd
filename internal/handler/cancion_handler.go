@@ -985,80 +985,11 @@ func (h *CancionHandler) ObtenerAudioVersion(
 	}
 }
 
-const (
-	PaginaPorDefecto       = 1
-	TamanoPaginaPorDefecto = 10
-	TamanoPaginaMaximo     = 100
-
-	// Tope defensivo: el filtro por proyecto viaja repetido en la query
-	// string y no tiene sentido pedir más proyectos de los que existen.
-	MaximoProyectosFiltro = 100
-)
-
 // ordenesMisCanciones son los valores admitidos por el parámetro sort.
 var ordenesMisCanciones = map[string]bool{
 	dto.OrdenMisCancionesReciente:   true,
 	dto.OrdenMisCancionesNombreAsc:  true,
 	dto.OrdenMisCancionesNombreDesc: true,
-}
-
-// parsearEnteroPositivo lee un query param entero >= 1; si no viene, usa
-// valorPorDefecto. Devuelve false si el valor es inválido.
-func parsearEnteroPositivo(
-	c *gin.Context,
-	nombre string,
-	valorPorDefecto int,
-) (int, bool) {
-
-	texto := strings.TrimSpace(c.Query(nombre))
-
-	if texto == "" {
-		return valorPorDefecto, true
-	}
-
-	valor, err := strconv.Atoi(texto)
-
-	if err != nil || valor < 1 {
-		return 0, false
-	}
-
-	return valor, true
-}
-
-// parsearProyectosFiltro lee el parámetro repetible proyectoId. Sin valores
-// devuelve nil, que el repositorio interpreta como "todos los proyectos".
-func parsearProyectosFiltro(
-	c *gin.Context,
-) ([]int64, bool) {
-
-	valores := c.QueryArray("proyectoId")
-
-	if len(valores) == 0 {
-		return nil, true
-	}
-
-	if len(valores) > MaximoProyectosFiltro {
-		return nil, false
-	}
-
-	proyectos := make([]int64, 0, len(valores))
-
-	for _, valor := range valores {
-
-		codigo, err := strconv.ParseInt(
-			strings.TrimSpace(valor),
-			10,
-			64,
-		)
-
-		if err != nil || codigo < 1 {
-			return nil, false
-		}
-
-		proyectos = append(proyectos, codigo)
-	}
-
-	return proyectos, true
 }
 
 // parsearFiltroMisCanciones arma el filtro de GET /canciones a partir de
@@ -1068,12 +999,10 @@ func parsearFiltroMisCanciones(
 	c *gin.Context,
 ) (dto.ListarMisCancionesFiltro, string) {
 
-	proyectos, ok := parsearProyectosFiltro(c)
+	proyectos, mensajeError := parsearCodigos(c, "proyectoId")
 
-	if !ok {
-		return dto.ListarMisCancionesFiltro{},
-			"proyectoId debe ser un entero mayor o igual a 1, hasta " +
-				strconv.Itoa(MaximoProyectosFiltro) + " valores"
+	if mensajeError != "" {
+		return dto.ListarMisCancionesFiltro{}, mensajeError
 	}
 
 	orden := strings.TrimSpace(c.Query("sort"))
@@ -1087,27 +1016,10 @@ func parsearFiltroMisCanciones(
 			"sort debe ser reciente, nombreAsc o nombreDesc"
 	}
 
-	pagina, ok := parsearEnteroPositivo(
-		c,
-		"page",
-		PaginaPorDefecto,
-	)
+	pagina, tamanoPagina, mensajeError := parsearPaginacion(c)
 
-	if !ok {
-		return dto.ListarMisCancionesFiltro{},
-			"page debe ser un entero mayor o igual a 1"
-	}
-
-	tamanoPagina, ok := parsearEnteroPositivo(
-		c,
-		"pageSize",
-		TamanoPaginaPorDefecto,
-	)
-
-	if !ok || tamanoPagina > TamanoPaginaMaximo {
-		return dto.ListarMisCancionesFiltro{},
-			"pageSize debe ser un entero entre 1 y " +
-				strconv.Itoa(TamanoPaginaMaximo)
+	if mensajeError != "" {
+		return dto.ListarMisCancionesFiltro{}, mensajeError
 	}
 
 	return dto.ListarMisCancionesFiltro{

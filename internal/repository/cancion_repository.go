@@ -718,17 +718,6 @@ const consultaListarMisCanciones = `
 		LIMIT $5 OFFSET $6
 `
 
-// proyectosComoArreglo adapta los códigos de proyecto al bigint[] que espera
-// la consulta. Un filtro vacío viaja como NULL, que la consulta interpreta
-// como "todos los proyectos del integrante".
-func proyectosComoArreglo(proyectos []int64) any {
-	if len(proyectos) == 0 {
-		return nil
-	}
-
-	return proyectos
-}
-
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
 // de escape por defecto de PostgreSQL (\) para que la búsqueda sea literal.
 func escaparPatronLike(texto string) string {
@@ -750,7 +739,7 @@ func (r *cancionRepository) ContarPorIntegrante(
 		consultaContarMisCanciones,
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
-		proyectosComoArreglo(filtro.Proyectos),
+		codigosComoArreglo(filtro.Proyectos),
 	).Scan(&total)
 
 	if err != nil {
@@ -775,7 +764,7 @@ func (r *cancionRepository) ListarPorIntegrante(
 		consultaListarMisCanciones,
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
-		proyectosComoArreglo(filtro.Proyectos),
+		codigosComoArreglo(filtro.Proyectos),
 		filtro.Orden,
 		filtro.TamanoPagina,
 		desplazamiento,

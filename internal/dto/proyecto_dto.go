@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type CrearProyectoRequest struct {
 	Nombre             string  `json:"nombre" binding:"required"`
 	Descripcion        *string `json:"descripcion"`
@@ -30,6 +32,33 @@ type ProyectoListadoResponse struct {
 	CodRol        int64  `json:"codRol"`
 	NombreRol     string `json:"nombreRol"`
 	EsPropietario bool   `json:"esPropietario"`
+
+	// Derivada, no hay columna: lo más reciente entre el alta del proyecto y
+	// la última versión subida a alguna de sus canciones.
+	FechaUltimaModificacion time.Time `json:"fechaUltimaModificacion"`
+
+	// URL firmada del logo, con vigencia limitada; nil si no tiene. Logo
+	// sigue trayendo la clave del objeto en el storage.
+	PortadaURL *string `json:"portadaUrl"`
+}
+
+// ListarProyectosFiltro agrupa los criterios de búsqueda, filtrado y
+// paginación de GET /proyectos. Pagina y TamanoPagina ya vienen validados
+// (>= 1). Estados y Tipos son códigos de los catálogos estadoproyecto y
+// tipoproyecto; vacíos significan "sin filtro".
+type ListarProyectosFiltro struct {
+	Busqueda     string
+	Estados      []int64
+	Tipos        []int64
+	Pagina       int
+	TamanoPagina int
+}
+
+type ProyectosPaginadosResponse struct {
+	Data        []ProyectoListadoResponse `json:"data"`
+	TotalItems  int                       `json:"totalItems"`
+	TotalPages  int                       `json:"totalPages"`
+	CurrentPage int                       `json:"currentPage"`
 }
 
 type ColaboradorProyectoResponse struct {

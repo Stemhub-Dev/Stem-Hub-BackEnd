@@ -207,8 +207,8 @@ func TestListarMisCanciones_ParametrosInvalidosResponden400(t *testing.T) {
 func TestListarMisCanciones_DemasiadosProyectosResponde400(t *testing.T) {
 	servicio := &cancionServiceFalso{respuesta: respuestaVacia()}
 
-	valores := make([]string, 0, MaximoProyectosFiltro+1)
-	for i := 0; i <= MaximoProyectosFiltro; i++ {
+	valores := make([]string, 0, MaximoCodigosFiltro+1)
+	for i := 0; i <= MaximoCodigosFiltro; i++ {
 		valores = append(valores, "proyectoId=1")
 	}
 

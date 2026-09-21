@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -81,7 +82,8 @@ type ProyectoService interface {
 
 	ListarProyectos(
 		codigoUsuario int64,
-	) ([]dto.ProyectoListadoResponse, error)
+		filtro dto.ListarProyectosFiltro,
+	) (*dto.ProyectosPaginadosResponse, error)
 
 	ListarColaboradores(
 		codigoUsuario int64,
@@ -223,15 +225,24 @@ func (s *proyectoService) CrearProyecto(
 
 func (s *proyectoService) ListarProyectos(
 	codigoUsuario int64,
-) ([]dto.ProyectoListadoResponse, error) {
+	filtro dto.ListarProyectosFiltro,
+) (*dto.ProyectosPaginadosResponse, error) {
+
+	respuesta := &dto.ProyectosPaginadosResponse{
+		Data:        make([]dto.ProyectoListadoResponse, 0),
+		CurrentPage: filtro.Pagina,
+	}
 
 	integrante, err :=
 		s.integranteRepository.BuscarPorCodigoUsuario(
 			codigoUsuario,
 		)
 
+	// Sin perfil de integrante (o con el perfil dado de baja) el usuario no
+	// participa de ningún proyecto: se responde una página vacía, como hacía
+	// el listado antes de paginar.
 	if errors.Is(err, sql.ErrNoRows) {
-		return []dto.ProyectoListadoResponse{}, nil
+		return respuesta, nil
 	}
 
 	if err != nil {
@@ -239,12 +250,73 @@ func (s *proyectoService) ListarProyectos(
 	}
 
 	if integrante.FechaHoraBajaIntegrante != nil {
-		return []dto.ProyectoListadoResponse{}, nil
+		return respuesta, nil
 	}
 
-	return s.proyectoRepository.ListarPorIntegrante(
-		integrante.CodIntegrante,
-	)
+	total, err :=
+		s.proyectoRepository.ContarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta.TotalItems = total
+	respuesta.TotalPages =
+		(total + filtro.TamanoPagina - 1) / filtro.TamanoPagina
+
+	// Una página fuera de rango responde vacía sin consultar: además de
+	// ahorrar la query, evita calcular un OFFSET desbordado con page enorme.
+	if filtro.Pagina > respuesta.TotalPages {
+		return respuesta, nil
+	}
+
+	proyectos, err :=
+		s.proyectoRepository.ListarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro,
+			(filtro.Pagina-1)*filtro.TamanoPagina,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range proyectos {
+		proyectos[i].PortadaURL = s.portadaParaListado(
+			proyectos[i].CodigoProyecto,
+			proyectos[i].Logo,
+		)
+	}
+
+	respuesta.Data = append(respuesta.Data, proyectos...)
+
+	return respuesta, nil
+}
+
+// portadaParaListado firma la URL del logo para el listado. A diferencia del
+// detalle, un fallo del storage no tumba el listado entero: el proyecto se
+// muestra sin portada y el frontend usa su fondo por defecto.
+func (s *proyectoService) portadaParaListado(
+	codigoProyecto int64,
+	logoObjectKey *string,
+) *string {
+
+	url, err := s.resolverLogoProyectoURL(logoObjectKey)
+
+	if err != nil {
+		log.Println(
+			"No se pudo firmar la portada del proyecto",
+			codigoProyecto,
+			"para el listado:",
+			err,
+		)
+		return nil
+	}
+
+	return url
 }
 
 func (s *proyectoService) ListarColaboradores(
