@@ -170,7 +170,8 @@ type CancionService interface {
 
 	ListarMisCanciones(
 		codigoUsuario int64,
-	) ([]dto.MiCancionListadoResponse, error)
+		filtro dto.ListarMisCancionesFiltro,
+	) (*dto.MisCancionesPaginadasResponse, error)
 }
 
 type cancionService struct {
@@ -741,7 +742,8 @@ func (s *cancionService) ObtenerURLDescargaVersion(
 
 func (s *cancionService) ListarMisCanciones(
 	codigoUsuario int64,
-) ([]dto.MiCancionListadoResponse, error) {
+	filtro dto.ListarMisCancionesFiltro,
+) (*dto.MisCancionesPaginadasResponse, error) {
 
 	integrante, err :=
 		s.integranteRepository.BuscarPorCodigoUsuario(
@@ -756,7 +758,45 @@ func (s *cancionService) ListarMisCanciones(
 		return nil, err
 	}
 
-	return s.cancionRepository.ListarPorIntegrante(
-		integrante.CodIntegrante,
-	)
+	total, err :=
+		s.cancionRepository.ContarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro.Busqueda,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	totalPaginas :=
+		(total + filtro.TamanoPagina - 1) / filtro.TamanoPagina
+
+	respuesta := &dto.MisCancionesPaginadasResponse{
+		Data:        make([]dto.MiCancionListadoResponse, 0),
+		TotalItems:  total,
+		TotalPages:  totalPaginas,
+		CurrentPage: filtro.Pagina,
+	}
+
+	// Una página fuera de rango responde vacía sin consultar: además de
+	// ahorrar la query, evita calcular un OFFSET desbordado con page enorme.
+	if filtro.Pagina > totalPaginas {
+		return respuesta, nil
+	}
+
+	canciones, err :=
+		s.cancionRepository.ListarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro.Busqueda,
+			filtro.TamanoPagina,
+			(filtro.Pagina-1)*filtro.TamanoPagina,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta.Data = append(respuesta.Data, canciones...)
+
+	return respuesta, nil
 }

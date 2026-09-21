@@ -6,7 +6,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
@@ -821,6 +823,71 @@ func (h *CancionHandler) ObtenerAudioVersion(
 	}
 }
 
+const (
+	PaginaPorDefecto       = 1
+	TamanoPaginaPorDefecto = 10
+	TamanoPaginaMaximo     = 100
+)
+
+// parsearEnteroPositivo lee un query param entero >= 1; si no viene, usa
+// valorPorDefecto. Devuelve false si el valor es inválido.
+func parsearEnteroPositivo(
+	c *gin.Context,
+	nombre string,
+	valorPorDefecto int,
+) (int, bool) {
+
+	texto := strings.TrimSpace(c.Query(nombre))
+
+	if texto == "" {
+		return valorPorDefecto, true
+	}
+
+	valor, err := strconv.Atoi(texto)
+
+	if err != nil || valor < 1 {
+		return 0, false
+	}
+
+	return valor, true
+}
+
+// parsearFiltroMisCanciones arma el filtro de GET /canciones a partir de
+// q, page y pageSize. Devuelve un mensaje de error si algún valor es inválido.
+func parsearFiltroMisCanciones(
+	c *gin.Context,
+) (dto.ListarMisCancionesFiltro, string) {
+
+	pagina, ok := parsearEnteroPositivo(
+		c,
+		"page",
+		PaginaPorDefecto,
+	)
+
+	if !ok {
+		return dto.ListarMisCancionesFiltro{},
+			"page debe ser un entero mayor o igual a 1"
+	}
+
+	tamanoPagina, ok := parsearEnteroPositivo(
+		c,
+		"pageSize",
+		TamanoPaginaPorDefecto,
+	)
+
+	if !ok || tamanoPagina > TamanoPaginaMaximo {
+		return dto.ListarMisCancionesFiltro{},
+			"pageSize debe ser un entero entre 1 y " +
+				strconv.Itoa(TamanoPaginaMaximo)
+	}
+
+	return dto.ListarMisCancionesFiltro{
+		Busqueda:     strings.TrimSpace(c.Query("q")),
+		Pagina:       pagina,
+		TamanoPagina: tamanoPagina,
+	}, ""
+}
+
 func (h *CancionHandler) ListarMisCanciones(
 	c *gin.Context,
 ) {
@@ -847,9 +914,21 @@ func (h *CancionHandler) ListarMisCanciones(
 		return
 	}
 
+	filtro, mensajeError :=
+		parsearFiltroMisCanciones(c)
+
+	if mensajeError != "" {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": mensajeError},
+		)
+		return
+	}
+
 	canciones, err :=
 		h.service.ListarMisCanciones(
 			usuario.CodigoUsuario,
+			filtro,
 		)
 
 	switch {

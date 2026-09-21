@@ -63,3 +63,18 @@ type MiCancionListadoResponse struct {
 
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
 }
+
+// ListarMisCancionesFiltro agrupa los criterios de búsqueda y paginación
+// de GET /canciones. Pagina y TamanoPagina ya vienen validados (>= 1).
+type ListarMisCancionesFiltro struct {
+	Busqueda     string
+	Pagina       int
+	TamanoPagina int
+}
+
+type MisCancionesPaginadasResponse struct {
+	Data        []MiCancionListadoResponse `json:"data"`
+	TotalItems  int                        `json:"totalItems"`
+	TotalPages  int                        `json:"totalPages"`
+	CurrentPage int                        `json:"currentPage"`
+}

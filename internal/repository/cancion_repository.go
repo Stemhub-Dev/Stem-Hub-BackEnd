@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -70,8 +71,16 @@ type CancionRepository interface {
 		codigoCancion int64,
 	) ([]dto.VersionCancionListadoResponse, error)
 
+	ContarPorIntegrante(
+		codigoIntegrante int64,
+		busqueda string,
+	) (int, error)
+
 	ListarPorIntegrante(
 		codigoIntegrante int64,
+		busqueda string,
+		limite int,
+		desplazamiento int,
 	) ([]dto.MiCancionListadoResponse, error)
 }
 
@@ -611,8 +620,65 @@ func (r *cancionRepository) ListarVersiones(
 	return versiones, nil
 }
 
+// filtroCancionesDeIntegrante es el FROM/WHERE compartido por el conteo y el
+// listado de "mis canciones", para que totalItems siempre refleje el mismo
+// subconjunto que se pagina. $1 es el integrante y $2 el patrón de búsqueda
+// ya escapado (cadena vacía = sin filtro por nombre).
+const filtroCancionesDeIntegrante = `
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+`
+
+// escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
+// de escape por defecto de PostgreSQL (\) para que la búsqueda sea literal.
+func escaparPatronLike(texto string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	).Replace(texto)
+}
+
+func (r *cancionRepository) ContarPorIntegrante(
+	codigoIntegrante int64,
+	busqueda string,
+) (int, error) {
+
+	var total int
+
+	err := r.db.QueryRow(
+		`SELECT COUNT(*)`+filtroCancionesDeIntegrante,
+		codigoIntegrante,
+		escaparPatronLike(busqueda),
+	).Scan(&total)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+// ListarPorIntegrante devuelve una página de las canciones de los proyectos
+// en los que participa el integrante. Se ordena por la fecha de la versión
+// actual (proxy de "última modificación"); las canciones sin versión quedan
+// al final y codigocancion desempata para que la paginación sea estable.
 func (r *cancionRepository) ListarPorIntegrante(
 	codigoIntegrante int64,
+	busqueda string,
+	limite int,
+	desplazamiento int,
 ) ([]dto.MiCancionListadoResponse, error) {
 
 	rows, err := r.db.Query(`
@@ -625,30 +691,35 @@ func (r *cancionRepository) ListarPorIntegrante(
 			cv.numeroversion,
 			cv.urlarchivocancionver,
 			cv.formatoarchivocancionver
-		FROM integranteproyecto ip
-		INNER JOIN proyecto p
-			ON p.codigoproyecto = ip.codigoproyecto
+		FROM (
+			SELECT c.codigocancion
+			`+filtroCancionesDeIntegrante+`
+		) filtradas
 		INNER JOIN cancion c
-			ON c.codigoproyecto = p.codigoproyecto
+			ON c.codigocancion = filtradas.codigocancion
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = c.codigoproyecto
 		LEFT JOIN LATERAL (
 			SELECT
 				cvv.codigocancionversion,
 				cvv.numeroversion,
 				cvv.urlarchivocancionver,
-				cvv.formatoarchivocancionver
+				cvv.formatoarchivocancionver,
+				cvv.fechahoraaltaversion
 			FROM cancionversion cvv
 			WHERE cvv.codigocancion = c.codigocancion
 			  AND cvv.fechahorabajaversion IS NULL
 			ORDER BY cvv.numeroversion DESC
 			LIMIT 1
 		) cv ON TRUE
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND c.fechahorabajacancion IS NULL
-		ORDER BY c.codigocancion DESC
+		ORDER BY cv.fechahoraaltaversion DESC NULLS LAST,
+			c.codigocancion DESC
+		LIMIT $3 OFFSET $4
 	`,
 		codigoIntegrante,
+		escaparPatronLike(busqueda),
+		limite,
+		desplazamiento,
 	)
 
 	if err != nil {
