@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -70,8 +71,15 @@ type CancionRepository interface {
 		codigoCancion int64,
 	) ([]dto.VersionCancionListadoResponse, error)
 
+	ContarPorIntegrante(
+		codigoIntegrante int64,
+		filtro dto.ListarMisCancionesFiltro,
+	) (int, error)
+
 	ListarPorIntegrante(
 		codigoIntegrante int64,
+		filtro dto.ListarMisCancionesFiltro,
+		desplazamiento int,
 	) ([]dto.MiCancionListadoResponse, error)
 
 	ExisteNombreEnProyectoExceptoCancion(
@@ -628,11 +636,41 @@ func (r *cancionRepository) ListarVersiones(
 	return versiones, nil
 }
 
-func (r *cancionRepository) ListarPorIntegrante(
-	codigoIntegrante int64,
-) ([]dto.MiCancionListadoResponse, error) {
+// Las consultas de "mis canciones" se escriben completas y por separado (sin
+// concatenar fragmentos) para que el análisis estático las reconozca como SQL
+// constante. El FROM/WHERE debe mantenerse idéntico en ambas, porque
+// totalItems tiene que reflejar el mismo subconjunto que se pagina;
+// TestConsultasMisCancionesCompartenFiltro lo verifica.
+//
+// En ambas, $1 es el integrante, $2 el patrón de búsqueda ya escapado
+// (cadena vacía = sin filtro por nombre) y $3 los proyectos por los que se
+// filtra (arreglo vacío o NULL = todos los del integrante).
+//
+// El orden también viaja como parámetro ($4 en el listado) y se resuelve con
+// CASE, en lugar de armar el ORDER BY concatenando texto.
 
-	rows, err := r.db.Query(`
+const consultaContarMisCanciones = `
+		SELECT COUNT(*)
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
+		  )
+`
+
+const consultaListarMisCanciones = `
 		SELECT
 			c.codigocancion,
 			c.nombrecancion,
@@ -652,7 +690,8 @@ func (r *cancionRepository) ListarPorIntegrante(
 				cvv.codigocancionversion,
 				cvv.numeroversion,
 				cvv.urlarchivocancionver,
-				cvv.formatoarchivocancionver
+				cvv.formatoarchivocancionver,
+				cvv.fechahoraaltaversion
 			FROM cancionversion cvv
 			WHERE cvv.codigocancion = c.codigocancion
 			  AND cvv.fechahorabajaversion IS NULL
@@ -663,9 +702,83 @@ func (r *cancionRepository) ListarPorIntegrante(
 		  AND ip.fechahorabajaintegranteproy IS NULL
 		  AND p.fechahorabajaproyecto IS NULL
 		  AND c.fechahorabajacancion IS NULL
-		ORDER BY c.codigocancion DESC
-	`,
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
+		  )
+		ORDER BY
+			CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
+			CASE WHEN $4::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
+			CASE WHEN $4::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
+			c.codigocancion DESC
+		LIMIT $5 OFFSET $6
+`
+
+// proyectosComoArreglo adapta los códigos de proyecto al bigint[] que espera
+// la consulta. Un filtro vacío viaja como NULL, que la consulta interpreta
+// como "todos los proyectos del integrante".
+func proyectosComoArreglo(proyectos []int64) any {
+	if len(proyectos) == 0 {
+		return nil
+	}
+
+	return proyectos
+}
+
+// escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
+// de escape por defecto de PostgreSQL (\) para que la búsqueda sea literal.
+func escaparPatronLike(texto string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	).Replace(texto)
+}
+
+func (r *cancionRepository) ContarPorIntegrante(
+	codigoIntegrante int64,
+	filtro dto.ListarMisCancionesFiltro,
+) (int, error) {
+
+	var total int
+
+	err := r.db.QueryRow(
+		consultaContarMisCanciones,
 		codigoIntegrante,
+		escaparPatronLike(filtro.Busqueda),
+		proyectosComoArreglo(filtro.Proyectos),
+	).Scan(&total)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+// ListarPorIntegrante devuelve una página de las canciones de los proyectos
+// en los que participa el integrante, según el orden pedido. Con el orden por
+// defecto manda la fecha de la versión actual (proxy de "última
+// modificación") y las canciones sin versión quedan al final; en todos los
+// casos codigocancion desempata para que la paginación sea estable.
+func (r *cancionRepository) ListarPorIntegrante(
+	codigoIntegrante int64,
+	filtro dto.ListarMisCancionesFiltro,
+	desplazamiento int,
+) ([]dto.MiCancionListadoResponse, error) {
+
+	rows, err := r.db.Query(
+		consultaListarMisCanciones,
+		codigoIntegrante,
+		escaparPatronLike(filtro.Busqueda),
+		proyectosComoArreglo(filtro.Proyectos),
+		filtro.Orden,
+		filtro.TamanoPagina,
+		desplazamiento,
 	)
 
 	if err != nil {

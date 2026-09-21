@@ -14,6 +14,22 @@ jobs: #crea temporalemte una "computadora de github (ubuntu)"
     name: Validate Go Backend
     runs-on: ubuntu-latest
 
+    services: #PostgreSQL descartable para los tests de integración (se descarta al terminar el job)
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env: #los tests de integración se saltean si esta variable no está definida
+      TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/postgres?sslmode=disable
+
     steps:
       - name: Descargar código
         uses: actions/checkout@v7 #trae el código de stem-hub a la computadora temporal - checkout: coloca el contenido del repositorio dentro del workspace del runner para que los pasos siguiente puedan trabajar con él.
@@ -28,6 +44,15 @@ jobs: #crea temporalemte una "computadora de github (ubuntu)"
 
       - name: Analizar código con go vet #control de código
         run: go vet ./...
+
+      - name: Aplicar migraciones en la base de prueba #en orden, cortando ante el primer error
+        env:
+          PGPASSWORD: test
+        run: |
+          for migracion in migrations/*.sql; do
+            echo "Aplicando $migracion"
+            psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d postgres -q -f "$migracion"
+          done
 
       - name: Ejecutar tests
         run: go test ./... -coverprofile=coverage.out
