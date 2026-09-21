@@ -620,11 +620,17 @@ func (r *cancionRepository) ListarVersiones(
 	return versiones, nil
 }
 
-// filtroCancionesDeIntegrante es el FROM/WHERE compartido por el conteo y el
-// listado de "mis canciones", para que totalItems siempre refleje el mismo
-// subconjunto que se pagina. $1 es el integrante y $2 el patrón de búsqueda
-// ya escapado (cadena vacía = sin filtro por nombre).
-const filtroCancionesDeIntegrante = `
+// Las consultas de "mis canciones" se escriben completas y por separado (sin
+// concatenar fragmentos) para que el análisis estático las reconozca como SQL
+// constante. El FROM/WHERE debe mantenerse idéntico en ambas, porque
+// totalItems tiene que reflejar el mismo subconjunto que se pagina;
+// TestConsultasMisCancionesCompartenFiltro lo verifica.
+//
+// En ambas, $1 es el integrante y $2 el patrón de búsqueda ya escapado
+// (cadena vacía = sin filtro por nombre).
+
+const consultaContarMisCanciones = `
+		SELECT COUNT(*)
 		FROM integranteproyecto ip
 		INNER JOIN proyecto p
 			ON p.codigoproyecto = ip.codigoproyecto
@@ -638,6 +644,47 @@ const filtroCancionesDeIntegrante = `
 			$2::text = ''
 			OR c.nombrecancion ILIKE '%' || $2::text || '%'
 		  )
+`
+
+const consultaListarMisCanciones = `
+		SELECT
+			c.codigocancion,
+			c.nombrecancion,
+			p.codigoproyecto,
+			p.nombreproyecto,
+			cv.codigocancionversion,
+			cv.numeroversion,
+			cv.urlarchivocancionver,
+			cv.formatoarchivocancionver
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		LEFT JOIN LATERAL (
+			SELECT
+				cvv.codigocancionversion,
+				cvv.numeroversion,
+				cvv.urlarchivocancionver,
+				cvv.formatoarchivocancionver,
+				cvv.fechahoraaltaversion
+			FROM cancionversion cvv
+			WHERE cvv.codigocancion = c.codigocancion
+			  AND cvv.fechahorabajaversion IS NULL
+			ORDER BY cvv.numeroversion DESC
+			LIMIT 1
+		) cv ON TRUE
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		ORDER BY cv.fechahoraaltaversion DESC NULLS LAST,
+			c.codigocancion DESC
+		LIMIT $3 OFFSET $4
 `
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
@@ -658,7 +705,7 @@ func (r *cancionRepository) ContarPorIntegrante(
 	var total int
 
 	err := r.db.QueryRow(
-		`SELECT COUNT(*)`+filtroCancionesDeIntegrante,
+		consultaContarMisCanciones,
 		codigoIntegrante,
 		escaparPatronLike(busqueda),
 	).Scan(&total)
@@ -681,41 +728,8 @@ func (r *cancionRepository) ListarPorIntegrante(
 	desplazamiento int,
 ) ([]dto.MiCancionListadoResponse, error) {
 
-	rows, err := r.db.Query(`
-		SELECT
-			c.codigocancion,
-			c.nombrecancion,
-			p.codigoproyecto,
-			p.nombreproyecto,
-			cv.codigocancionversion,
-			cv.numeroversion,
-			cv.urlarchivocancionver,
-			cv.formatoarchivocancionver
-		FROM (
-			SELECT c.codigocancion
-			`+filtroCancionesDeIntegrante+`
-		) filtradas
-		INNER JOIN cancion c
-			ON c.codigocancion = filtradas.codigocancion
-		INNER JOIN proyecto p
-			ON p.codigoproyecto = c.codigoproyecto
-		LEFT JOIN LATERAL (
-			SELECT
-				cvv.codigocancionversion,
-				cvv.numeroversion,
-				cvv.urlarchivocancionver,
-				cvv.formatoarchivocancionver,
-				cvv.fechahoraaltaversion
-			FROM cancionversion cvv
-			WHERE cvv.codigocancion = c.codigocancion
-			  AND cvv.fechahorabajaversion IS NULL
-			ORDER BY cvv.numeroversion DESC
-			LIMIT 1
-		) cv ON TRUE
-		ORDER BY cv.fechahoraaltaversion DESC NULLS LAST,
-			c.codigocancion DESC
-		LIMIT $3 OFFSET $4
-	`,
+	rows, err := r.db.Query(
+		consultaListarMisCanciones,
 		codigoIntegrante,
 		escaparPatronLike(busqueda),
 		limite,

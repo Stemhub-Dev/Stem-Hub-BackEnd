@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -35,6 +36,32 @@ var columnasMisCanciones = []string{
 	"numeroversion",
 	"urlarchivocancionver",
 	"formatoarchivocancionver",
+}
+
+// El conteo y el listado repiten el FROM/WHERE porque ambas consultas se
+// escriben completas (sin concatenar fragmentos). Si una se edita y la otra
+// no, totalItems dejaría de reflejar lo que se pagina.
+func TestConsultasMisCancionesCompartenFiltro(t *testing.T) {
+	condiciones := []string{
+		"FROM integranteproyecto ip",
+		"INNER JOIN proyecto p",
+		"INNER JOIN cancion c",
+		"ip.codintegrante = $1",
+		"ip.fechahorabajaintegranteproy IS NULL",
+		"p.fechahorabajaproyecto IS NULL",
+		"c.fechahorabajacancion IS NULL",
+		"$2::text = ''",
+		"c.nombrecancion ILIKE '%' || $2::text || '%'",
+	}
+
+	for _, condicion := range condiciones {
+		if !strings.Contains(consultaContarMisCanciones, condicion) {
+			t.Errorf("falta %q en la consulta de conteo", condicion)
+		}
+		if !strings.Contains(consultaListarMisCanciones, condicion) {
+			t.Errorf("falta %q en la consulta de listado", condicion)
+		}
+	}
 }
 
 func TestEscaparPatronLike(t *testing.T) {
