@@ -129,6 +129,41 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 	}
 }
 
+// parsearFiltroProyectos arma el filtro de GET /proyectos a partir de q,
+// estadoId, tipoId (repetibles, códigos de /configuracion/estados-proyecto y
+// /configuracion/tipos-proyecto), page y pageSize. Devuelve un mensaje de
+// error si algún valor es inválido.
+func parsearFiltroProyectos(
+	c *gin.Context,
+) (dto.ListarProyectosFiltro, string) {
+
+	estados, mensajeError := parsearCodigos(c, "estadoId")
+
+	if mensajeError != "" {
+		return dto.ListarProyectosFiltro{}, mensajeError
+	}
+
+	tipos, mensajeError := parsearCodigos(c, "tipoId")
+
+	if mensajeError != "" {
+		return dto.ListarProyectosFiltro{}, mensajeError
+	}
+
+	pagina, tamanoPagina, mensajeError := parsearPaginacion(c)
+
+	if mensajeError != "" {
+		return dto.ListarProyectosFiltro{}, mensajeError
+	}
+
+	return dto.ListarProyectosFiltro{
+		Busqueda:     strings.TrimSpace(c.Query("q")),
+		Estados:      estados,
+		Tipos:        tipos,
+		Pagina:       pagina,
+		TamanoPagina: tamanoPagina,
+	}, ""
+}
+
 func (h *ProyectoHandler) Listar(c *gin.Context) {
 
 	valorUsuario, existe :=
@@ -153,9 +188,21 @@ func (h *ProyectoHandler) Listar(c *gin.Context) {
 		return
 	}
 
+	filtro, mensajeError :=
+		parsearFiltroProyectos(c)
+
+	if mensajeError != "" {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": mensajeError},
+		)
+		return
+	}
+
 	proyectos, err :=
 		h.service.ListarProyectos(
 			usuario.CodigoUsuario,
+			filtro,
 		)
 
 	if err != nil {

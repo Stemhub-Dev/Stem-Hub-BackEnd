@@ -62,6 +62,27 @@ func TestMisCanciones_RequiereAutenticacion(t *testing.T) {
 	}
 }
 
+func TestMisProyectos_RequiereAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	for _, url := range []string{
+		"/proyectos",
+		"/proyectos?q=rock&estadoId=2&tipoId=1&page=2&pageSize=5",
+	} {
+		t.Run(url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(
+				grabador,
+				httptest.NewRequest(http.MethodGet, url, nil),
+			)
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
+	}
+}
+
 func TestMisCanciones_SoloAceptaGet(t *testing.T) {
 	router := nuevoRouterDePrueba(t)
 

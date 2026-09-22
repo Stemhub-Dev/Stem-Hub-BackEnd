@@ -71,8 +71,15 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) (bool, error)
 
+	ContarPorIntegrante(
+		codigoIntegrante int64,
+		filtro dto.ListarProyectosFiltro,
+	) (int, error)
+
 	ListarPorIntegrante(
 		codigoIntegrante int64,
+		filtro dto.ListarProyectosFiltro,
+		desplazamiento int,
 	) ([]dto.ProyectoListadoResponse, error)
 
 	ListarColaboradores(
@@ -413,11 +420,50 @@ func (r *proyectoRepository) EsPropietarioActivo(
 	return esPropietario, err
 }
 
-func (r *proyectoRepository) ListarPorIntegrante(
-	codigoIntegrante int64,
-) ([]dto.ProyectoListadoResponse, error) {
+// Las consultas de "mis proyectos" se escriben completas y por separado, sin
+// concatenar fragmentos, para que el análisis estático las reconozca como SQL
+// constante. El FROM/WHERE debe ser idéntico en ambas (incluidos los JOIN,
+// que también filtran filas) para que totalItems refleje lo que se pagina;
+// TestConsultasMisProyectosCompartenFiltro lo verifica.
+//
+// En ambas: $1 integrante, $2 patrón de búsqueda ya escapado (cadena vacía =
+// sin filtro), $3 códigos de estado y $4 códigos de tipo (NULL o arreglo
+// vacío = sin filtro).
 
-	rows, err := r.db.Query(`
+const consultaContarMisProyectos = `
+		SELECT COUNT(*)
+		FROM integranteproyecto ip
+		JOIN proyecto p
+		  ON p.codigoproyecto = ip.codigoproyecto
+		JOIN tipoproyecto tp
+		  ON tp.codtipoproy = p.codtipoproy
+		JOIN estadoproyecto ep
+		  ON ep.codestadoproy = p.codestadoproy
+		JOIN rol r
+		  ON r.codrol = ip.codrol
+		 AND r.ambitorol = ip.ambitorol
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND (
+			$2::text = ''
+			OR p.nombreproyecto ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR p.codestadoproy = ANY($3::bigint[])
+		  )
+		  AND (
+			COALESCE(array_length($4::bigint[], 1), 0) = 0
+			OR p.codtipoproy = ANY($4::bigint[])
+		  )
+`
+
+// La fecha de última modificación se deriva: el proyecto no guarda una. Es
+// lo más reciente entre su alta (la del primer integrante, que es quien lo
+// creó) y la última versión activa de alguna de sus canciones activas.
+// GREATEST ignora el NULL de un proyecto sin versiones.
+const consultaListarMisProyectos = `
 		SELECT
 			p.codigoproyecto,
 			p.nombreproyecto,
@@ -433,7 +479,8 @@ func (r *proyectoRepository) ListarPorIntegrante(
 			) AS cantidadcanciones,
 			ip.codrol,
 			r.nombrerol,
-			ip.espropietario
+			ip.espropietario,
+			actividad.fechaultimamodificacion
 		FROM integranteproyecto ip
 		JOIN proyecto p
 		  ON p.codigoproyecto = ip.codigoproyecto
@@ -444,12 +491,90 @@ func (r *proyectoRepository) ListarPorIntegrante(
 		JOIN rol r
 		  ON r.codrol = ip.codrol
 		 AND r.ambitorol = ip.ambitorol
+		CROSS JOIN LATERAL (
+			SELECT GREATEST(
+				(
+					SELECT MIN(alta.fechahoraaltaintegranteproy)
+					FROM integranteproyecto alta
+					WHERE alta.codigoproyecto = p.codigoproyecto
+				),
+				(
+					SELECT MAX(cv.fechahoraaltaversion)
+					FROM cancion c
+					JOIN cancionversion cv
+					  ON cv.codigocancion = c.codigocancion
+					WHERE c.codigoproyecto = p.codigoproyecto
+					  AND c.fechahorabajacancion IS NULL
+					  AND cv.fechahorabajaversion IS NULL
+				)
+			) AS fechaultimamodificacion
+		) actividad
 		WHERE ip.codintegrante = $1
 		  AND ip.fechahorabajaintegranteproy IS NULL
 		  AND p.fechahorabajaproyecto IS NULL
-		ORDER BY p.codigoproyecto DESC
-	`,
+		  AND (
+			$2::text = ''
+			OR p.nombreproyecto ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR p.codestadoproy = ANY($3::bigint[])
+		  )
+		  AND (
+			COALESCE(array_length($4::bigint[], 1), 0) = 0
+			OR p.codtipoproy = ANY($4::bigint[])
+		  )
+		ORDER BY actividad.fechaultimamodificacion DESC,
+			p.codigoproyecto DESC
+		LIMIT $5 OFFSET $6
+`
+
+// codigosComoArreglo adapta un filtro por códigos al bigint[] que esperan las
+// consultas. Vacío viaja como NULL, que las consultas leen como "sin filtro".
+func codigosComoArreglo(codigos []int64) any {
+	if len(codigos) == 0 {
+		return nil
+	}
+
+	return codigos
+}
+
+func (r *proyectoRepository) ContarPorIntegrante(
+	codigoIntegrante int64,
+	filtro dto.ListarProyectosFiltro,
+) (int, error) {
+
+	var total int
+
+	err := r.db.QueryRow(
+		consultaContarMisProyectos,
 		codigoIntegrante,
+		escaparPatronLike(filtro.Busqueda),
+		codigosComoArreglo(filtro.Estados),
+		codigosComoArreglo(filtro.Tipos),
+	).Scan(&total)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+func (r *proyectoRepository) ListarPorIntegrante(
+	codigoIntegrante int64,
+	filtro dto.ListarProyectosFiltro,
+	desplazamiento int,
+) ([]dto.ProyectoListadoResponse, error) {
+
+	rows, err := r.db.Query(
+		consultaListarMisProyectos,
+		codigoIntegrante,
+		escaparPatronLike(filtro.Busqueda),
+		codigosComoArreglo(filtro.Estados),
+		codigosComoArreglo(filtro.Tipos),
+		filtro.TamanoPagina,
+		desplazamiento,
 	)
 
 	if err != nil {
@@ -478,6 +603,7 @@ func (r *proyectoRepository) ListarPorIntegrante(
 			&proyecto.CodRol,
 			&proyecto.NombreRol,
 			&proyecto.EsPropietario,
+			&proyecto.FechaUltimaModificacion,
 		)
 
 		if err != nil {
