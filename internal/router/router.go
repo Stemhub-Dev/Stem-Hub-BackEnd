@@ -22,6 +22,7 @@ func NewRouter(db *sql.DB,
 	invitacionProyectoHandler *handler.InvitacionProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
+	reporteHandler *handler.ReporteHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -242,6 +243,15 @@ func NewRouter(db *sql.DB,
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
 		comentarioHandler.ListarPorVersion,
 	)
+
+	reportes := router.Group("/report/reportes")
+	reportes.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	reportes.GET("", reporteHandler.Listar)
+	reportes.POST("/:tipo/generar", reporteHandler.Generar)
+	reportes.POST("/:tipo/exportar-pdf", reporteHandler.ExportarPDF)
 
 	router.GET(
 		"/canciones",
