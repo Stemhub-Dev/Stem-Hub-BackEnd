@@ -24,3 +24,6 @@ coverage.out
 # Supabase CLI (instalada vía npx, ver package.json)
 node_modules/
 
+# Configuración local de IDE
+.vscode/
+

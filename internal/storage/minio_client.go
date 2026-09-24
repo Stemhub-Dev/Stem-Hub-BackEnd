@@ -17,13 +17,18 @@ type AudioStorage interface {
 	ObtenerURLDescarga(ctx context.Context, objectKey string, vigencia time.Duration) (string, error)
 }
 
+type MinioStorage interface {
+	AudioStorage
+	FileStorage
+}
+
 type minioAudioStorage struct {
 	client       *minio.Client
 	publicClient *minio.Client
 	bucket       string
 }
 
-func NewMinioAudioStorage() (AudioStorage, error) {
+func NewMinioAudioStorage() (MinioStorage, error) {
 	endpoint := os.Getenv("MINIO_ENDPOINT")
 	accessKey := os.Getenv("MINIO_ACCESS_KEY")
 	secretKey := os.Getenv("MINIO_SECRET_KEY")

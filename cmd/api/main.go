@@ -160,6 +160,23 @@ func main() {
 	)
 	comentarioHandler := handler.NewComentarioHandler(comentarioService)
 
+	// Pregunta frecuente
+	preguntaFrecuenteRepository := repository.NewPreguntaFrecuenteRepository(db)
+	preguntaFrecuenteService := service.NewPreguntaFrecuenteService(preguntaFrecuenteRepository)
+	preguntaFrecuenteHandler := handler.NewPreguntaFrecuenteHandler(preguntaFrecuenteService)
+
+	// Manual de usuario
+	manualBucket := os.Getenv("MINIO_MANUAL_BUCKET")
+	if manualBucket == "" {
+		manualBucket = "documentos"
+	}
+	manualObject := os.Getenv("MINIO_MANUAL_OBJECT")
+	if manualObject == "" {
+		manualObject = "manual-usuario.pdf"
+	}
+	manualService := service.NewManualService(audioStorage, manualBucket, manualObject)
+	manualHandler := handler.NewManualHandler(manualService)
+
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
@@ -176,6 +193,8 @@ func main() {
 		comentarioHandler,
 		permisoHandler,
 		rolPermisoHandler,
+		preguntaFrecuenteHandler,
+		manualHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,

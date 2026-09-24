@@ -23,6 +23,8 @@ func NewRouter(db *sql.DB,
 	comentarioHandler *handler.ComentarioHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
+	preguntaFrecuenteHandler *handler.PreguntaFrecuenteHandler,
+	manualHandler *handler.ManualHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 	corsAllowedOrigins []string,
@@ -312,6 +314,39 @@ func NewRouter(db *sql.DB,
 		"",
 		invitacionProyectoHandler.MisInvitaciones,
 	)
+
+	preguntasFrecuentes := router.Group("/preguntas-frecuentes")
+	preguntasFrecuentes.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+
+	preguntasFrecuentes.GET(
+		"",
+		preguntaFrecuenteHandler.Listar,
+	)
+
+	preguntasFrecuentes.GET(
+		"/:id",
+		preguntaFrecuenteHandler.ObtenerPorID,
+	)
+
+	// Manual de usuario (PDF descargable vía backend)
+	// Protegido: cualquier usuario autenticado y activo en StemHub puede descargarlo.
+	manualUsuario := router.Group("/manual-usuario")
+	manualUsuario.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	manualUsuario.GET("/pdf", manualHandler.DescargarManual)
+
+	// Alias /api/manual-usuario/pdf con la misma protección
+	apiManualUsuario := router.Group("/api/manual-usuario")
+	apiManualUsuario.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	apiManualUsuario.GET("/pdf", manualHandler.DescargarManual)
 
 	return router
 }
