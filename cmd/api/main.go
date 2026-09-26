@@ -174,6 +174,15 @@ func main() {
 	)
 	comentarioHandler := handler.NewComentarioHandler(comentarioService)
 
+	// Reportes
+	reporteRepository := repository.NewReporteRepository(db)
+	reporteService := service.NewReporteService(
+		reporteRepository,
+		proyectoRepository,
+		integranteRepository,
+	)
+	reporteHandler := handler.NewReporteHandler(reporteService)
+
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
@@ -189,6 +198,7 @@ func main() {
 		invitacionProyectoHandler,
 		cancionHandler,
 		comentarioHandler,
+		reporteHandler,
 		permisoHandler,
 		rolPermisoHandler,
 		authMiddleware,
