@@ -35,6 +35,10 @@ var (
 		"la versión no existe en la canción",
 	)
 
+	ErrComentarioStemNoEncontrado = errors.New(
+		"el stem no existe en la versión",
+	)
+
 	ErrComentarioSinAcceso = errors.New(
 		"el usuario no pertenece al proyecto",
 	)
@@ -180,9 +184,25 @@ func (s *comentarioService) Crear(
 		return nil, err
 	}
 
+	if request.CodStem != nil {
+		existeStem, err := s.comentarioRepository.ExisteStemActivoEnVersion(
+			*request.CodStem,
+			codigoVersion,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if !existeStem {
+			return nil, ErrComentarioStemNoEncontrado
+		}
+	}
+
 	codigoComentario, err := s.comentarioRepository.Crear(
 		integrante.CodIntegrante,
 		codigoVersion,
+		request.CodStem,
 		request.Texto,
 		request.TiempoInicioSegundos,
 		request.TiempoFinSegundos,
@@ -194,6 +214,7 @@ func (s *comentarioService) Crear(
 
 	return &dto.CrearComentarioResponse{
 		CodigoComentario:     codigoComentario,
+		CodStem:              request.CodStem,
 		Texto:                request.Texto,
 		Estado:               "Pendiente",
 		TiempoInicioSegundos: request.TiempoInicioSegundos,

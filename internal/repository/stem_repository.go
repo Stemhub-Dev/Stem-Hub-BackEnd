@@ -71,7 +71,8 @@ type StemRepository interface {
 		archivo *ArchivoStemGuardado,
 	) error
 
-	// Borrado real de la fila (HU-ABM-04-03).
+	// Borrado real de la fila, junto con sus comentarios y las respuestas a
+	// esos comentarios (HU-ABM-04-03 CA2).
 	Eliminar(
 		codStem int64,
 	) error
@@ -425,12 +426,31 @@ func (r *stemRepository) Eliminar(
 	codStem int64,
 ) error {
 
-	_, err := r.db.Exec(`
-		DELETE FROM stem
-		WHERE codstem = $1
-	`,
-		codStem,
-	)
+	tx, err := r.db.Begin()
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	// Las FK son RESTRICT: primero las respuestas, después los comentarios
+	// y recién ahí el stem. Incluye los comentarios ya dados de baja, que
+	// también referencian al stem.
+	sentencias := []string{
+		`DELETE FROM comentariorespuesta
+		 WHERE codigocomentario IN (
+			SELECT codigocomentario FROM comentario WHERE codstem = $1
+		 )`,
+		`DELETE FROM comentario WHERE codstem = $1`,
+		`DELETE FROM stem WHERE codstem = $1`,
+	}
+
+	for _, sentencia := range sentencias {
+		if _, err := tx.Exec(sentencia, codStem); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

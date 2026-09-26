@@ -142,6 +142,10 @@ func (h *ComentarioHandler) Crear(c *gin.Context) {
 		errors.Is(
 			err,
 			service.ErrComentarioVersionNoEncontrada,
+		),
+		errors.Is(
+			err,
+			service.ErrComentarioStemNoEncontrado,
 		):
 
 		c.JSON(
