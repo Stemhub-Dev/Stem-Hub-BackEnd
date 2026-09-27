@@ -47,6 +47,10 @@ func (storageDePrueba) Subir(context.Context, string, io.Reader, int64, string) 
 	return nil
 }
 
+func (storageDePrueba) Eliminar(context.Context, string) error {
+	return nil
+}
+
 func (storageDePrueba) ObtenerURLDescarga(_ context.Context, objectKey string, _ time.Duration) (string, error) {
 	return "https://storage.test/" + objectKey + "?firma=ok", nil
 }

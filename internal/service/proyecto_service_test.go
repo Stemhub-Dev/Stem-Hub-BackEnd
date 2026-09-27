@@ -59,6 +59,10 @@ func (storageFalso) Subir(context.Context, string, io.Reader, int64, string) err
 	return nil
 }
 
+func (storageFalso) Eliminar(context.Context, string) error {
+	return nil
+}
+
 func (s storageFalso) ObtenerURLDescarga(_ context.Context, objectKey string, _ time.Duration) (string, error) {
 	if s.err != nil {
 		return "", s.err
