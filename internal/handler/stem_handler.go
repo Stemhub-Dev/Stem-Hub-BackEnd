@@ -9,16 +9,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 )
 
 type StemHandler struct {
-	service service.StemService
+	service    service.StemService
+	separacion service.SeparacionStemService
 }
 
-func NewStemHandler(service service.StemService) *StemHandler {
+func NewStemHandler(
+	service service.StemService,
+	separacion service.SeparacionStemService,
+) *StemHandler {
 	return &StemHandler{
-		service: service,
+		service:    service,
+		separacion: separacion,
 	}
 }
 
@@ -129,6 +135,16 @@ func responderErrorStem(c *gin.Context, err error) {
 		}
 	case errors.Is(err, service.ErrCancionErrorAlmacenamiento):
 		r = respuesta{http.StatusInternalServerError, "No se pudo guardar el archivo del stem"}
+	case errors.Is(err, service.ErrSeparacionCantidadInvalida):
+		r = respuesta{http.StatusBadRequest, "La cantidad de stems debe ser 2, 4 o 5."}
+	case errors.Is(err, service.ErrSeparacionVersionSinArchivo):
+		r = respuesta{http.StatusUnprocessableEntity, "La versión no tiene un archivo de audio para separar."}
+	case errors.Is(err, service.ErrSeparacionEnCurso):
+		r = respuesta{http.StatusConflict, "Ya se están separando las pistas de esta versión."}
+	case errors.Is(err, service.ErrSeparacionYaGenerada):
+		r = respuesta{http.StatusConflict, "Esta versión ya tiene stems generados con IA. Eliminalos antes de volver a separar."}
+	case errors.Is(err, service.ErrSeparacionNoEncontrada):
+		r = respuesta{http.StatusNotFound, "Todavía no se separaron las pistas de esta versión"}
 	default:
 		log.Println("Error en stems:", err)
 		r = respuesta{http.StatusInternalServerError, "Error al procesar el stem"}
@@ -333,4 +349,65 @@ func (h *StemHandler) ObtenerAudio(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, audio)
+}
+
+// POST .../versiones/:versionId/stems/separacion — "Separar Pistas" con IA.
+// Cuerpo opcional {"cantidadStems": 2|4|5} (4 si no viene). Responde 202 con
+// la separación PENDIENTE; el resultado se consulta con el GET de abajo.
+func (h *StemHandler) SolicitarSeparacion(c *gin.Context) {
+
+	ruta, ok := leerRutaStem(c, false)
+
+	if !ok {
+		return
+	}
+
+	var request dto.SolicitarSeparacionStemsRequest
+
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Solicitud inválida"})
+			return
+		}
+	}
+
+	separacion, err := h.separacion.Solicitar(
+		ruta.codigoUsuario,
+		ruta.codigoProyecto,
+		ruta.codigoCancion,
+		ruta.codigoVersion,
+		request.CantidadStems,
+	)
+
+	if err != nil {
+		responderErrorStem(c, err)
+		return
+	}
+
+	c.JSON(http.StatusAccepted, separacion)
+}
+
+// GET .../versiones/:versionId/stems/separacion — estado de la última
+// separación de la versión, para consultar hasta que termine.
+func (h *StemHandler) ObtenerSeparacion(c *gin.Context) {
+
+	ruta, ok := leerRutaStem(c, false)
+
+	if !ok {
+		return
+	}
+
+	separacion, err := h.separacion.ObtenerUltima(
+		ruta.codigoUsuario,
+		ruta.codigoProyecto,
+		ruta.codigoCancion,
+		ruta.codigoVersion,
+	)
+
+	if err != nil {
+		responderErrorStem(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, separacion)
 }

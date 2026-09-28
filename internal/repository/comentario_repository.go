@@ -60,6 +60,12 @@ type ComentarioRepository interface {
 		codigoVersion int64,
 		estado string,
 	) (bool, error)
+
+	// Nombre de la canción y número de la versión, para darle contexto al
+	// resumen de comentarios con IA.
+	ObtenerContextoVersion(
+		codigoVersion int64,
+	) (nombreCancion string, numeroVersion int, err error)
 }
 
 type comentarioRepository struct {
@@ -499,4 +505,26 @@ func punteroSiValido(valor sql.NullInt64) *int64 {
 		return nil
 	}
 	return &valor.Int64
+}
+
+func (r *comentarioRepository) ObtenerContextoVersion(
+	codigoVersion int64,
+) (string, int, error) {
+
+	var nombreCancion string
+	var numeroVersion int
+
+	err := r.db.QueryRow(`
+		SELECT
+			c.nombrecancion,
+			cv.numeroversion
+		FROM cancionversion cv
+		JOIN cancion c
+		  ON c.codigocancion = cv.codigocancion
+		WHERE cv.codigocancionversion = $1
+	`,
+		codigoVersion,
+	).Scan(&nombreCancion, &numeroVersion)
+
+	return nombreCancion, numeroVersion, err
 }

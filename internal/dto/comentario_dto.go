@@ -72,3 +72,16 @@ type CambiarEstadoComentarioResponse struct {
 	CodigoComentario int64  `json:"codigoComentario"`
 	Estado           string `json:"estado"`
 }
+
+// Resumen de los comentarios de una versión generado con IA
+// (stemhub-microservicio-IA). No se guarda: cada pedido lo genera de nuevo.
+type ResumenComentariosResponse struct {
+	Resumen               string   `json:"resumen"`
+	PuntosClave           []string `json:"puntosClave"`
+	Acuerdos              []string `json:"acuerdos"`
+	Desacuerdos           []string `json:"desacuerdos"`
+	SentimientoGeneral    string   `json:"sentimientoGeneral"`
+	CantidadComentarios   int      `json:"cantidadComentarios"`
+	Proveedor             string   `json:"proveedor"`
+	TiempoProcesamientoMs int64    `json:"tiempoProcesamientoMs"`
+}

@@ -171,39 +171,18 @@ func (s *stemService) validarAcceso(
 	permiso string,
 ) error {
 
-	if err := s.validarAccesoProyecto(codigoUsuario, codigoProyecto, permiso); err != nil {
-		return err
-	}
+	_, err := validarAccesoVersionStem(
+		s.proyectoRepository,
+		s.cancionRepository,
+		s.integranteRepository,
+		codigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+		codigoVersion,
+		permiso,
+	)
 
-	existeCancion, err :=
-		s.cancionRepository.ExisteCancionActivaEnProyecto(
-			codigoProyecto,
-			codigoCancion,
-		)
-
-	if err != nil {
-		return err
-	}
-
-	if !existeCancion {
-		return ErrStemVersionNoEncontrada
-	}
-
-	existeVersion, err :=
-		s.cancionRepository.ExisteVersionActivaEnCancion(
-			codigoCancion,
-			codigoVersion,
-		)
-
-	if err != nil {
-		return err
-	}
-
-	if !existeVersion {
-		return ErrStemVersionNoEncontrada
-	}
-
-	return nil
+	return err
 }
 
 func (s *stemService) validarAccesoProyecto(
@@ -212,66 +191,141 @@ func (s *stemService) validarAccesoProyecto(
 	permiso string,
 ) error {
 
+	_, err := validarAccesoProyectoStem(
+		s.proyectoRepository,
+		s.integranteRepository,
+		codigoUsuario,
+		codigoProyecto,
+		permiso,
+	)
+
+	return err
+}
+
+// validarAccesoVersionStem es validarAcceso como función del paquete, para
+// reusarla desde la separación de stems; devuelve el integrante del usuario.
+func validarAccesoVersionStem(
+	proyectoRepository repository.ProyectoRepository,
+	cancionRepository repository.CancionRepository,
+	integranteRepository repository.IntegranteRepository,
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoVersion int64,
+	permiso string,
+) (*model.Integrante, error) {
+
+	integrante, err := validarAccesoProyectoStem(
+		proyectoRepository,
+		integranteRepository,
+		codigoUsuario,
+		codigoProyecto,
+		permiso,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	existeCancion, err :=
+		cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeCancion {
+		return nil, ErrStemVersionNoEncontrada
+	}
+
+	existeVersion, err :=
+		cancionRepository.ExisteVersionActivaEnCancion(
+			codigoCancion,
+			codigoVersion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeVersion {
+		return nil, ErrStemVersionNoEncontrada
+	}
+
+	return integrante, nil
+}
+
+func validarAccesoProyectoStem(
+	proyectoRepository repository.ProyectoRepository,
+	integranteRepository repository.IntegranteRepository,
+	codigoUsuario int64,
+	codigoProyecto int64,
+	permiso string,
+) (*model.Integrante, error) {
+
 	existeProyecto, err :=
-		s.proyectoRepository.ExisteProyectoActivo(
+		proyectoRepository.ExisteProyectoActivo(
 			codigoProyecto,
 		)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !existeProyecto {
-		return ErrStemProyectoNoEncontrado
+		return nil, ErrStemProyectoNoEncontrado
 	}
 
 	integrante, err :=
-		s.integranteRepository.BuscarPorCodigoUsuario(
+		integranteRepository.BuscarPorCodigoUsuario(
 			codigoUsuario,
 		)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrCancionPerfilRequerido
+		return nil, ErrCancionPerfilRequerido
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	esIntegrante, err :=
-		s.proyectoRepository.EsIntegranteActivo(
+		proyectoRepository.EsIntegranteActivo(
 			integrante.CodIntegrante,
 			codigoProyecto,
 		)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !esIntegrante {
-		return ErrStemSinAcceso
+		return nil, ErrStemSinAcceso
 	}
 
 	if permiso == "" {
-		return nil
+		return integrante, nil
 	}
 
 	puede, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
+		proyectoRepository.PuedeRealizarEnProyecto(
 			integrante.CodIntegrante,
 			codigoProyecto,
 			permiso,
 		)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !puede {
-		return ErrStemSinPermiso
+		return nil, ErrStemSinPermiso
 	}
 
-	return nil
+	return integrante, nil
 }
 
 func validarNombreStem(nombre string) (string, error) {

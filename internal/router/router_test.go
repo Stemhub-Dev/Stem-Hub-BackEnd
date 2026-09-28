@@ -121,3 +121,30 @@ func TestStems_RequierenAutenticacion(t *testing.T) {
 		})
 	}
 }
+
+func TestRutasDeIA_RequierenAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	base := "/proyectos/1/canciones/2/versiones/3"
+
+	for _, caso := range []struct {
+		metodo string
+		url    string
+	}{
+		{http.MethodPost, base + "/stems/separacion"},
+		{http.MethodGet, base + "/stems/separacion"},
+		{http.MethodGet, base + "/comentarios/resumen"},
+	} {
+		t.Run(caso.metodo+" "+caso.url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(
+				grabador,
+				httptest.NewRequest(caso.metodo, caso.url, nil),
+			)
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
+	}
+}

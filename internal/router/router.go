@@ -279,6 +279,25 @@ func NewRouter(db *sql.DB,
 		stemHandler.ObtenerAudio,
 	)
 
+	// "Separar Pistas" con IA: se procesa en segundo plano, el GET devuelve
+	// el estado de la última separación. Separar exige GESTIONAR_STEMS.
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
+		stemHandler.SolicitarSeparacion,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
+		stemHandler.ObtenerSeparacion,
+	)
+
+	// Resumen de los comentarios de la versión generado con IA. Se calcula
+	// en cada pedido, no se guarda.
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/resumen",
+		comentarioHandler.ResumirPorVersion,
+	)
+
 	reportes := router.Group("/report/reportes")
 	reportes.Use(
 		authMiddleware.ValidarJWT,

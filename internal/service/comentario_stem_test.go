@@ -40,6 +40,7 @@ func nuevoServicioComentarios(repo *comentarioRepositoryFalso) ComentarioService
 		&proyectoAccesoFalso{},
 		&cancionExistenciaFalsa{},
 		&integranteRepositoryFalso{integrante: &model.Integrante{CodIntegrante: 42}},
+		nil,
 	)
 }
 
