@@ -349,6 +349,19 @@ go vet ./...
 go test ./...
 ```
 
+Los tests de integración (por ejemplo `internal/handler/mis_canciones_integracion_test.go`) corren contra un PostgreSQL real y se saltean si no está definida `TEST_DATABASE_URL`. Cada ejecución crea sus propios datos y los borra al terminar, pero conviene usar una base descartable y no la de desarrollo:
+
+```bash
+docker run -d --rm --name stemhub-pg-test -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:16-alpine
+for migracion in migrations/*.sql; do
+  PGPASSWORD=test psql -v ON_ERROR_STOP=1 -h localhost -p 55432 -U postgres -q -f "$migracion"
+done
+TEST_DATABASE_URL="postgres://postgres:test@localhost:55432/postgres?sslmode=disable" go test ./...
+docker stop stemhub-pg-test
+```
+
+En CI el job levanta ese PostgreSQL como servicio y aplica las migraciones antes de `go test`.
+
 ### Verificar compilación
 
 ```bash

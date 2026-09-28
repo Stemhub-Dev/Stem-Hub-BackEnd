@@ -15,6 +15,7 @@ import (
 type AudioStorage interface {
 	Subir(ctx context.Context, objectKey string, contenido io.Reader, tamano int64, contentType string) error
 	ObtenerURLDescarga(ctx context.Context, objectKey string, vigencia time.Duration) (string, error)
+	Eliminar(ctx context.Context, objectKey string) error
 }
 
 type minioAudioStorage struct {
@@ -132,4 +133,13 @@ func (s *minioAudioStorage) ObtenerURLDescarga(
 	}
 
 	return url.String(), nil
+}
+
+func (s *minioAudioStorage) Eliminar(ctx context.Context, objectKey string) error {
+
+	if err := s.client.RemoveObject(ctx, s.bucket, objectKey, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("error al eliminar el archivo en MinIO: %w", err)
+	}
+
+	return nil
 }

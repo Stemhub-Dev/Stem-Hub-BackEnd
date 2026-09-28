@@ -16,7 +16,22 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
 
-const TamanoMaximoArchivoAudio int64 = 100 * 1024 * 1024 // 100 MB
+// Tamaño máximo de la pista de una canción y de un stem, en bytes. Se
+// configuran al arrancar (TAMANO_MAXIMO_CANCION_MB / TAMANO_MAXIMO_STEM_MB,
+// ver ConfigurarTamanosMaximos); 100 MB si no se definen.
+var (
+	TamanoMaximoArchivoAudio int64 = 100 * bytesPorMB
+	TamanoMaximoArchivoStem  int64 = 100 * bytesPorMB
+)
+
+const bytesPorMB int64 = 1024 * 1024
+
+// ConfigurarTamanosMaximos fija los límites de subida en MB. Se llama una
+// sola vez desde main, antes de levantar el router.
+func ConfigurarTamanosMaximos(cancionMB, stemMB int64) {
+	TamanoMaximoArchivoAudio = cancionMB * bytesPorMB
+	TamanoMaximoArchivoStem = stemMB * bytesPorMB
+}
 
 var formatosAudioPermitidos = map[string]string{
 	"mp3":  "audio/mpeg",
@@ -81,16 +96,8 @@ var (
 		"la versión no tiene un archivo de audio cargado",
 	)
 
-	ErrStemNombreObligatorio = errors.New(
-		"cada stem debe tener un nombre",
-	)
-
-	ErrStemFormatoInvalido = errors.New(
-		"el formato de un stem no está soportado",
-	)
-
-	ErrStemArchivoDemasiadoGrande = errors.New(
-		"un stem supera el tamaño máximo permitido",
+	ErrCancionNoEncontrada = errors.New(
+		"la canción no existe en el proyecto",
 	)
 )
 
@@ -102,16 +109,6 @@ const VigenciaURLDescargaAudio = 15 * time.Minute
 // desacoplado de multipart.FileHeader para no filtrar detalles de Gin al
 // service.
 type ArchivoAudio struct {
-	Contenido      io.Reader
-	NombreOriginal string
-	Tamano         int64
-}
-
-// ArchivoStem representa un stem opcional recibido junto con una nueva
-// versión: el nombre lo elige libremente quien sube el archivo (ej.
-// "Batería", "Voz principal"), sin catálogo fijo.
-type ArchivoStem struct {
-	Nombre         string
 	Contenido      io.Reader
 	NombreOriginal string
 	Tamano         int64
@@ -147,7 +144,6 @@ type CancionService interface {
 		codigoCancion int64,
 		archivo ArchivoAudio,
 		notas *string,
-		stems []ArchivoStem,
 	) (*dto.CrearVersionCancionResponse, error)
 
 	ListarPorProyecto(
@@ -167,6 +163,24 @@ type CancionService interface {
 		codigoCancion int64,
 		codigoVersion int64,
 	) (*dto.AudioVersionResponse, error)
+
+	ListarMisCanciones(
+		codigoUsuario int64,
+		filtro dto.ListarMisCancionesFiltro,
+	) (*dto.MisCancionesPaginadasResponse, error)
+
+	Editar(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		request dto.EditarCancionRequest,
+	) (*dto.EditarCancionResponse, error)
+
+	DarDeBaja(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+	) error
 }
 
 type cancionService struct {
@@ -197,17 +211,6 @@ func claveObjetoAudio(codigoProyecto, codigoCancion int64, numeroVersion int, fo
 		codigoProyecto,
 		codigoCancion,
 		numeroVersion,
-		formato,
-	)
-}
-
-func claveObjetoStem(codigoProyecto, codigoCancion int64, numeroVersion int, indice int, formato string) string {
-	return fmt.Sprintf(
-		"proyectos/%d/canciones/%d/v%d/stems/%d.%s",
-		codigoProyecto,
-		codigoCancion,
-		numeroVersion,
-		indice,
 		formato,
 	)
 }
@@ -343,7 +346,6 @@ func (s *cancionService) CrearVersion(
 	codigoCancion int64,
 	archivo ArchivoAudio,
 	notas *string,
-	stems []ArchivoStem,
 ) (*dto.CrearVersionCancionResponse, error) {
 
 	if archivo.Contenido == nil {
@@ -367,27 +369,6 @@ func (s *cancionService) CrearVersion(
 		} else {
 			notas = &notasLimpias
 		}
-	}
-
-	formatosStems := make([]string, len(stems))
-
-	for i, stem := range stems {
-
-		if strings.TrimSpace(stem.Nombre) == "" {
-			return nil, ErrStemNombreObligatorio
-		}
-
-		if stem.Tamano > TamanoMaximoArchivoAudio {
-			return nil, ErrStemArchivoDemasiadoGrande
-		}
-
-		formatoStem, err := formatoDesdeNombreArchivo(stem.NombreOriginal)
-
-		if err != nil {
-			return nil, ErrStemFormatoInvalido
-		}
-
-		formatosStems[i] = formatoStem
 	}
 
 	existeCancion, err :=
@@ -469,42 +450,6 @@ func (s *cancionService) CrearVersion(
 		return nil, err
 	}
 
-	stemsCreados := make([]dto.StemResponse, 0, len(stems))
-
-	for i, stem := range stems {
-
-		stemObjectKey := claveObjetoStem(codigoProyecto, codigoCancion, siguienteVersion, i, formatosStems[i])
-
-		if err := s.audioStorage.Subir(
-			context.Background(),
-			stemObjectKey,
-			stem.Contenido,
-			stem.Tamano,
-			formatosAudioPermitidos[formatosStems[i]],
-		); err != nil {
-			tx.Rollback()
-			return nil, ErrCancionErrorAlmacenamiento
-		}
-
-		codStem, err := s.cancionRepository.InsertarStem(
-			tx,
-			codigoVersion,
-			strings.TrimSpace(stem.Nombre),
-			stemObjectKey,
-			formatosStems[i],
-		)
-
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
-		stemsCreados = append(stemsCreados, dto.StemResponse{
-			CodStem: codStem,
-			Nombre:  strings.TrimSpace(stem.Nombre),
-		})
-	}
-
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -519,7 +464,6 @@ func (s *cancionService) CrearVersion(
 		NumeroVersion:        siguienteVersion,
 		EtiquetaVersion:      etiqueta,
 		Notas:                notas,
-		Stems:                stemsCreados,
 	}, nil
 }
 
@@ -733,4 +677,261 @@ func (s *cancionService) ObtenerURLDescargaVersion(
 		FormatoArchivo:       *version.FormatoArchivoCancionVer,
 		ExpiraEnSegundos:     int(VigenciaURLDescargaAudio.Seconds()),
 	}, nil
+}
+
+func (s *cancionService) ListarMisCanciones(
+	codigoUsuario int64,
+	filtro dto.ListarMisCancionesFiltro,
+) (*dto.MisCancionesPaginadasResponse, error) {
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	total, err :=
+		s.cancionRepository.ContarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	totalPaginas :=
+		(total + filtro.TamanoPagina - 1) / filtro.TamanoPagina
+
+	respuesta := &dto.MisCancionesPaginadasResponse{
+		Data:        make([]dto.MiCancionListadoResponse, 0),
+		TotalItems:  total,
+		TotalPages:  totalPaginas,
+		CurrentPage: filtro.Pagina,
+	}
+
+	// Una página fuera de rango responde vacía sin consultar: además de
+	// ahorrar la query, evita calcular un OFFSET desbordado con page enorme.
+	if filtro.Pagina > totalPaginas {
+		return respuesta, nil
+	}
+
+	canciones, err :=
+		s.cancionRepository.ListarPorIntegrante(
+			integrante.CodIntegrante,
+			filtro,
+			(filtro.Pagina-1)*filtro.TamanoPagina,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta.Data = append(respuesta.Data, canciones...)
+
+	return respuesta, nil
+}
+
+func (s *cancionService) Editar(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	request dto.EditarCancionRequest,
+) (*dto.EditarCancionResponse, error) {
+
+	nombre := strings.TrimSpace(
+		request.Nombre,
+	)
+
+	if nombre == "" {
+		return nil, ErrCancionNombreObligatorio
+	}
+
+	// Verificar que el proyecto siga activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrCancionProyectoNoEncontrado
+	}
+
+	// Verificar que la canción pertenezca a ese proyecto
+	// y que no esté dada de baja.
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeCancion {
+		return nil, ErrCancionNoEncontrada
+	}
+
+	// Obtener el perfil del usuario autenticado.
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// La misma regla que para crear canciones:
+	// debe tener GESTIONAR_CANCIONES en el proyecto.
+	puedeGestionar, err :=
+		s.proyectoRepository.PuedeGestionarCanciones(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puedeGestionar {
+		return nil, ErrCancionSinPermiso
+	}
+
+	// Comprobar que no exista OTRA canción activa
+	// con ese mismo nombre dentro del proyecto.
+	existeNombre, err :=
+		s.cancionRepository.
+			ExisteNombreEnProyectoExceptoCancion(
+				codigoProyecto,
+				codigoCancion,
+				nombre,
+			)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if existeNombre {
+		return nil, ErrCancionNombreDuplicado
+	}
+
+	// Actualizar únicamente el nombre.
+	err = s.cancionRepository.ActualizarNombre(
+		codigoProyecto,
+		codigoCancion,
+		nombre,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCancionNoEncontrada
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.EditarCancionResponse{
+		CodigoCancion:  codigoCancion,
+		CodigoProyecto: codigoProyecto,
+		Nombre:         nombre,
+	}, nil
+}
+
+func (s *cancionService) DarDeBaja(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+) error {
+
+	// Verificar que el proyecto esté activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !existeProyecto {
+		return ErrCancionProyectoNoEncontrado
+	}
+
+	// Verificar que la canción exista,
+	// pertenezca al proyecto y esté activa.
+	existeCancion, err :=
+		s.cancionRepository.ExisteCancionActivaEnProyecto(
+			codigoProyecto,
+			codigoCancion,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !existeCancion {
+		return ErrCancionNoEncontrada
+	}
+
+	// Obtener el integrante asociado al usuario.
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Debe poder gestionar canciones en ese proyecto.
+	puedeGestionar, err :=
+		s.proyectoRepository.PuedeGestionarCanciones(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !puedeGestionar {
+		return ErrCancionSinPermiso
+	}
+
+	// Baja lógica.
+	err = s.cancionRepository.DarDeBaja(
+		codigoProyecto,
+		codigoCancion,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrCancionNoEncontrada
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

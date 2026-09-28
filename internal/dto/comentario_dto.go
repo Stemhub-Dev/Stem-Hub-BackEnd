@@ -6,6 +6,9 @@ type CrearComentarioRequest struct {
 	Texto                string   `json:"texto" binding:"required,max=200"`
 	TiempoInicioSegundos *float64 `json:"tiempoInicioSegundos" binding:"omitempty,min=0"`
 	TiempoFinSegundos    *float64 `json:"tiempoFinSegundos" binding:"omitempty,min=0"`
+	// Opcional: el comentario es de ese stem de la versión. Sin él, es de
+	// la versión completa.
+	CodStem *int64 `json:"codStem" binding:"omitempty,min=1"`
 }
 
 type AutorComentarioResponse struct {
@@ -15,6 +18,7 @@ type AutorComentarioResponse struct {
 
 type CrearComentarioResponse struct {
 	CodigoComentario     int64                   `json:"codigoComentario"`
+	CodStem              *int64                  `json:"codStem"`
 	Texto                string                  `json:"texto"`
 	Estado               string                  `json:"estado"`
 	TiempoInicioSegundos *float64                `json:"tiempoInicioSegundos"`
@@ -24,6 +28,7 @@ type CrearComentarioResponse struct {
 
 type ComentarioListadoResponse struct {
 	CodigoComentario     int64                         `json:"codigoComentario"`
+	CodStem              *int64                        `json:"codStem"`
 	Texto                string                        `json:"texto"`
 	Estado               string                        `json:"estado"`
 	TiempoInicioSegundos *float64                      `json:"tiempoInicioSegundos"`
@@ -66,4 +71,17 @@ type CambiarEstadoComentarioRequest struct {
 type CambiarEstadoComentarioResponse struct {
 	CodigoComentario int64  `json:"codigoComentario"`
 	Estado           string `json:"estado"`
+}
+
+// Resumen de los comentarios de una versión generado con IA
+// (stemhub-microservicio-IA). No se guarda: cada pedido lo genera de nuevo.
+type ResumenComentariosResponse struct {
+	Resumen               string   `json:"resumen"`
+	PuntosClave           []string `json:"puntosClave"`
+	Acuerdos              []string `json:"acuerdos"`
+	Desacuerdos           []string `json:"desacuerdos"`
+	SentimientoGeneral    string   `json:"sentimientoGeneral"`
+	CantidadComentarios   int      `json:"cantidadComentarios"`
+	Proveedor             string   `json:"proveedor"`
+	TiempoProcesamientoMs int64    `json:"tiempoProcesamientoMs"`
 }

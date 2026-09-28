@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mlservice"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
@@ -33,6 +34,10 @@ var (
 
 	ErrComentarioVersionNoEncontrada = errors.New(
 		"la versión no existe en la canción",
+	)
+
+	ErrComentarioStemNoEncontrado = errors.New(
+		"el stem no existe en la versión",
 	)
 
 	ErrComentarioSinAcceso = errors.New(
@@ -114,6 +119,15 @@ type ComentarioService interface {
 		codigoComentario int64,
 		request dto.CambiarEstadoComentarioRequest,
 	) (*dto.CambiarEstadoComentarioResponse, error)
+
+	// Resumen con IA de los comentarios de la versión (y sus respuestas).
+	// Se genera en cada llamada, no se guarda.
+	ResumirPorVersion(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoVersion int64,
+	) (*dto.ResumenComentariosResponse, error)
 }
 
 type comentarioService struct {
@@ -121,6 +135,7 @@ type comentarioService struct {
 	proyectoRepository   repository.ProyectoRepository
 	cancionRepository    repository.CancionRepository
 	integranteRepository repository.IntegranteRepository
+	mlCliente            mlservice.Cliente
 }
 
 func NewComentarioService(
@@ -128,6 +143,7 @@ func NewComentarioService(
 	proyectoRepository repository.ProyectoRepository,
 	cancionRepository repository.CancionRepository,
 	integranteRepository repository.IntegranteRepository,
+	mlCliente mlservice.Cliente,
 ) ComentarioService {
 
 	return &comentarioService{
@@ -135,6 +151,7 @@ func NewComentarioService(
 		proyectoRepository:   proyectoRepository,
 		cancionRepository:    cancionRepository,
 		integranteRepository: integranteRepository,
+		mlCliente:            mlCliente,
 	}
 }
 
@@ -180,9 +197,25 @@ func (s *comentarioService) Crear(
 		return nil, err
 	}
 
+	if request.CodStem != nil {
+		existeStem, err := s.comentarioRepository.ExisteStemActivoEnVersion(
+			*request.CodStem,
+			codigoVersion,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if !existeStem {
+			return nil, ErrComentarioStemNoEncontrado
+		}
+	}
+
 	codigoComentario, err := s.comentarioRepository.Crear(
 		integrante.CodIntegrante,
 		codigoVersion,
+		request.CodStem,
 		request.Texto,
 		request.TiempoInicioSegundos,
 		request.TiempoFinSegundos,
@@ -194,6 +227,7 @@ func (s *comentarioService) Crear(
 
 	return &dto.CrearComentarioResponse{
 		CodigoComentario:     codigoComentario,
+		CodStem:              request.CodStem,
 		Texto:                request.Texto,
 		Estado:               "Pendiente",
 		TiempoInicioSegundos: request.TiempoInicioSegundos,

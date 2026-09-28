@@ -14,6 +14,7 @@ func NewRouter(db *sql.DB,
 	rolHandler *handler.RolHandler,
 	generoMusicalHandler *handler.GeneroMusicalHandler,
 	tipoProyectoHandler *handler.TipoProyectoHandler,
+	estadoProyectoHandler *handler.EstadoProyectoHandler,
 	usuarioHandler *handler.UsuarioHandler,
 	usuarioAdministracionHandler *handler.UsuarioAdministracionHandler,
 	integranteHandler *handler.IntegranteHandler,
@@ -21,6 +22,8 @@ func NewRouter(db *sql.DB,
 	invitacionProyectoHandler *handler.InvitacionProyectoHandler,
 	cancionHandler *handler.CancionHandler,
 	comentarioHandler *handler.ComentarioHandler,
+	stemHandler *handler.StemHandler,
+	reporteHandler *handler.ReporteHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -29,9 +32,9 @@ func NewRouter(db *sql.DB,
 ) *gin.Engine {
 	router := gin.Default()
 
-	// Debe ser mayor al tamaño máximo de archivo de audio aceptado
-	// (service.TamanoMaximoArchivoAudio) para no cortar el multipart antes
-	// de que el handler pueda devolver un 413 controlado.
+	// Cuánto del multipart se guarda en memoria; lo que excede va a un
+	// archivo temporal. No es un límite de tamaño: ese lo aplican los
+	// services (TAMANO_MAXIMO_CANCION_MB / TAMANO_MAXIMO_STEM_MB) con un 413.
 	router.MaxMultipartMemory = 110 << 20 // 110 MiB
 
 	router.Use(middleware.Cors(corsAllowedOrigins))
@@ -96,6 +99,11 @@ func NewRouter(db *sql.DB,
 		tipoProyectoHandler.Listar,
 	)
 
+	configuracion.GET(
+		"/estados-proyecto",
+		estadoProyectoHandler.Listar,
+	)
+
 	usuarios.POST(
 		"/:codigoUsuario/roles",
 		authMiddleware.UsuarioActivo,
@@ -137,9 +145,24 @@ func NewRouter(db *sql.DB,
 		cancionHandler.Crear,
 	)
 
+	proyectos.PUT(
+		"/:proyectoId/canciones/:cancionId",
+		cancionHandler.Editar,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId",
+		cancionHandler.DarDeBaja,
+	)
+
 	proyectos.POST(
 		"/:proyectoId/canciones/:cancionId/versiones",
 		cancionHandler.CrearVersion,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId",
+		proyectoHandler.DarDeBaja,
 	)
 
 	proyectos.POST(
@@ -170,6 +193,16 @@ func NewRouter(db *sql.DB,
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
+	)
+
+	proyectos.GET(
+		"/:proyectoId",
+		proyectoHandler.ObtenerDetalle,
+	)
+
+	proyectos.PATCH(
+		"/:proyectoId",
+		proyectoHandler.Editar,
 	)
 
 	proyectos.GET(
@@ -210,6 +243,75 @@ func NewRouter(db *sql.DB,
 	proyectos.GET(
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios",
 		comentarioHandler.ListarPorVersion,
+	)
+
+	// Stems (HU-ABM-04-*). Leer es para cualquier integrante del proyecto;
+	// el ABM exige GESTIONAR_STEMS, que valida el service contra el rol del
+	// usuario en el proyecto (no es un permiso de SISTEMA, por eso no pasa
+	// por permisoMiddleware).
+	proyectos.GET(
+		"/:proyectoId/categorias-stem",
+		stemHandler.ListarCategorias,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems",
+		stemHandler.Listar,
+	)
+
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems",
+		stemHandler.Crear,
+	)
+
+	proyectos.PUT(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/:stemId",
+		stemHandler.Editar,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/:stemId",
+		stemHandler.Eliminar,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/:stemId/audio",
+		stemHandler.ObtenerAudio,
+	)
+
+	// "Separar Pistas" con IA: se procesa en segundo plano, el GET devuelve
+	// el estado de la última separación. Separar exige GESTIONAR_STEMS.
+	proyectos.POST(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
+		stemHandler.SolicitarSeparacion,
+	)
+
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
+		stemHandler.ObtenerSeparacion,
+	)
+
+	// Resumen de los comentarios de la versión generado con IA. Se calcula
+	// en cada pedido, no se guarda.
+	proyectos.GET(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/resumen",
+		comentarioHandler.ResumirPorVersion,
+	)
+
+	reportes := router.Group("/report/reportes")
+	reportes.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	reportes.GET("", reporteHandler.Listar)
+	reportes.POST("/:tipo/generar", reporteHandler.Generar)
+	reportes.POST("/:tipo/exportar-pdf", reporteHandler.ExportarPDF)
+
+	router.GET(
+		"/canciones",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		cancionHandler.ListarMisCanciones,
 	)
 
 	permisos := router.Group("/permisos")

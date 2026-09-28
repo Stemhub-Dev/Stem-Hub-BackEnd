@@ -142,6 +142,10 @@ func (h *ComentarioHandler) Crear(c *gin.Context) {
 		errors.Is(
 			err,
 			service.ErrComentarioVersionNoEncontrada,
+		),
+		errors.Is(
+			err,
+			service.ErrComentarioStemNoEncontrado,
 		):
 
 		c.JSON(
@@ -899,5 +903,69 @@ func (h *ComentarioHandler) CambiarEstado(c *gin.Context) {
 			http.StatusOK,
 			comentario,
 		)
+	}
+}
+
+// GET .../versiones/:versionId/comentarios/resumen — resumen de los
+// comentarios generado con IA. Puede tardar varios segundos: se genera en
+// cada pedido.
+func (h *ComentarioHandler) ResumirPorVersion(c *gin.Context) {
+
+	parametros := []struct {
+		nombre string
+		error  string
+	}{
+		{"proyectoId", "Proyecto inválido"},
+		{"cancionId", "Canción inválida"},
+		{"versionId", "Versión inválida"},
+	}
+
+	codigos := make([]int64, len(parametros))
+
+	for i, parametro := range parametros {
+
+		valor, err := strconv.ParseInt(c.Param(parametro.nombre), 10, 64)
+
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parametro.error})
+			return
+		}
+
+		codigos[i] = valor
+	}
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	resumen, err := h.service.ResumirPorVersion(
+		usuario.CodigoUsuario,
+		codigos[0],
+		codigos[1],
+		codigos[2],
+	)
+
+	switch {
+	case errors.Is(err, service.ErrComentarioProyectoNoEncontrado):
+		c.JSON(http.StatusNotFound, gin.H{"error": "El proyecto no existe"})
+	case errors.Is(err, service.ErrComentarioCancionNoEncontrada):
+		c.JSON(http.StatusNotFound, gin.H{"error": "La canción no existe en el proyecto"})
+	case errors.Is(err, service.ErrComentarioVersionNoEncontrada):
+		c.JSON(http.StatusNotFound, gin.H{"error": "La versión no existe en la canción"})
+	case errors.Is(err, service.ErrComentarioSinAcceso):
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tenés acceso a este proyecto"})
+	case errors.Is(err, service.ErrResumenSinComentarios):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "La versión todavía no tiene comentarios para resumir"})
+	case errors.Is(err, service.ErrResumenTimeout):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "El resumen tardó demasiado. Probá de nuevo en unos minutos."})
+	case errors.Is(err, service.ErrResumenNoDisponible):
+		c.JSON(http.StatusBadGateway, gin.H{"error": "No se pudo generar el resumen. Probá de nuevo en unos minutos."})
+	case err != nil:
+		log.Println("Error al resumir comentarios:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al generar el resumen"})
+	default:
+		c.JSON(http.StatusOK, resumen)
 	}
 }
