@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -143,6 +144,7 @@ func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
 	claims, ok := claimsValue.(*SupabaseClaims)
 
 	if !ok {
+		log.Printf("UsuarioActivo: claims de tipo inesperado %T", claimsValue)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "error interno del servidor",
 		})
@@ -170,6 +172,9 @@ func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
 			return
 		}
 
+		// Sin este log el 500 quedaba sin rastro: el error no llega a
+		// ningún handler.
+		log.Printf("UsuarioActivo: no se pudo obtener el usuario %s: %v", claims.Subject, err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "error interno del servidor",
 		})

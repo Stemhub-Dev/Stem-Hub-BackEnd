@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -52,6 +53,7 @@ func (m *PermisoMiddleware) RequerirPermiso(
 		)
 
 		if err != nil {
+			log.Printf("RequerirPermiso %s: no se pudo verificar el permiso del usuario %d: %v", codigoPermiso, usuario.CodigoUsuario, err)
 			c.AbortWithStatusJSON(
 				http.StatusInternalServerError,
 				gin.H{"error": "Error al verificar permisos"},
