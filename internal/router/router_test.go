@@ -31,6 +31,8 @@ func nuevoRouterDePrueba(t *testing.T) *gin.Engine {
 		&handler.InvitacionProyectoHandler{},
 		&handler.CancionHandler{},
 		&handler.ComentarioHandler{},
+		&handler.StemHandler{},
+		&handler.ReporteHandler{},
 		&handler.PermisoHandler{},
 		&handler.RolPermisoHandler{},
 		&middleware.AuthMiddleware{},
@@ -94,5 +96,55 @@ func TestMisCanciones_SoloAceptaGet(t *testing.T) {
 
 	if grabador.Code != http.StatusNotFound && grabador.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, se esperaba 404 o 405", grabador.Code)
+	}
+}
+
+func TestStems_RequierenAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+	base := "/proyectos/1/canciones/2/versiones/3/stems"
+
+	for _, ruta := range []struct{ metodo, url string }{
+		{http.MethodGet, "/proyectos/1/categorias-stem"},
+		{http.MethodGet, base},
+		{http.MethodPost, base},
+		{http.MethodPut, base + "/4"},
+		{http.MethodDelete, base + "/4"},
+		{http.MethodGet, base + "/4/audio"},
+	} {
+		t.Run(ruta.metodo+" "+ruta.url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(grabador, httptest.NewRequest(ruta.metodo, ruta.url, nil))
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
+	}
+}
+
+func TestRutasDeIA_RequierenAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	base := "/proyectos/1/canciones/2/versiones/3"
+
+	for _, caso := range []struct {
+		metodo string
+		url    string
+	}{
+		{http.MethodPost, base + "/stems/separacion"},
+		{http.MethodGet, base + "/stems/separacion"},
+		{http.MethodGet, base + "/comentarios/resumen"},
+	} {
+		t.Run(caso.metodo+" "+caso.url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(
+				grabador,
+				httptest.NewRequest(caso.metodo, caso.url, nil),
+			)
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
 	}
 }

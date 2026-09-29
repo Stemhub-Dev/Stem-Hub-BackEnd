@@ -45,14 +45,6 @@ type CancionRepository interface {
 		notas *string,
 	) (int64, error)
 
-	InsertarStem(
-		tx *sql.Tx,
-		codigoCancionVersion int64,
-		nombre string,
-		urlArchivo string,
-		formato string,
-	) (int64, error)
-
 	ExisteVersionActivaEnCancion(
 		codigoCancion int64,
 		codigoVersion int64,
@@ -325,57 +317,6 @@ func (r *cancionRepository) InsertarVersion(
 	}
 
 	return codigoCancionVersion, nil
-}
-
-// InsertarStem inserta un stem opcional dentro de la misma transacción que
-// InsertarVersion. El archivo se guarda en la columna correspondiente a su
-// formato (wav o mp3) — la tabla stem no tiene columna de "formato" propia,
-// a diferencia de cancionversion.
-func (r *cancionRepository) InsertarStem(
-	tx *sql.Tx,
-	codigoCancionVersion int64,
-	nombre string,
-	urlArchivo string,
-	formato string,
-) (int64, error) {
-
-	var codStem int64
-
-	var urlWav, urlMp3 *string
-
-	switch formato {
-	case "wav":
-		urlWav = &urlArchivo
-	default:
-		urlMp3 = &urlArchivo
-	}
-
-	err := tx.QueryRow(`
-		INSERT INTO stem (
-			codigocancionversion,
-			nombrestem,
-			urlversionwav,
-			urlversionmp3
-		)
-		VALUES (
-			$1,
-			$2,
-			$3,
-			$4
-		)
-		RETURNING codstem
-	`,
-		codigoCancionVersion,
-		nombre,
-		urlWav,
-		urlMp3,
-	).Scan(&codStem)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return codStem, nil
 }
 
 func (r *cancionRepository) ExisteVersionActivaEnCancion(

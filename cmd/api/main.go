@@ -5,11 +5,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mailer"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/middleware"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mlservice"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/router"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
@@ -164,6 +166,47 @@ func main() {
 	)
 	cancionHandler := handler.NewCancionHandler(cancionService)
 
+	//Stem
+	service.ConfigurarTamanosMaximos(
+		leerMegabytes("TAMANO_MAXIMO_CANCION_MB", 100),
+		leerMegabytes("TAMANO_MAXIMO_STEM_MB", 100),
+	)
+	stemRepository := repository.NewStemRepository(db)
+	stemService := service.NewStemService(
+		stemRepository,
+		cancionRepository,
+		proyectoRepository,
+		integranteRepository,
+		audioStorage,
+	)
+	//Microservicio de IA (separación de stems y resumen de comentarios)
+	mlCliente, err := mlservice.NewHTTPCliente(
+		os.Getenv("ML_SERVICE_URL"),
+		leerSegundos("ML_SEPARACION_TIMEOUT_SEGUNDOS", 330),
+		leerSegundos("ML_RESUMEN_TIMEOUT_SEGUNDOS", 60),
+	)
+
+	if err != nil {
+		log.Fatalf("error al configurar el servicio de IA: %v", err)
+	}
+
+	separacionStemRepository := repository.NewSeparacionStemRepository(db)
+	separacionStemService := service.NewSeparacionStemService(
+		separacionStemRepository,
+		stemRepository,
+		cancionRepository,
+		proyectoRepository,
+		integranteRepository,
+		audioStorage,
+		mlCliente,
+	)
+
+	if err := separacionStemService.FallarInterrumpidas(); err != nil {
+		log.Fatalf("error al cerrar separaciones de stems interrumpidas: %v", err)
+	}
+
+	stemHandler := handler.NewStemHandler(stemService, separacionStemService)
+
 	//Comentario
 	comentarioRepository := repository.NewComentarioRepository(db)
 	comentarioService := service.NewComentarioService(
@@ -171,6 +214,7 @@ func main() {
 		proyectoRepository,
 		cancionRepository,
 		integranteRepository,
+		mlCliente,
 	)
 	comentarioHandler := handler.NewComentarioHandler(comentarioService)
 
@@ -198,6 +242,7 @@ func main() {
 		invitacionProyectoHandler,
 		cancionHandler,
 		comentarioHandler,
+		stemHandler,
 		reporteHandler,
 		permisoHandler,
 		rolPermisoHandler,
@@ -216,4 +261,41 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// leerMegabytes lee un tamaño en MB de una variable de entorno, con un valor
+// por defecto si no está definida. Un valor inválido corta el arranque: es
+// preferible a aceptar archivos con un límite distinto al configurado.
+func leerMegabytes(variable string, porDefecto int64) int64 {
+
+	valor := os.Getenv(variable)
+
+	if valor == "" {
+		return porDefecto
+	}
+
+	megabytes, err := strconv.ParseInt(valor, 10, 64)
+
+	if err != nil || megabytes <= 0 {
+		log.Fatalf("%s debe ser un entero positivo (MB), se recibió %q", variable, valor)
+	}
+
+	return megabytes
+}
+
+func leerSegundos(variable string, porDefecto int) time.Duration {
+
+	valor := os.Getenv(variable)
+
+	if valor == "" {
+		return time.Duration(porDefecto) * time.Second
+	}
+
+	segundos, err := strconv.Atoi(valor)
+
+	if err != nil || segundos <= 0 {
+		log.Fatalf("%s debe ser un entero positivo (segundos), se recibió %q", variable, valor)
+	}
+
+	return time.Duration(segundos) * time.Second
 }

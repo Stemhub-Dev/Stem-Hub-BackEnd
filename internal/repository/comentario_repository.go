@@ -10,10 +10,16 @@ type ComentarioRepository interface {
 	Crear(
 		codigoIntegrante int64,
 		codigoVersion int64,
+		codStem *int64,
 		texto string,
 		tiempoInicioSegundos *float64,
 		tiempoFinSegundos *float64,
 	) (int64, error)
+
+	ExisteStemActivoEnVersion(
+		codStem int64,
+		codigoVersion int64,
+	) (bool, error)
 
 	ListarPorVersion(
 		codigoVersion int64,
@@ -54,6 +60,12 @@ type ComentarioRepository interface {
 		codigoVersion int64,
 		estado string,
 	) (bool, error)
+
+	// Nombre de la canción y número de la versión, para darle contexto al
+	// resumen de comentarios con IA.
+	ObtenerContextoVersion(
+		codigoVersion int64,
+	) (nombreCancion string, numeroVersion int, err error)
 }
 
 type comentarioRepository struct {
@@ -72,6 +84,7 @@ func NewComentarioRepository(
 func (r *comentarioRepository) Crear(
 	codigoIntegrante int64,
 	codigoVersion int64,
+	codStem *int64,
 	texto string,
 	tiempoInicioSegundos *float64,
 	tiempoFinSegundos *float64,
@@ -87,6 +100,7 @@ func (r *comentarioRepository) Crear(
 			descripcioncomentario,
 			tiempoiniciosegundos,
 			tiempofinsegundos,
+			codstem,
 			fechahoraaltacomentario
 		)
 		SELECT
@@ -96,6 +110,7 @@ func (r *comentarioRepository) Crear(
 			$3,
 			$4,
 			$5,
+			$6,
 			CURRENT_TIMESTAMP
 		FROM estadocomentario ec
 		WHERE LOWER(ec.nombreestadocom) = LOWER('Pendiente')
@@ -107,9 +122,33 @@ func (r *comentarioRepository) Crear(
 		texto,
 		tiempoInicioSegundos,
 		tiempoFinSegundos,
+		codStem,
 	).Scan(&codigoComentario)
 
 	return codigoComentario, err
+}
+
+func (r *comentarioRepository) ExisteStemActivoEnVersion(
+	codStem int64,
+	codigoVersion int64,
+) (bool, error) {
+
+	var existe bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM stem
+			WHERE codstem = $1
+			  AND codigocancionversion = $2
+			  AND fechahorabajastem IS NULL
+		)
+	`,
+		codStem,
+		codigoVersion,
+	).Scan(&existe)
+
+	return existe, err
 }
 
 func (r *comentarioRepository) ListarPorVersion(
@@ -120,6 +159,7 @@ func (r *comentarioRepository) ListarPorVersion(
 	rows, err := r.db.Query(`
 		SELECT
 			c.codigocomentario,
+			c.codstem,
 			c.descripcioncomentario,
 			ec.nombreestadocom,
 			c.tiempoiniciosegundos,
@@ -178,6 +218,7 @@ func (r *comentarioRepository) ListarPorVersion(
 	for rows.Next() {
 
 		var codigoComentario int64
+		var codStem sql.NullInt64
 		var textoComentario string
 		var estado string
 		var tiempoInicio *float64
@@ -196,6 +237,7 @@ func (r *comentarioRepository) ListarPorVersion(
 
 		err := rows.Scan(
 			&codigoComentario,
+			&codStem,
 			&textoComentario,
 			&estado,
 			&tiempoInicio,
@@ -224,6 +266,7 @@ func (r *comentarioRepository) ListarPorVersion(
 
 			comentario := dto.ComentarioListadoResponse{
 				CodigoComentario:     codigoComentario,
+				CodStem:              punteroSiValido(codStem),
 				Texto:                textoComentario,
 				Estado:               estado,
 				TiempoInicioSegundos: tiempoInicio,
@@ -455,4 +498,33 @@ func (r *comentarioRepository) CambiarEstado(
 	}
 
 	return filasAfectadas > 0, nil
+}
+
+func punteroSiValido(valor sql.NullInt64) *int64 {
+	if !valor.Valid {
+		return nil
+	}
+	return &valor.Int64
+}
+
+func (r *comentarioRepository) ObtenerContextoVersion(
+	codigoVersion int64,
+) (string, int, error) {
+
+	var nombreCancion string
+	var numeroVersion int
+
+	err := r.db.QueryRow(`
+		SELECT
+			c.nombrecancion,
+			cv.numeroversion
+		FROM cancionversion cv
+		JOIN cancion c
+		  ON c.codigocancion = cv.codigocancion
+		WHERE cv.codigocancionversion = $1
+	`,
+		codigoVersion,
+	).Scan(&nombreCancion, &numeroVersion)
+
+	return nombreCancion, numeroVersion, err
 }

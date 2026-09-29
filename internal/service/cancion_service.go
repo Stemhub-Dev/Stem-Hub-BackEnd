@@ -16,7 +16,22 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
 
-const TamanoMaximoArchivoAudio int64 = 100 * 1024 * 1024 // 100 MB
+// Tamaño máximo de la pista de una canción y de un stem, en bytes. Se
+// configuran al arrancar (TAMANO_MAXIMO_CANCION_MB / TAMANO_MAXIMO_STEM_MB,
+// ver ConfigurarTamanosMaximos); 100 MB si no se definen.
+var (
+	TamanoMaximoArchivoAudio int64 = 100 * bytesPorMB
+	TamanoMaximoArchivoStem  int64 = 100 * bytesPorMB
+)
+
+const bytesPorMB int64 = 1024 * 1024
+
+// ConfigurarTamanosMaximos fija los límites de subida en MB. Se llama una
+// sola vez desde main, antes de levantar el router.
+func ConfigurarTamanosMaximos(cancionMB, stemMB int64) {
+	TamanoMaximoArchivoAudio = cancionMB * bytesPorMB
+	TamanoMaximoArchivoStem = stemMB * bytesPorMB
+}
 
 var formatosAudioPermitidos = map[string]string{
 	"mp3":  "audio/mpeg",
@@ -81,18 +96,6 @@ var (
 		"la versión no tiene un archivo de audio cargado",
 	)
 
-	ErrStemNombreObligatorio = errors.New(
-		"cada stem debe tener un nombre",
-	)
-
-	ErrStemFormatoInvalido = errors.New(
-		"el formato de un stem no está soportado",
-	)
-
-	ErrStemArchivoDemasiadoGrande = errors.New(
-		"un stem supera el tamaño máximo permitido",
-	)
-
 	ErrCancionNoEncontrada = errors.New(
 		"la canción no existe en el proyecto",
 	)
@@ -106,16 +109,6 @@ const VigenciaURLDescargaAudio = 15 * time.Minute
 // desacoplado de multipart.FileHeader para no filtrar detalles de Gin al
 // service.
 type ArchivoAudio struct {
-	Contenido      io.Reader
-	NombreOriginal string
-	Tamano         int64
-}
-
-// ArchivoStem representa un stem opcional recibido junto con una nueva
-// versión: el nombre lo elige libremente quien sube el archivo (ej.
-// "Batería", "Voz principal"), sin catálogo fijo.
-type ArchivoStem struct {
-	Nombre         string
 	Contenido      io.Reader
 	NombreOriginal string
 	Tamano         int64
@@ -151,7 +144,6 @@ type CancionService interface {
 		codigoCancion int64,
 		archivo ArchivoAudio,
 		notas *string,
-		stems []ArchivoStem,
 	) (*dto.CrearVersionCancionResponse, error)
 
 	ListarPorProyecto(
@@ -219,17 +211,6 @@ func claveObjetoAudio(codigoProyecto, codigoCancion int64, numeroVersion int, fo
 		codigoProyecto,
 		codigoCancion,
 		numeroVersion,
-		formato,
-	)
-}
-
-func claveObjetoStem(codigoProyecto, codigoCancion int64, numeroVersion int, indice int, formato string) string {
-	return fmt.Sprintf(
-		"proyectos/%d/canciones/%d/v%d/stems/%d.%s",
-		codigoProyecto,
-		codigoCancion,
-		numeroVersion,
-		indice,
 		formato,
 	)
 }
@@ -365,7 +346,6 @@ func (s *cancionService) CrearVersion(
 	codigoCancion int64,
 	archivo ArchivoAudio,
 	notas *string,
-	stems []ArchivoStem,
 ) (*dto.CrearVersionCancionResponse, error) {
 
 	if archivo.Contenido == nil {
@@ -389,27 +369,6 @@ func (s *cancionService) CrearVersion(
 		} else {
 			notas = &notasLimpias
 		}
-	}
-
-	formatosStems := make([]string, len(stems))
-
-	for i, stem := range stems {
-
-		if strings.TrimSpace(stem.Nombre) == "" {
-			return nil, ErrStemNombreObligatorio
-		}
-
-		if stem.Tamano > TamanoMaximoArchivoAudio {
-			return nil, ErrStemArchivoDemasiadoGrande
-		}
-
-		formatoStem, err := formatoDesdeNombreArchivo(stem.NombreOriginal)
-
-		if err != nil {
-			return nil, ErrStemFormatoInvalido
-		}
-
-		formatosStems[i] = formatoStem
 	}
 
 	existeCancion, err :=
@@ -491,42 +450,6 @@ func (s *cancionService) CrearVersion(
 		return nil, err
 	}
 
-	stemsCreados := make([]dto.StemResponse, 0, len(stems))
-
-	for i, stem := range stems {
-
-		stemObjectKey := claveObjetoStem(codigoProyecto, codigoCancion, siguienteVersion, i, formatosStems[i])
-
-		if err := s.audioStorage.Subir(
-			context.Background(),
-			stemObjectKey,
-			stem.Contenido,
-			stem.Tamano,
-			formatosAudioPermitidos[formatosStems[i]],
-		); err != nil {
-			tx.Rollback()
-			return nil, ErrCancionErrorAlmacenamiento
-		}
-
-		codStem, err := s.cancionRepository.InsertarStem(
-			tx,
-			codigoVersion,
-			strings.TrimSpace(stem.Nombre),
-			stemObjectKey,
-			formatosStems[i],
-		)
-
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-
-		stemsCreados = append(stemsCreados, dto.StemResponse{
-			CodStem: codStem,
-			Nombre:  strings.TrimSpace(stem.Nombre),
-		})
-	}
-
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -541,7 +464,6 @@ func (s *cancionService) CrearVersion(
 		NumeroVersion:        siguienteVersion,
 		EtiquetaVersion:      etiqueta,
 		Notas:                notas,
-		Stems:                stemsCreados,
 	}, nil
 }
 
