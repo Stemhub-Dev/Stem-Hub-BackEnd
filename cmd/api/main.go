@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// Base de zonas horarias embebida: la imagen alpine no trae tzdata.
+	_ "time/tzdata"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
@@ -25,6 +27,8 @@ func main() {
 	if err != nil {
 		log.Println("No se encontró archivo .env, se usarán variables de entorno del sistema")
 	}
+
+	configurarZonaHoraria()
 
 	db, err := database.NewPostgresConnection()
 	if err != nil {
@@ -298,4 +302,24 @@ func leerSegundos(variable string, porDefecto int) time.Duration {
 	}
 
 	return time.Duration(segundos) * time.Second
+}
+
+// configurarZonaHoraria fija time.Local según TZ (por defecto Argentina), para
+// que las fechas mostradas al usuario (p. ej. en los reportes PDF) salgan en
+// hora local y no en la UTC del contenedor.
+func configurarZonaHoraria() {
+
+	nombre := os.Getenv("TZ")
+
+	if nombre == "" {
+		nombre = "America/Argentina/Buenos_Aires"
+	}
+
+	zona, err := time.LoadLocation(nombre)
+
+	if err != nil {
+		log.Fatalf("TZ inválida %q: %v", nombre, err)
+	}
+
+	time.Local = zona
 }

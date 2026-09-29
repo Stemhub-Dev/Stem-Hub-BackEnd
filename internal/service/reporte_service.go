@@ -1,14 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"log"
-	"strings"
 	"time"
-
-	"github.com/go-pdf/fpdf"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
@@ -120,25 +115,16 @@ func (s *reporteService) ExportarPDF(codigoUsuario int64, tipo string, request d
 	if err != nil {
 		return nil, "", err
 	}
-	pdf := fpdf.New("P", "mm", "A4", "")
-	pdf.SetTitle("Reporte "+reporte.TipoReporte, true)
-	pdf.AddPage()
-	pdf.SetFont("Arial", "B", 16)
-	pdf.CellFormat(0, 10, "Reporte "+reporte.TipoReporte, "", 1, "L", false, 0, "")
-	pdf.SetFont("Arial", "", 11)
-	pdf.MultiCell(0, 6, fmt.Sprintf("Proyecto: %s\nFecha: %s\nFiltros: proyecto=%d fecha_desde=%v fecha_hasta=%v cancion=%v version=%v", reporte.Proyecto.Nombre, reporte.FechaGeneracion.Format("2006-01-02 15:04:05 UTC"), request.CodigoProyecto, request.FechaDesde, request.FechaHasta, request.CodigoCancion, request.CodigoVersion), "", "L", false)
-	pdf.Ln(4)
-	for indice, fila := range reporte.Datos {
-		pdf.MultiCell(0, 6, fmt.Sprintf("%d. %v", indice+1, fila), "", "L", false)
-	}
-	var contenido bytes.Buffer
-	if err := pdf.Output(&contenido); err != nil {
+	// El armado del documento vive en reporte_pdf.go: el PDF tiene que
+	// mostrar lo mismo que la vista previa del frontend, con los colores y
+	// las etiquetas del design system.
+	contenido, err := construirReportePDF(reporte)
+	if err != nil {
 		log.Printf("Error al generar PDF de reporte: tipo=%s proyecto=%d error=%v", tipo, request.CodigoProyecto, err)
 		return nil, "", ErrReporteExportacion
 	}
 	log.Printf("Reporte PDF generado: tipo=%s proyecto=%d filas=%d", tipo, request.CodigoProyecto, len(reporte.Datos))
-	nombre := fmt.Sprintf("%s_%s_%s.pdf", sanitizarNombre(reporte.Proyecto.Nombre), tipo, reporte.FechaGeneracion.Format("20060102"))
-	return contenido.Bytes(), nombre, nil
+	return contenido, nombreArchivoReporte(reporte), nil
 }
 
 func esTipoReporteValido(tipo string) bool {
@@ -151,9 +137,4 @@ func idReporte(tipo string) string {
 		}
 	}
 	return ""
-}
-func sanitizarNombre(nombre string) string {
-	nombre = strings.TrimSpace(strings.ToLower(nombre))
-	nombre = strings.NewReplacer(" ", "_", "/", "-", "\\", "-").Replace(nombre)
-	return nombre
 }
