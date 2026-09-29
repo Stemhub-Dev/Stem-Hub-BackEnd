@@ -29,6 +29,10 @@ func Cors(allowedOrigins []string) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			// Sin esto el navegador le oculta Content-Disposition al JS: la
+			// descarga de PDF (exportar reporte) no puede leer el nombre de
+			// archivo que manda el backend y cae a un nombre genérico.
+			c.Header("Access-Control-Expose-Headers", "Content-Disposition")
 		}
 
 		if c.Request.Method == http.MethodOptions {

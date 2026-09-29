@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	// Base de zonas horarias embebida: la imagen alpine no trae tzdata.
+	_ "time/tzdata"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/database"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/handler"
@@ -19,12 +22,16 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const zonaHorariaPorDefecto = "America/Argentina/Buenos_Aires"
+
 func main() {
 
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("No se encontró archivo .env, se usarán variables de entorno del sistema")
 	}
+
+	configurarZonaHoraria()
 
 	db, err := database.NewPostgresConnection()
 	if err != nil {
@@ -298,4 +305,33 @@ func leerSegundos(variable string, porDefecto int) time.Duration {
 	}
 
 	return time.Duration(segundos) * time.Second
+}
+
+// configurarZonaHoraria fija time.Local según TZ (por defecto Argentina), para
+// que las fechas mostradas al usuario (p. ej. en los reportes PDF) salgan en
+// hora local y no en la UTC del contenedor.
+func configurarZonaHoraria() {
+
+	zona, err := resolverZonaHoraria(os.Getenv("TZ"))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	time.Local = zona
+}
+
+func resolverZonaHoraria(nombre string) (*time.Location, error) {
+
+	if nombre == "" {
+		nombre = zonaHorariaPorDefecto
+	}
+
+	zona, err := time.LoadLocation(nombre)
+
+	if err != nil {
+		return nil, fmt.Errorf("TZ inválida %q: %w", nombre, err)
+	}
+
+	return zona, nil
 }
