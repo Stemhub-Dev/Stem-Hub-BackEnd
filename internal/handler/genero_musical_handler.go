@@ -22,17 +22,56 @@ func NewGeneroMusicalHandler(service *service.GeneroMusicalService) *GeneroMusic
 	}
 }
 
-func (h *GeneroMusicalHandler) Listar(c *gin.Context) {
-	generos, err := h.service.Listar()
+func (h *GeneroMusicalHandler) Listar(
+	c *gin.Context,
+) {
+
+	incluirInactivos := false
+
+	if valor, existe :=
+		c.GetQuery("incluirInactivos"); existe {
+
+		parsed, err :=
+			strconv.ParseBool(valor)
+
+		if err != nil {
+			c.JSON(
+				http.StatusBadRequest,
+				gin.H{
+					"error": "El parámetro incluirInactivos es inválido",
+				},
+			)
+			return
+		}
+
+		incluirInactivos = parsed
+	}
+
+	generos, err :=
+		h.service.Listar(
+			incluirInactivos,
+		)
+
 	if err != nil {
-		log.Println("Error al obtener géneros musicales:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Error al obtener los géneros musicales",
-		})
+
+		log.Println(
+			"Error al obtener géneros musicales:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al obtener los géneros musicales",
+			},
+		)
 		return
 	}
 
-	c.JSON(http.StatusOK, generos)
+	c.JSON(
+		http.StatusOK,
+		generos,
+	)
 }
 
 func (h *GeneroMusicalHandler) Crear(c *gin.Context) {

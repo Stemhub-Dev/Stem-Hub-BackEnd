@@ -6,7 +6,11 @@ import "time"
 // distinguir mayúsculas) del rol de ámbito SISTEMA con permisos de
 // administración global, tal como se lo crea en la migración
 // 004datosseguridadl.sql.
-const NombreRolAdministradorSistema = "Administrador del sistema"
+const (
+	NombreRolAdministradorSistema = "Administrador"
+	NombreRolProductor            = "Productor"
+	NombreRolMusicoArtista        = "Artista"
+)
 
 type Rol struct {
 	//el asterisco indica que el campo puede ser nulo

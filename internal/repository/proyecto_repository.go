@@ -89,6 +89,11 @@ type ProyectoRepository interface {
 	DarDeBaja(
 		codigoProyecto int64,
 	) error
+
+	ListarMiParticipacion(
+		codigoIntegrante int64,
+		participacion string,
+	) ([]dto.MiParticipacionProyectoResponse, error)
 }
 
 type proyectoRepository struct {
@@ -175,6 +180,7 @@ func (r *proyectoRepository) ExistenGeneros(
 				SELECT 1
 				FROM generomusicalproyecto
 				WHERE codigogeneroproy = $1
+				  AND fechahorabajageneroproy IS NULL
 			)
 		`, codigoGenero).Scan(&existe)
 
@@ -927,4 +933,95 @@ func (r *proyectoRepository) DarDeBaja(
 	}
 
 	return nil
+}
+
+func (r *proyectoRepository) ListarMiParticipacion(
+	codigoIntegrante int64,
+	participacion string,
+) ([]dto.MiParticipacionProyectoResponse, error) {
+
+	rows, err := r.db.Query(`
+		SELECT
+			p.codigoproyecto,
+			p.nombreproyecto,
+			ip.codrol,
+			r.nombrerol,
+			ip.espropietario
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN rol r
+			ON r.codrol = ip.codrol
+		   AND r.ambitorol = ip.ambitorol
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND r.fechahorabajarol IS NULL
+		  AND r.ambitorol = 'PROYECTO'
+		  AND (
+				$2 = 'todos'
+
+				OR (
+					$2 = 'propietario'
+					AND ip.espropietario = TRUE
+				)
+
+				OR (
+					$2 = 'productor'
+					AND LOWER(r.nombrerol) =
+						LOWER($3)
+				)
+
+				OR (
+					$2 = 'artista'
+					AND LOWER(r.nombrerol) =
+						LOWER($4)
+				)
+		  )
+		ORDER BY p.nombreproyecto
+	`,
+		codigoIntegrante,
+		participacion,
+		model.NombreRolProductor,
+		model.NombreRolMusicoArtista,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	proyectos := make(
+		[]dto.MiParticipacionProyectoResponse,
+		0,
+	)
+
+	for rows.Next() {
+
+		var proyecto dto.MiParticipacionProyectoResponse
+
+		err := rows.Scan(
+			&proyecto.CodigoProyecto,
+			&proyecto.Nombre,
+			&proyecto.CodRol,
+			&proyecto.NombreRol,
+			&proyecto.EsPropietario,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		proyectos = append(
+			proyectos,
+			proyecto,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return proyectos, nil
 }
