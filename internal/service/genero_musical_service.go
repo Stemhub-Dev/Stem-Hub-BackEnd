@@ -25,21 +25,37 @@ func NewGeneroMusicalService(repository *repository.GeneroMusicalRepository) *Ge
 	}
 }
 
-func (s *GeneroMusicalService) Listar() (
-	[]dto.GeneroMusicalResponse, error) {
-	generos, err := s.repository.Listar()
+func (s *GeneroMusicalService) Listar(
+	incluirInactivos bool,
+) ([]dto.GeneroMusicalResponse, error) {
+
+	generos, err :=
+		s.repository.Listar(
+			incluirInactivos,
+		)
+
 	if err != nil {
 		return nil, err
 	}
 
-	response := make([]dto.GeneroMusicalResponse, 0, len(generos))
+	response := make(
+		[]dto.GeneroMusicalResponse,
+		0,
+		len(generos),
+	)
 
 	for _, genero := range generos {
-		response = append(response, dto.GeneroMusicalResponse{
-			ID:     genero.CodigoGeneroProy,
-			Nombre: genero.NombreGeneroProy,
-			Activo: genero.FechaHoraBajaGeneroProy == nil,
-		})
+
+		response = append(
+			response,
+			dto.GeneroMusicalResponse{
+				ID: genero.CodigoGeneroProy,
+
+				Nombre: genero.NombreGeneroProy,
+
+				Activo: genero.FechaHoraBajaGeneroProy == nil,
+			},
+		)
 	}
 
 	return response, nil

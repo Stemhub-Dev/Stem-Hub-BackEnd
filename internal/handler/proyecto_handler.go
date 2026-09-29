@@ -955,3 +955,93 @@ func (h *ProyectoHandler) DarDeBaja(
 		)
 	}
 }
+
+func (h *ProyectoHandler) ListarMiParticipacion(
+	c *gin.Context,
+) {
+
+	// 1. Usuario autenticado
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{
+				"error": "Usuario no autenticado",
+			},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{
+				"error": "Usuario no autenticado",
+			},
+		)
+		return
+	}
+
+	// 2. Filtro opcional
+	participacion :=
+		c.Query("participacion")
+
+	// Si no viene, el service lo interpreta como "todos".
+
+	proyectos, err :=
+		h.service.ListarMiParticipacion(
+			usuario.CodigoUsuario,
+			participacion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrParticipacionProyectoNoValida,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "La participación indicada no es válida",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinAcceso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés un perfil activo de Stem-Hub",
+			},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al listar proyectos por participación:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al obtener los proyectos",
+			},
+		)
+
+	default:
+
+		c.JSON(
+			http.StatusOK,
+			proyectos,
+		)
+	}
+}

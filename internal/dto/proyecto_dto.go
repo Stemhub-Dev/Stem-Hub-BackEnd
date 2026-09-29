@@ -112,3 +112,13 @@ type EditarProyectoResponse struct {
 	CodigoEstadoProyecto int64   `json:"codigoEstadoProyecto"`
 	CodigosGeneros       []int64 `json:"codigosGeneros"`
 }
+
+type MiParticipacionProyectoResponse struct {
+	CodigoProyecto int64  `json:"codigoProyecto"`
+	Nombre         string `json:"nombre"`
+
+	CodRol    int64  `json:"codRol"`
+	NombreRol string `json:"nombreRol"`
+
+	EsPropietario bool `json:"esPropietario"`
+}

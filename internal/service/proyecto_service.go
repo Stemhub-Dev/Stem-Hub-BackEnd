@@ -72,6 +72,10 @@ var (
 	ErrProyectoErrorAlmacenamiento = errors.New(
 		"error al almacenar el logo del proyecto",
 	)
+
+	ErrParticipacionProyectoNoValida = errors.New(
+		"la participación indicada no es válida",
+	)
 )
 
 type ProyectoService interface {
@@ -106,6 +110,11 @@ type ProyectoService interface {
 		codigoUsuario int64,
 		codigoProyecto int64,
 	) error
+
+	ListarMiParticipacion(
+		codigoUsuario int64,
+		participacion string,
+	) ([]dto.MiParticipacionProyectoResponse, error)
 }
 
 type proyectoService struct {
@@ -920,4 +929,76 @@ func (s *proyectoService) DarDeBaja(
 	}
 
 	return nil
+}
+
+func (s *proyectoService) ListarMiParticipacion(
+	codigoUsuario int64,
+	participacion string,
+) ([]dto.MiParticipacionProyectoResponse, error) {
+
+	// ---------------------------------------
+	// 1. NORMALIZAR FILTRO
+	// ---------------------------------------
+
+	participacion = strings.ToLower(
+		strings.TrimSpace(participacion),
+	)
+
+	// Si no se envía el query parameter,
+	// mostramos todos los proyectos.
+	if participacion == "" {
+		participacion = "todos"
+	}
+
+	switch participacion {
+
+	case "todos",
+		"propietario",
+		"productor",
+		"artista":
+
+		// válido
+
+	default:
+		return nil,
+			ErrParticipacionProyectoNoValida
+	}
+
+	// ---------------------------------------
+	// 2. OBTENER PERFIL DEL USUARIO
+	// ---------------------------------------
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// El integrante también debe estar activo.
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	// ---------------------------------------
+	// 3. LISTAR PROYECTOS SEGÚN PARTICIPACIÓN
+	// ---------------------------------------
+
+	proyectos, err :=
+		s.proyectoRepository.ListarMiParticipacion(
+			integrante.CodIntegrante,
+			participacion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return proyectos, nil
 }

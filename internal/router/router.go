@@ -99,9 +99,57 @@ func NewRouter(db *sql.DB,
 		tipoProyectoHandler.Listar,
 	)
 
+	configuracion.POST(
+		"/tipos-proyecto",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.Crear,
+	)
+
+	configuracion.PUT(
+		"/tipos-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.Editar,
+	)
+
+	configuracion.PATCH(
+		"/tipos-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.CambiarEstado,
+	)
+
 	configuracion.GET(
 		"/estados-proyecto",
 		estadoProyectoHandler.Listar,
+	)
+
+	configuracion.POST(
+		"/estados-proyecto",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.Crear,
+	)
+
+	configuracion.PUT(
+		"/estados-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.Editar,
+	)
+
+	configuracion.PATCH(
+		"/estados-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.CambiarEstado,
 	)
 
 	usuarios.POST(
@@ -133,6 +181,11 @@ func NewRouter(db *sql.DB,
 	proyectos.Use(
 		authMiddleware.ValidarJWT,
 		authMiddleware.UsuarioActivo,
+	)
+
+	proyectos.GET(
+		"/mi-participacion",
+		proyectoHandler.ListarMiParticipacion,
 	)
 
 	proyectos.POST(
