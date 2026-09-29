@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -20,6 +21,8 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 	"github.com/joho/godotenv"
 )
+
+const zonaHorariaPorDefecto = "America/Argentina/Buenos_Aires"
 
 func main() {
 
@@ -309,17 +312,26 @@ func leerSegundos(variable string, porDefecto int) time.Duration {
 // hora local y no en la UTC del contenedor.
 func configurarZonaHoraria() {
 
-	nombre := os.Getenv("TZ")
+	zona, err := resolverZonaHoraria(os.Getenv("TZ"))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	time.Local = zona
+}
+
+func resolverZonaHoraria(nombre string) (*time.Location, error) {
 
 	if nombre == "" {
-		nombre = "America/Argentina/Buenos_Aires"
+		nombre = zonaHorariaPorDefecto
 	}
 
 	zona, err := time.LoadLocation(nombre)
 
 	if err != nil {
-		log.Fatalf("TZ inválida %q: %v", nombre, err)
+		return nil, fmt.Errorf("TZ inválida %q: %w", nombre, err)
 	}
 
-	time.Local = zona
+	return zona, nil
 }

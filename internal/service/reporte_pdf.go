@@ -35,6 +35,8 @@ const (
 	altoFilaTabla  = 7.5
 	limiteInferior = altoPaginaA4 - 20
 	sinDato        = "-"
+	formatoFecha   = "02/01/2006"
+	sinLimite      = "sin límite"
 )
 
 // Títulos legibles: el slug del tipo ("estado-canciones") sirve para la URL,
@@ -167,7 +169,7 @@ func construirReportePDF(reporte *dto.ReporteRespuesta) ([]byte, error) {
 	return contenido.Bytes(), nil
 }
 
-// encabezado: barra de color de marca a todo el ancho + datos del proyecto.
+// encabezado: barra de color de marca de lado a lado + datos del proyecto.
 func (d *documentoReporte) encabezado(titulo string, reporte *dto.ReporteRespuesta) {
 	d.fondo(colorLavender500)
 	d.pdf.Rect(0, 0, anchoPaginaA4, 28, "F")
@@ -192,7 +194,7 @@ func (d *documentoReporte) encabezado(titulo string, reporte *dto.ReporteRespues
 		"%s  ·  %s  ·  Generado el %s",
 		reporte.Proyecto.Tipo,
 		reporte.Proyecto.Estado,
-		reporte.FechaGeneracion.Local().Format("02/01/2006 15:04 (UTC-07:00)"),
+		reporte.FechaGeneracion.Local().Format(formatoFecha+" 15:04 (UTC-07:00)"),
 	)
 	d.pdf.CellFormat(anchoUtilPDF, 5, d.tr(detalle), "", 1, "L", false, 0, "")
 	d.pdf.Ln(3)
@@ -347,39 +349,13 @@ func describirFiltros(reporte *dto.ReporteRespuesta) []string {
 	filtros := []string{}
 
 	if aplican.fechas {
-		desde := "sin límite"
-		if parametros.FechaDesde != nil {
-			desde = parametros.FechaDesde.Format("02/01/2006")
-		}
-		hasta := "sin límite"
-		if parametros.FechaHasta != nil {
-			hasta = parametros.FechaHasta.Format("02/01/2006")
-		}
-		filtros = append(filtros, "Desde: "+desde, "Hasta: "+hasta)
+		filtros = append(filtros, "Desde: "+fechaOSinLimite(parametros.FechaDesde), "Hasta: "+fechaOSinLimite(parametros.FechaHasta))
 	}
-
 	if aplican.cancion {
-		cancion := "todas"
-		if parametros.CodigoCancion != nil {
-			cancion = buscarEnFilas(reporte.Datos, "codigo_cancion", *parametros.CodigoCancion, "cancion")
-			if cancion == "" {
-				cancion = "#" + strconv.FormatInt(*parametros.CodigoCancion, 10)
-			}
-		}
-		filtros = append(filtros, "Canción: "+cancion)
+		filtros = append(filtros, "Canción: "+describirCancion(reporte))
 	}
-
 	if aplican.version {
-		version := "todas"
-		if parametros.CodigoVersion != nil {
-			numero := buscarEnFilas(reporte.Datos, "codigo_version", *parametros.CodigoVersion, "numero_version")
-			if numero == "" {
-				version = "#" + strconv.FormatInt(*parametros.CodigoVersion, 10)
-			} else {
-				version = "v" + numero
-			}
-		}
-		filtros = append(filtros, "Versión: "+version)
+		filtros = append(filtros, "Versión: "+describirVersion(reporte))
 	}
 
 	if reporte.TipoReporte == ReporteActividad {
@@ -394,6 +370,35 @@ func describirFiltros(reporte *dto.ReporteRespuesta) []string {
 	}
 
 	return filtros
+}
+
+func fechaOSinLimite(fecha *time.Time) string {
+	if fecha == nil {
+		return sinLimite
+	}
+	return fecha.Format(formatoFecha)
+}
+
+func describirCancion(reporte *dto.ReporteRespuesta) string {
+	codigo := reporte.Parametros.CodigoCancion
+	if codigo == nil {
+		return "todas"
+	}
+	if nombre := buscarEnFilas(reporte.Datos, "codigo_cancion", *codigo, "cancion"); nombre != "" {
+		return nombre
+	}
+	return "#" + strconv.FormatInt(*codigo, 10)
+}
+
+func describirVersion(reporte *dto.ReporteRespuesta) string {
+	codigo := reporte.Parametros.CodigoVersion
+	if codigo == nil {
+		return "todas"
+	}
+	if numero := buscarEnFilas(reporte.Datos, "codigo_version", *codigo, "numero_version"); numero != "" {
+		return "v" + numero
+	}
+	return "#" + strconv.FormatInt(*codigo, 10)
 }
 
 func buscarEnFilas(datos []map[string]interface{}, claveCodigo string, codigo int64, claveValor string) string {
@@ -419,7 +424,7 @@ func valorATexto(valor interface{}) string {
 		}
 		return dato
 	case time.Time:
-		return dato.Format("02/01/2006")
+		return dato.Format(formatoFecha)
 	case int:
 		return strconv.Itoa(dato)
 	case int64:
