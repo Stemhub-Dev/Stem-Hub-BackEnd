@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -164,6 +165,8 @@ func (h *IntegranteHandler) EditarPerfil(c *gin.Context) {
 		descripcion = &valor
 	}
 
+	eliminarAvatar := c.PostForm("eliminarAvatar") == "true"
+
 	avatar, archivoAbierto, err := extraerArchivoAvatar(c)
 
 	if err != nil {
@@ -184,6 +187,7 @@ func (h *IntegranteHandler) EditarPerfil(c *gin.Context) {
 			nombre,
 			descripcion,
 			avatar,
+			eliminarAvatar,
 		)
 
 	switch {
@@ -195,6 +199,18 @@ func (h *IntegranteHandler) EditarPerfil(c *gin.Context) {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "El nombre no puede estar vacío"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrPerfilNombreLargo,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": fmt.Sprintf(
+				"El nombre no puede superar los %d caracteres",
+				service.LargoMaximoNombreIntegrante,
+			)},
 		)
 
 	case errors.Is(

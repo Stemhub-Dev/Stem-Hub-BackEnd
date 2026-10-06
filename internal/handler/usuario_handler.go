@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -71,6 +72,14 @@ func (h *UsuarioHandler) Registrar(c *gin.Context) {
 		case errors.Is(err, service.ErrNombreIntegranteObligatorio):
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "El nombre es obligatorio",
+			})
+
+		case errors.Is(err, service.ErrNombreIntegranteLargo):
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf(
+					"El nombre no puede superar los %d caracteres",
+					service.LargoMaximoNombreIntegrante,
+				),
 			})
 
 		case errors.Is(err, service.ErrUsuarioInactivo):
