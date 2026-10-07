@@ -24,6 +24,7 @@ func NewRouter(db *sql.DB,
 	comentarioHandler *handler.ComentarioHandler,
 	stemHandler *handler.StemHandler,
 	reporteHandler *handler.ReporteHandler,
+	tableroHandler *handler.TableroHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -359,6 +360,19 @@ func NewRouter(db *sql.DB,
 	reportes.GET("", reporteHandler.Listar)
 	reportes.POST("/:tipo/generar", reporteHandler.Generar)
 	reportes.POST("/:tipo/exportar-pdf", reporteHandler.ExportarPDF)
+
+	// Tablero (HU-DASH-B01/B02): cualquier usuario autenticado; los datos se
+	// limitan a los proyectos en los que participa (lo resuelve el service).
+	// Un endpoint por gráfico para que cada uno cargue y falle por separado.
+	tablero := router.Group("/tablero")
+	tablero.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	tablero.GET("/indicadores", tableroHandler.ObtenerIndicadores)
+	tablero.GET("/graficos/versiones-por-proyecto", tableroHandler.ObtenerVersionesPorProyecto)
+	tablero.GET("/graficos/canciones-por-etapa", tableroHandler.ObtenerCancionesPorEtapa)
+	tablero.GET("/graficos/actividad", tableroHandler.ObtenerActividad)
 
 	router.GET(
 		"/canciones",
