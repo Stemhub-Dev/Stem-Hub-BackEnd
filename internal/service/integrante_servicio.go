@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
@@ -34,6 +36,10 @@ var (
 
 	ErrPerfilNombreObligatorio = errors.New(
 		"el nombre no puede estar vacío",
+	)
+
+	ErrPerfilNombreLargo = errors.New(
+		"el nombre es demasiado largo",
 	)
 
 	ErrPerfilAvatarFormatoInvalido = errors.New(
@@ -92,6 +98,7 @@ type IntegranteService interface {
 		nombre string,
 		descripcion *string,
 		avatar *ArchivoImagen,
+		eliminarAvatar bool,
 	) (*model.Integrante, *string, error)
 }
 
@@ -131,23 +138,44 @@ func (s *integranteService) resolverAvatarUrl(
 	return &url, nil
 }
 
-func (s *integranteService) ObtenerPerfil(
+// Best-effort: si falla queda un objeto huérfano en MinIO, pero el perfil
+// ya no lo referencia y no tiene sentido revertir la operación del usuario.
+func (s *integranteService) eliminarArchivoAvatar(objectKey string) {
+	if err := s.audioStorage.Eliminar(context.Background(), objectKey); err != nil {
+		log.Println("No se pudo eliminar el avatar en MinIO:", objectKey, err)
+	}
+}
+
+func (s *integranteService) buscarPerfilActivo(
 	codigoUsuario int64,
-) (*model.Integrante, *string, error) {
+) (*model.Integrante, error) {
 
 	integrante, err :=
 		s.repository.BuscarPorCodigoUsuario(codigoUsuario)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrPerfilNoEncontrado
+		return nil, ErrPerfilNoEncontrado
 	}
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if integrante.FechaHoraBajaIntegrante != nil {
-		return nil, nil, ErrPerfilNoEncontrado
+		return nil, ErrPerfilNoEncontrado
+	}
+
+	return integrante, nil
+}
+
+func (s *integranteService) ObtenerPerfil(
+	codigoUsuario int64,
+) (*model.Integrante, *string, error) {
+
+	integrante, err := s.buscarPerfilActivo(codigoUsuario)
+
+	if err != nil {
+		return nil, nil, err
 	}
 
 	avatarUrl, err := s.resolverAvatarUrl(integrante)
@@ -164,6 +192,7 @@ func (s *integranteService) EditarPerfil(
 	nombre string,
 	descripcion *string,
 	avatar *ArchivoImagen,
+	eliminarAvatar bool,
 ) (*model.Integrante, *string, error) {
 
 	nombre = strings.TrimSpace(nombre)
@@ -172,22 +201,18 @@ func (s *integranteService) EditarPerfil(
 		return nil, nil, ErrPerfilNombreObligatorio
 	}
 
-	integrante, err :=
-		s.repository.BuscarPorCodigoUsuario(codigoUsuario)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, ErrPerfilNoEncontrado
+	if utf8.RuneCountInString(nombre) > LargoMaximoNombreIntegrante {
+		return nil, nil, ErrPerfilNombreLargo
 	}
+
+	integrante, err := s.buscarPerfilActivo(codigoUsuario)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if integrante.FechaHoraBajaIntegrante != nil {
-		return nil, nil, ErrPerfilNoEncontrado
-	}
-
 	avatarObjectKey := integrante.AvatarObjectKey
+	avatarAnterior := integrante.AvatarObjectKey
 
 	if avatar != nil && avatar.Contenido != nil {
 
@@ -214,6 +239,9 @@ func (s *integranteService) EditarPerfil(
 		}
 
 		avatarObjectKey = &objectKey
+	} else if eliminarAvatar {
+		// Un avatar nuevo tiene prioridad sobre el pedido de quitarlo.
+		avatarObjectKey = nil
 	}
 
 	if err := s.repository.ActualizarPerfil(
@@ -223,6 +251,13 @@ func (s *integranteService) EditarPerfil(
 		avatarObjectKey,
 	); err != nil {
 		return nil, nil, err
+	}
+
+	// Si se quitó el avatar, o si el formato cambió (p. ej. png -> jpg) y la
+	// clave nueva es distinta, el archivo anterior quedaría huérfano.
+	if avatarAnterior != nil &&
+		(avatarObjectKey == nil || *avatarAnterior != *avatarObjectKey) {
+		s.eliminarArchivoAvatar(*avatarAnterior)
 	}
 
 	integrante.NombreIntegrante = nombre
