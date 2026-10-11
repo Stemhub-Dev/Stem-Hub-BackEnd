@@ -333,7 +333,7 @@ func NewRouter(db *sql.DB,
 	)
 
 	// "Separar Pistas" con IA: se procesa en segundo plano, el GET devuelve
-	// el estado de la última separación. Separar exige GESTIONAR_STEMS.
+	// el estado de la última separación. Cualquier integrante puede separar.
 	proyectos.POST(
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
 		stemHandler.SolicitarSeparacion,
