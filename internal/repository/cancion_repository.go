@@ -23,6 +23,7 @@ type CancionRepository interface {
 	FinalizarCreacionVersionInicial(
 		tx *sql.Tx,
 		codigoCancion int64,
+		codIntegranteAutor int64,
 		urlArchivo string,
 		formatoArchivo string,
 	) (int64, error)
@@ -40,6 +41,7 @@ type CancionRepository interface {
 		tx *sql.Tx,
 		codigoCancion int64,
 		numeroVersion int,
+		codIntegranteAutor int64,
 		urlArchivo string,
 		formatoArchivo string,
 		notas *string,
@@ -161,6 +163,7 @@ func (r *cancionRepository) IniciarCreacionCancion(
 func (r *cancionRepository) FinalizarCreacionVersionInicial(
 	tx *sql.Tx,
 	codigoCancion int64,
+	codIntegranteAutor int64,
 	urlArchivo string,
 	formatoArchivo string,
 ) (int64, error) {
@@ -174,6 +177,7 @@ func (r *cancionRepository) FinalizarCreacionVersionInicial(
 			codigocancion,
 			numeroversion,
 			fechahoraaltaversion,
+			codintegrantealtaversion,
 			urlarchivocancionver,
 			formatoarchivocancionver
 		)
@@ -182,11 +186,13 @@ func (r *cancionRepository) FinalizarCreacionVersionInicial(
 			1,
 			CURRENT_TIMESTAMP,
 			$2,
-			$3
+			$3,
+			$4
 		)
 		RETURNING codigocancionversion
 	`,
 		codigoCancion,
+		codIntegranteAutor,
 		urlArchivo,
 		formatoArchivo,
 	).Scan(&codigoCancionVersion)
@@ -279,6 +285,7 @@ func (r *cancionRepository) InsertarVersion(
 	tx *sql.Tx,
 	codigoCancion int64,
 	numeroVersion int,
+	codIntegranteAutor int64,
 	urlArchivo string,
 	formatoArchivo string,
 	notas *string,
@@ -291,6 +298,7 @@ func (r *cancionRepository) InsertarVersion(
 			codigocancion,
 			numeroversion,
 			fechahoraaltaversion,
+			codintegrantealtaversion,
 			urlarchivocancionver,
 			formatoarchivocancionver,
 			notasversion
@@ -301,12 +309,14 @@ func (r *cancionRepository) InsertarVersion(
 			CURRENT_TIMESTAMP,
 			$3,
 			$4,
-			$5
+			$5,
+			$6
 		)
 		RETURNING codigocancionversion
 	`,
 		codigoCancion,
 		numeroVersion,
+		codIntegranteAutor,
 		urlArchivo,
 		formatoArchivo,
 		notas,
@@ -504,16 +514,21 @@ func (r *cancionRepository) ListarVersiones(
 
 	rows, err := r.db.Query(`
 		SELECT
-			codigocancionversion,
-			numeroversion,
-			fechahoraaltaversion,
-			urlarchivocancionver,
-			formatoarchivocancionver,
-			notasversion
-		FROM cancionversion
-		WHERE codigocancion = $1
-		  AND fechahorabajaversion IS NULL
-		ORDER BY numeroversion DESC
+			cv.codigocancionversion,
+			cv.numeroversion,
+			cv.fechahoraaltaversion,
+			cv.urlarchivocancionver,
+			cv.formatoarchivocancionver,
+			cv.notasversion,
+			i.codintegrante,
+			i.nombreintegrante,
+			cv.numeroversion = MAX(cv.numeroversion) OVER ()
+		FROM cancionversion cv
+		LEFT JOIN integrante i
+			ON i.codintegrante = cv.codintegrantealtaversion
+		WHERE cv.codigocancion = $1
+		  AND cv.fechahorabajaversion IS NULL
+		ORDER BY cv.numeroversion DESC
 	`,
 		codigoCancion,
 	)
@@ -536,6 +551,8 @@ func (r *cancionRepository) ListarVersiones(
 		var urlArchivo sql.NullString
 		var formatoArchivo sql.NullString
 		var notas sql.NullString
+		var codIntegranteAutor sql.NullInt64
+		var nombreAutor sql.NullString
 
 		err := rows.Scan(
 			&version.CodigoCancionVersion,
@@ -544,6 +561,9 @@ func (r *cancionRepository) ListarVersiones(
 			&urlArchivo,
 			&formatoArchivo,
 			&notas,
+			&codIntegranteAutor,
+			&nombreAutor,
+			&version.EsActual,
 		)
 
 		if err != nil {
@@ -565,6 +585,14 @@ func (r *cancionRepository) ListarVersiones(
 
 		if notas.Valid {
 			version.Notas = &notas.String
+		}
+
+		// Las versiones subidas antes de la migración 024 no tienen autor.
+		if codIntegranteAutor.Valid {
+			version.Autor = &dto.AutorVersionResponse{
+				CodigoIntegrante: codIntegranteAutor.Int64,
+				Nombre:           nombreAutor.String,
+			}
 		}
 
 		versiones = append(versiones, version)

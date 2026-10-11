@@ -323,6 +323,7 @@ func (s *cancionService) Crear(
 		s.cancionRepository.FinalizarCreacionVersionInicial(
 			tx,
 			codigoCancion,
+			integrante.CodIntegrante,
 			objectKey,
 			formato,
 		)
@@ -442,6 +443,7 @@ func (s *cancionService) CrearVersion(
 			tx,
 			codigoCancion,
 			siguienteVersion,
+			integrante.CodIntegrante,
 			objectKey,
 			formato,
 			notas,
