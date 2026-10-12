@@ -278,3 +278,27 @@ func (r *EstadoProyectoRepository) CambiarEstado(
 
 	return estado, nil
 }
+
+func (r *EstadoProyectoRepository) EstaEnUso(
+	id int64,
+) (bool, error) {
+
+	var enUso bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM proyecto
+			WHERE codestadoproy = $1
+		)
+	`, id).Scan(&enUso)
+
+	if err != nil {
+		return false, fmt.Errorf(
+			"error al verificar si el estado de proyecto está en uso: %w",
+			err,
+		)
+	}
+
+	return enUso, nil
+}

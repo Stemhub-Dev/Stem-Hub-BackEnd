@@ -327,6 +327,17 @@ func (h *TipoProyectoHandler) CambiarEstado(
 					"error": err.Error(),
 				},
 			)
+		case errors.Is(
+			err,
+			service.ErrTipoProyectoEnUso,
+		):
+
+			c.JSON(
+				http.StatusConflict,
+				gin.H{
+					"error": err.Error(),
+				},
+			)
 
 		default:
 

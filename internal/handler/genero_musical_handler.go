@@ -188,6 +188,18 @@ func (h *GeneroMusicalHandler) CambiarEstado(c *gin.Context) {
 				"error": err.Error(),
 			})
 
+		case errors.Is(
+			err,
+			service.ErrGeneroMusicalEnUso,
+		):
+
+			c.JSON(
+				http.StatusConflict,
+				gin.H{
+					"error": err.Error(),
+				},
+			)
+
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Error al cambiar el estado del género musical",

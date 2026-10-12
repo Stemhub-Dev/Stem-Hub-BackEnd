@@ -13,6 +13,7 @@ var (
 	ErrGeneroMusicalDuplicado       = errors.New("El género musical ya existe")
 	ErrGeneroMusicalNoEncontrado    = errors.New("El género musical no existe")
 	ErrEstadoGeneroMusicalRequerido = errors.New("El campo activo es requerido")
+	ErrGeneroMusicalEnUso           = errors.New("No se puede desactivar el género musical porque está siendo utilizado por uno o más proyectos")
 )
 
 type GeneroMusicalService struct {
@@ -142,28 +143,59 @@ func (s *GeneroMusicalService) CambiarEstado(
 ) (dto.GeneroMusicalResponse, error) {
 
 	if request.Activo == nil {
-		return dto.GeneroMusicalResponse{}, ErrEstadoGeneroMusicalRequerido
+		return dto.GeneroMusicalResponse{},
+			ErrEstadoGeneroMusicalRequerido
 	}
 
-	existe, err := s.repository.ExistePorID(id)
+	existe, err :=
+		s.repository.ExistePorID(
+			id,
+		)
+
 	if err != nil {
-		return dto.GeneroMusicalResponse{}, err
+		return dto.GeneroMusicalResponse{},
+			err
 	}
 
 	if !existe {
-		return dto.GeneroMusicalResponse{}, ErrGeneroMusicalNoEncontrado
+		return dto.GeneroMusicalResponse{},
+			ErrGeneroMusicalNoEncontrado
 	}
 
-	genero, err := s.repository.CambiarEstado(id, *request.Activo)
+	if !*request.Activo {
+
+		enUso, err :=
+			s.repository.EstaEnUso(
+				id,
+			)
+
+		if err != nil {
+			return dto.GeneroMusicalResponse{},
+				err
+		}
+
+		if enUso {
+			return dto.GeneroMusicalResponse{},
+				ErrGeneroMusicalEnUso
+		}
+	}
+
+	genero, err :=
+		s.repository.CambiarEstado(
+			id,
+			*request.Activo,
+		)
+
 	if err != nil {
-		return dto.GeneroMusicalResponse{}, err
+		return dto.GeneroMusicalResponse{},
+			err
 	}
 
-	response := dto.GeneroMusicalResponse{
-		ID:     genero.CodigoGeneroProy,
+	return dto.GeneroMusicalResponse{
+		ID: genero.CodigoGeneroProy,
+
 		Nombre: genero.NombreGeneroProy,
-		Activo: genero.FechaHoraBajaGeneroProy == nil,
-	}
 
-	return response, nil
+		Activo: genero.FechaHoraBajaGeneroProy == nil,
+	}, nil
 }

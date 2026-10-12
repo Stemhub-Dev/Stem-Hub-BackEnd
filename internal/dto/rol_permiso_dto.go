@@ -14,3 +14,7 @@ type RolPermisosResponse struct {
 	AmbitoRol string               `json:"ambitoRol"`
 	Permisos  []PermisoRolResponse `json:"permisos"`
 }
+
+type ActualizarPermisosRolRequest struct {
+	CodigosPermiso []int64 `json:"codigosPermiso"`
+}
