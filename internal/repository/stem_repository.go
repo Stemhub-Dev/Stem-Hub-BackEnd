@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
@@ -76,6 +77,17 @@ type StemRepository interface {
 	Eliminar(
 		codStem int64,
 	) error
+
+	ContarGlobalPorProductor(
+		codigoIntegrante int64,
+		filtro dto.ListarStemsGlobalFiltro,
+	) (int, error)
+
+	ListarGlobalPorProductor(
+		codigoIntegrante int64,
+		filtro dto.ListarStemsGlobalFiltro,
+		desplazamiento int,
+	) ([]dto.StemGlobalListadoResponse, error)
 }
 
 type stemRepository struct {
@@ -87,6 +99,97 @@ func NewStemRepository(db *sql.DB) StemRepository {
 		db: db,
 	}
 }
+
+const consultaContarStemsGlobales = `
+	SELECT COUNT(*)
+	FROM integranteproyecto ip
+	INNER JOIN rol r
+		ON r.codrol = ip.codrol
+	   AND r.ambitorol = ip.ambitorol
+	INNER JOIN proyecto p
+		ON p.codigoproyecto = ip.codigoproyecto
+	INNER JOIN cancion c
+		ON c.codigoproyecto = p.codigoproyecto
+	INNER JOIN cancionversion cv
+		ON cv.codigocancion = c.codigocancion
+	INNER JOIN stem s
+		ON s.codigocancionversion = cv.codigocancionversion
+	INNER JOIN categoriastem cs
+		ON cs.codcategoriastem = s.codcategoriastem
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND ip.ambitorol = 'PROYECTO'
+	  AND r.fechahorabajarol IS NULL
+	  AND LOWER(r.nombrerol) = LOWER($2)
+	  AND p.fechahorabajaproyecto IS NULL
+	  AND c.fechahorabajacancion IS NULL
+	  AND cv.fechahorabajaversion IS NULL
+	  AND s.fechahorabajastem IS NULL
+	  AND cs.fechahorabajacategoriastem IS NULL
+	  AND (
+			$3::text = ''
+			OR s.nombrestem ILIKE '%' || $3::text || '%'
+	  )
+	  AND (
+			$4::bigint IS NULL
+			OR s.codcategoriastem = $4::bigint
+	  )
+`
+
+const consultaListarStemsGlobales = `
+	SELECT
+		s.codstem,
+		s.nombrestem,
+		s.codcategoriastem,
+		cs.nombrecategoriastem,
+		s.generadoconia,
+		s.nombrearchivostem,
+		s.formatoarchivostem,
+
+		p.codigoproyecto,
+		p.nombreproyecto,
+
+		c.codigocancion,
+		c.nombrecancion,
+
+		cv.codigocancionversion,
+		cv.numeroversion
+
+	FROM integranteproyecto ip
+	INNER JOIN rol r
+		ON r.codrol = ip.codrol
+	   AND r.ambitorol = ip.ambitorol
+	INNER JOIN proyecto p
+		ON p.codigoproyecto = ip.codigoproyecto
+	INNER JOIN cancion c
+		ON c.codigoproyecto = p.codigoproyecto
+	INNER JOIN cancionversion cv
+		ON cv.codigocancion = c.codigocancion
+	INNER JOIN stem s
+		ON s.codigocancionversion = cv.codigocancionversion
+	INNER JOIN categoriastem cs
+		ON cs.codcategoriastem = s.codcategoriastem
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND ip.ambitorol = 'PROYECTO'
+	  AND r.fechahorabajarol IS NULL
+	  AND LOWER(r.nombrerol) = LOWER($2)
+	  AND p.fechahorabajaproyecto IS NULL
+	  AND c.fechahorabajacancion IS NULL
+	  AND cv.fechahorabajaversion IS NULL
+	  AND s.fechahorabajastem IS NULL
+	  AND cs.fechahorabajacategoriastem IS NULL
+	  AND (
+			$3::text = ''
+			OR s.nombrestem ILIKE '%' || $3::text || '%'
+	  )
+	  AND (
+			$4::bigint IS NULL
+			OR s.codcategoriastem = $4::bigint
+	  )
+	ORDER BY s.codstem DESC
+	LIMIT $5 OFFSET $6
+`
 
 func (r *stemRepository) ListarCategorias(
 	codigoProyecto int64,
@@ -453,4 +556,107 @@ func (r *stemRepository) Eliminar(
 	}
 
 	return tx.Commit()
+}
+
+func (r *stemRepository) ContarGlobalPorProductor(
+	codigoIntegrante int64,
+	filtro dto.ListarStemsGlobalFiltro,
+) (int, error) {
+
+	var categoria any
+
+	if filtro.Categoria != nil {
+		categoria = *filtro.Categoria
+	}
+
+	var total int
+
+	err := r.db.QueryRow(
+		consultaContarStemsGlobales,
+		codigoIntegrante,
+		model.NombreRolProductor,
+		escaparPatronLike(
+			filtro.Busqueda,
+		),
+		categoria,
+	).Scan(&total)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+func (r *stemRepository) ListarGlobalPorProductor(
+	codigoIntegrante int64,
+	filtro dto.ListarStemsGlobalFiltro,
+	desplazamiento int,
+) ([]dto.StemGlobalListadoResponse, error) {
+
+	var categoria any
+
+	if filtro.Categoria != nil {
+		categoria = *filtro.Categoria
+	}
+
+	rows, err := r.db.Query(
+		consultaListarStemsGlobales,
+		codigoIntegrante,
+		model.NombreRolProductor,
+		escaparPatronLike(
+			filtro.Busqueda,
+		),
+		categoria,
+		filtro.TamanoPagina,
+		desplazamiento,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	stems :=
+		make(
+			[]dto.StemGlobalListadoResponse,
+			0,
+		)
+
+	for rows.Next() {
+
+		var stem dto.StemGlobalListadoResponse
+
+		err := rows.Scan(
+			&stem.CodStem,
+			&stem.Nombre,
+			&stem.CodCategoriaStem,
+			&stem.NombreCategoria,
+			&stem.GeneradoConIA,
+			&stem.NombreArchivo,
+			&stem.FormatoArchivo,
+			&stem.CodigoProyecto,
+			&stem.NombreProyecto,
+			&stem.CodigoCancion,
+			&stem.NombreCancion,
+			&stem.CodigoCancionVersion,
+			&stem.NumeroVersion,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		stems = append(
+			stems,
+			stem,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return stems, nil
 }
