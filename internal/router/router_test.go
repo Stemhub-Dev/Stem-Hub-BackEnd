@@ -33,6 +33,7 @@ func nuevoRouterDePrueba(t *testing.T) *gin.Engine {
 		&handler.ComentarioHandler{},
 		&handler.StemHandler{},
 		&handler.ReporteHandler{},
+		&handler.TableroHandler{},
 		&handler.PermisoHandler{},
 		&handler.RolPermisoHandler{},
 		&middleware.AuthMiddleware{},
@@ -174,6 +175,31 @@ func TestVersionesYComentarios_RequierenAutenticacion(t *testing.T) {
 			router.ServeHTTP(
 				grabador,
 				httptest.NewRequest(caso.metodo, caso.url, nil),
+			)
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
+	}
+}
+
+// HU-DASH-B01 #7 / HU-DASH-B02 #9: sin token, el Tablero responde 401.
+func TestTablero_RequiereAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	for _, url := range []string{
+		"/tablero/indicadores",
+		"/tablero/indicadores?proyectoId=1",
+		"/tablero/graficos/versiones-por-proyecto",
+		"/tablero/graficos/canciones-por-etapa?proyectoId=1",
+		"/tablero/graficos/actividad?agrupacion=mensual",
+	} {
+		t.Run(url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(
+				grabador,
+				httptest.NewRequest(http.MethodGet, url, nil),
 			)
 
 			if grabador.Code != http.StatusUnauthorized {

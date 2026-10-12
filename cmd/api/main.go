@@ -234,6 +234,15 @@ func main() {
 	)
 	reporteHandler := handler.NewReporteHandler(reporteService)
 
+	// Tablero
+	tableroRepository := repository.NewTableroRepository(db)
+	tableroService := service.NewTableroService(
+		tableroRepository,
+		proyectoRepository,
+		integranteRepository,
+	)
+	tableroHandler := handler.NewTableroHandler(tableroService)
+
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
@@ -251,6 +260,7 @@ func main() {
 		comentarioHandler,
 		stemHandler,
 		reporteHandler,
+		tableroHandler,
 		permisoHandler,
 		rolPermisoHandler,
 		authMiddleware,
