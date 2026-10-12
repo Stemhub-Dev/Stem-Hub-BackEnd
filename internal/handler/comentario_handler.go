@@ -754,6 +754,161 @@ func (h *ComentarioHandler) Eliminar(c *gin.Context) {
 	}
 }
 
+func (h *ComentarioHandler) EliminarRespuesta(c *gin.Context) {
+
+	codigoProyecto, err :=
+		strconv.ParseInt(c.Param("proyectoId"), 10, 64)
+
+	if err != nil || codigoProyecto <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoCancion, err :=
+		strconv.ParseInt(c.Param("cancionId"), 10, 64)
+
+	if err != nil || codigoCancion <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Canción inválida"},
+		)
+		return
+	}
+
+	codigoVersion, err :=
+		strconv.ParseInt(c.Param("versionId"), 10, 64)
+
+	if err != nil || codigoVersion <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Versión inválida"},
+		)
+		return
+	}
+
+	codigoComentario, err :=
+		strconv.ParseInt(c.Param("comentarioId"), 10, 64)
+
+	if err != nil || codigoComentario <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Comentario inválido"},
+		)
+		return
+	}
+
+	codigoRespuesta, err :=
+		strconv.ParseInt(c.Param("respuestaId"), 10, 64)
+
+	if err != nil || codigoRespuesta <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Respuesta inválida"},
+		)
+		return
+	}
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	err = h.service.EliminarRespuesta(
+		usuario.CodigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+		codigoVersion,
+		codigoComentario,
+		codigoRespuesta,
+	)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrComentarioProyectoNoEncontrado,
+	),
+		errors.Is(
+			err,
+			service.ErrComentarioCancionNoEncontrada,
+		),
+		errors.Is(
+			err,
+			service.ErrComentarioVersionNoEncontrada,
+		),
+		errors.Is(
+			err,
+			service.ErrRespuestaComentarioNoEncontrada,
+		):
+
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El contenido solicitado no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrComentarioSinPermisoEliminar,
+	):
+
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permisos para eliminar esta respuesta",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrComentarioSinAcceso,
+	):
+
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés acceso a este proyecto",
+			},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al eliminar respuesta de comentario:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al eliminar la respuesta",
+			},
+		)
+
+	default:
+		c.Status(http.StatusNoContent)
+	}
+}
+
 func (h *ComentarioHandler) CambiarEstado(c *gin.Context) {
 
 	codigoProyecto, err :=

@@ -14,6 +14,11 @@ type CrearComentarioRequest struct {
 type AutorComentarioResponse struct {
 	CodigoIntegrante int64  `json:"codigoIntegrante"`
 	Nombre           string `json:"nombre"`
+	// URL presignada del avatar; null si el integrante no subió uno.
+	AvatarUrl *string `json:"avatarUrl"`
+	// Object key del avatar en el storage. Lo completa el repositorio y el
+	// service lo convierte en AvatarUrl; no viaja en la respuesta.
+	AvatarObjectKey *string `json:"-"`
 }
 
 type CrearComentarioResponse struct {

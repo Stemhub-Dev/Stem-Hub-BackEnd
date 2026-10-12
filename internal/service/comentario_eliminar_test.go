@@ -40,6 +40,7 @@ func nuevoServicioEliminarComentario(
 		// El usuario autenticado es el integrante 42.
 		&integranteRepositoryFalso{integrante: &model.Integrante{CodIntegrante: 42}},
 		nil,
+		nil,
 	)
 }
 

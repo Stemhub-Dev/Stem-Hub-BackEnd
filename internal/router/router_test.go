@@ -169,6 +169,7 @@ func TestVersionesYComentarios_RequierenAutenticacion(t *testing.T) {
 		{http.MethodGet, base + "/3/comentarios"},
 		{http.MethodPost, base + "/3/comentarios"},
 		{http.MethodDelete, base + "/3/comentarios/4"},
+		{http.MethodDelete, base + "/3/comentarios/4/respuestas/5"},
 	} {
 		t.Run(caso.metodo+" "+caso.url, func(t *testing.T) {
 			grabador := httptest.NewRecorder()

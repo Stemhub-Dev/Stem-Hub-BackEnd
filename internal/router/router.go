@@ -244,6 +244,11 @@ func NewRouter(db *sql.DB,
 		comentarioHandler.Eliminar,
 	)
 
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId/respuestas/:respuestaId",
+		comentarioHandler.EliminarRespuesta,
+	)
+
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
