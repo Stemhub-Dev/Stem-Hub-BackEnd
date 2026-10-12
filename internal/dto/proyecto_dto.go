@@ -70,6 +70,10 @@ type ColaboradorProyectoResponse struct {
 	EsPropietario    bool    `json:"esPropietario"`
 }
 
+type CambiarRolIntegranteProyectoRequest struct {
+	CodRol int64 `json:"codRol"`
+}
+
 type GeneroProyectoResponse struct {
 	CodigoGenero int64  `json:"codigoGenero"`
 	NombreGenero string `json:"nombreGenero"`

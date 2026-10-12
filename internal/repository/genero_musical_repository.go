@@ -246,3 +246,27 @@ func (r *GeneroMusicalRepository) CambiarEstado(
 
 	return genero, nil
 }
+
+func (r *GeneroMusicalRepository) EstaEnUso(
+	id int64,
+) (bool, error) {
+
+	var enUso bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM proyectogeneromusical
+			WHERE codigogeneroproy = $1
+		)
+	`, id).Scan(&enUso)
+
+	if err != nil {
+		return false, fmt.Errorf(
+			"error al verificar si el género musical está en uso: %w",
+			err,
+		)
+	}
+
+	return enUso, nil
+}

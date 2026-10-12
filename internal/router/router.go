@@ -263,6 +263,16 @@ func NewRouter(db *sql.DB,
 		proyectoHandler.ListarColaboradores,
 	)
 
+	proyectos.PATCH(
+		"/:proyectoId/integrantes/:integranteId/rol",
+		proyectoHandler.CambiarRolIntegrante,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/integrantes/:integranteId",
+		proyectoHandler.QuitarIntegrante,
+	)
+
 	proyectos.POST(
 		"/:proyectoId/invitaciones",
 		invitacionProyectoHandler.Crear,
@@ -382,12 +392,37 @@ func NewRouter(db *sql.DB,
 		permisoHandler.Listar,
 	)
 
+	permisos.POST(
+		"",
+		permisoHandler.Crear,
+	)
+
+	permisos.PUT(
+		"/:id",
+		permisoHandler.Editar,
+	)
+
+	permisos.PATCH(
+		"/:id",
+		permisoHandler.CambiarEstado,
+	)
+
 	router.GET(
 		"/roles/:id/permisos",
 		authMiddleware.ValidarJWT,
 		authMiddleware.UsuarioActivo,
-		permisoMiddleware.RequerirPermiso("GESTIONAR_ROLES"),
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ROLES",
+		),
 		rolPermisoHandler.ObtenerPorRol,
+	)
+
+	router.PUT(
+		"/roles/:id/permisos",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_ROLES"),
+		rolPermisoHandler.Actualizar,
 	)
 
 	router.GET(

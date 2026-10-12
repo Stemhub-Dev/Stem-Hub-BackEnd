@@ -13,6 +13,7 @@ var (
 	ErrEstadoProyectoDuplicado       = errors.New("El estado de proyecto ya existe")
 	ErrEstadoProyectoNoEncontrado    = errors.New("El estado de proyecto no existe")
 	ErrEstadoEstadoProyectoRequerido = errors.New("El campo activo es requerido")
+	ErrEstadoProyectoEnUso           = errors.New("No se puede desactivar el estado de proyecto porque está siendo utilizado por uno o más proyectos")
 )
 
 type EstadoProyectoService struct {
@@ -202,6 +203,26 @@ func (s *EstadoProyectoService) CambiarEstado(
 	if !existe {
 		return dto.EstadoProyectoResponse{},
 			ErrEstadoProyectoNoEncontrado
+	}
+
+	// La validación de uso solamente corresponde al desactivar.
+	// Para reactivar no existe ninguna restricción.
+	if !*request.Activo {
+
+		enUso, err :=
+			s.repository.EstaEnUso(
+				id,
+			)
+
+		if err != nil {
+			return dto.EstadoProyectoResponse{},
+				err
+		}
+
+		if enUso {
+			return dto.EstadoProyectoResponse{},
+				ErrEstadoProyectoEnUso
+		}
 	}
 
 	estado, err :=

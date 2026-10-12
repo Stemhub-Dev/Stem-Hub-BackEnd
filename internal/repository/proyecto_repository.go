@@ -86,6 +86,22 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) ([]model.ColaboradorProyecto, error)
 
+	ObtenerColaboradorActivo(
+		codigoProyecto int64,
+		codigoIntegrante int64,
+	) (*model.ColaboradorProyecto, error)
+
+	ActualizarRolIntegrante(
+		codigoProyecto int64,
+		codigoIntegrante int64,
+		codRol int64,
+	) error
+
+	DarDeBajaIntegrante(
+		codigoProyecto int64,
+		codigoIntegrante int64,
+	) error
+
 	DarDeBaja(
 		codigoProyecto int64,
 	) error
@@ -1024,4 +1040,117 @@ func (r *proyectoRepository) ListarMiParticipacion(
 	}
 
 	return proyectos, nil
+}
+
+func (r *proyectoRepository) ObtenerColaboradorActivo(
+	codigoProyecto int64,
+	codigoIntegrante int64,
+) (*model.ColaboradorProyecto, error) {
+
+	var colaborador model.ColaboradorProyecto
+
+	err := r.db.QueryRow(`
+		SELECT
+			i.codintegrante,
+			i.nombreintegrante,
+			i.urlavatarintegrante,
+			ip.codrol,
+			r.nombrerol,
+			ip.espropietario
+		FROM integranteproyecto ip
+		JOIN integrante i
+		  ON i.codintegrante = ip.codintegrante
+		JOIN rol r
+		  ON r.codrol = ip.codrol
+		 AND r.ambitorol = ip.ambitorol
+		WHERE ip.codigoproyecto = $1
+		  AND ip.codintegrante = $2
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND i.fechahorabajaintegrante IS NULL
+	`,
+		codigoProyecto,
+		codigoIntegrante,
+	).Scan(
+		&colaborador.CodIntegrante,
+		&colaborador.NombreIntegrante,
+		&colaborador.AvatarObjectKey,
+		&colaborador.CodRol,
+		&colaborador.NombreRol,
+		&colaborador.EsPropietario,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &colaborador, nil
+}
+
+func (r *proyectoRepository) ActualizarRolIntegrante(
+	codigoProyecto int64,
+	codigoIntegrante int64,
+	codRol int64,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE integranteproyecto
+		SET codrol = $3
+		WHERE codigoproyecto = $1
+		  AND codintegrante = $2
+		  AND fechahorabajaintegranteproy IS NULL
+	`,
+		codigoProyecto,
+		codigoIntegrante,
+		codRol,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *proyectoRepository) DarDeBajaIntegrante(
+	codigoProyecto int64,
+	codigoIntegrante int64,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE integranteproyecto
+		SET fechahorabajaintegranteproy = CURRENT_TIMESTAMP
+		WHERE codigoproyecto = $1
+		  AND codintegrante = $2
+		  AND fechahorabajaintegranteproy IS NULL
+		  AND espropietario = FALSE
+	`,
+		codigoProyecto,
+		codigoIntegrante,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }

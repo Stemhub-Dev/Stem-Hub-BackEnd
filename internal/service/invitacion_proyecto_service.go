@@ -452,11 +452,31 @@ func (s *invitacionProyectoService) Aceptar(
 		return 0, err
 	}
 
-	if !strings.EqualFold(usuario.Email, invitacion.EmailInvitado) {
+	if !strings.EqualFold(
+		usuario.Email,
+		invitacion.EmailInvitado,
+	) {
 		return 0, ErrInvitacionEmailNoCoincide
 	}
 
-	integrante, err := s.integranteRepository.BuscarPorCodigoUsuario(usuario.CodigoUsuario)
+	// El proyecto debe seguir activo antes de aceptar.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			invitacion.CodigoProyecto,
+		)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if !existeProyecto {
+		return 0, ErrProyectoNoEncontrado
+	}
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			usuario.CodigoUsuario,
+		)
 
 	if err != nil {
 		return 0, err
@@ -472,19 +492,6 @@ func (s *invitacionProyectoService) Aceptar(
 
 	if err != nil {
 		return 0, err
-	}
-
-	existeProyecto, err :=
-		s.proyectoRepository.ExisteProyectoActivo(
-			invitacion.CodigoProyecto,
-		)
-
-	if err != nil {
-		return 0, err
-	}
-
-	if !existeProyecto {
-		return 0, ErrProyectoNoEncontrado
 	}
 
 	return invitacion.CodigoProyecto, nil

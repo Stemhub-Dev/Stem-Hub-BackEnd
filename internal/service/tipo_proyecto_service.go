@@ -13,6 +13,7 @@ var (
 	ErrTipoProyectoDuplicado       = errors.New("El tipo de proyecto ya existe")
 	ErrTipoProyectoNoEncontrado    = errors.New("El tipo de proyecto no existe")
 	ErrEstadoTipoProyectoRequerido = errors.New("El campo activo es requerido")
+	ErrTipoProyectoEnUso           = errors.New("No se puede desactivar el tipo de proyecto porque está siendo utilizado por uno o más proyectos")
 )
 
 type TipoProyectoService struct {
@@ -202,6 +203,24 @@ func (s *TipoProyectoService) CambiarEstado(
 	if !existe {
 		return dto.TipoProyectoResponse{},
 			ErrTipoProyectoNoEncontrado
+	}
+
+	if !*request.Activo {
+
+		enUso, err :=
+			s.repository.EstaEnUso(
+				id,
+			)
+
+		if err != nil {
+			return dto.TipoProyectoResponse{},
+				err
+		}
+
+		if enUso {
+			return dto.TipoProyectoResponse{},
+				ErrTipoProyectoEnUso
+		}
 	}
 
 	tipo, err :=
