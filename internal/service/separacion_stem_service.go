@@ -141,6 +141,9 @@ func (s *separacionStemService) Solicitar(
 		return nil, ErrSeparacionCantidadInvalida
 	}
 
+	// Separar está habilitado para cualquier integrante del proyecto
+	// (HU-IA-F01), no solo para quien tiene GESTIONAR_STEMS: alcanza con
+	// pertenecer al proyecto.
 	integrante, err := validarAccesoVersionStem(
 		s.proyectoRepository,
 		s.cancionRepository,
@@ -149,7 +152,7 @@ func (s *separacionStemService) Solicitar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		permisoGestionarStems,
+		"",
 	)
 
 	if err != nil {
