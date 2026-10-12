@@ -148,3 +148,37 @@ func TestRutasDeIA_RequierenAutenticacion(t *testing.T) {
 		})
 	}
 }
+
+// PRU-07 (HU-SEG-B01): sin header Authorization, las rutas de versiones y
+// comentarios responden 401 desde ValidarJWT. Los handlers de este router
+// tienen el service en nil: si alguno llegara a ejecutarse, el test
+// fallaría con un panic en vez de un 401.
+func TestVersionesYComentarios_RequierenAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	base := "/proyectos/1/canciones/2/versiones"
+
+	for _, caso := range []struct {
+		metodo string
+		url    string
+	}{
+		{http.MethodPost, base},
+		{http.MethodGet, base},
+		{http.MethodGet, base + "/3/audio"},
+		{http.MethodGet, base + "/3/comentarios"},
+		{http.MethodPost, base + "/3/comentarios"},
+		{http.MethodDelete, base + "/3/comentarios/4"},
+	} {
+		t.Run(caso.metodo+" "+caso.url, func(t *testing.T) {
+			grabador := httptest.NewRecorder()
+			router.ServeHTTP(
+				grabador,
+				httptest.NewRequest(caso.metodo, caso.url, nil),
+			)
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
+			}
+		})
+	}
+}
