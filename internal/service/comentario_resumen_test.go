@@ -48,6 +48,7 @@ func nuevoServicioResumen(repo *comentariosResumenFalso, ml *mlResumenFalso) Com
 		&cancionExistenciaFalsa{},
 		&integranteRepositoryFalso{integrante: &model.Integrante{CodIntegrante: 42}},
 		ml,
+		nil,
 	)
 }
 

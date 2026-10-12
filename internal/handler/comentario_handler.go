@@ -613,140 +613,165 @@ func (h *ComentarioHandler) Modificar(c *gin.Context) {
 
 func (h *ComentarioHandler) Eliminar(c *gin.Context) {
 
-	codigoProyecto, err :=
-		strconv.ParseInt(c.Param("proyectoId"), 10, 64)
-
-	if err != nil || codigoProyecto <= 0 {
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "Proyecto inválido"},
-		)
+	ruta, ok := leerRutaComentario(c)
+	if !ok {
 		return
 	}
 
-	codigoCancion, err :=
-		strconv.ParseInt(c.Param("cancionId"), 10, 64)
-
-	if err != nil || codigoCancion <= 0 {
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "Canción inválida"},
-		)
-		return
-	}
-
-	codigoVersion, err :=
-		strconv.ParseInt(c.Param("versionId"), 10, 64)
-
-	if err != nil || codigoVersion <= 0 {
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "Versión inválida"},
-		)
-		return
-	}
-
-	codigoComentario, err :=
-		strconv.ParseInt(c.Param("comentarioId"), 10, 64)
-
-	if err != nil || codigoComentario <= 0 {
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{"error": "Comentario inválido"},
-		)
-		return
-	}
-
-	valorUsuario, existe :=
-		c.Get(middleware.UsuarioContextKey)
-
-	if !existe {
-		c.JSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "Usuario no autenticado"},
-		)
-		return
-	}
-
-	usuario, ok :=
-		valorUsuario.(*model.Usuario)
-
-	if !ok || usuario == nil {
-		c.JSON(
-			http.StatusUnauthorized,
-			gin.H{"error": "Usuario no autenticado"},
-		)
-		return
-	}
-
-	err = h.service.Eliminar(
-		usuario.CodigoUsuario,
-		codigoProyecto,
-		codigoCancion,
-		codigoVersion,
-		codigoComentario,
+	err := h.service.Eliminar(
+		ruta.usuario.CodigoUsuario,
+		ruta.proyecto,
+		ruta.cancion,
+		ruta.version,
+		ruta.comentario,
 	)
+
+	responderEliminacion(c, err, mensajesEliminacion{
+		noEncontrado: service.ErrComentarioNoEncontrado,
+		sinPermiso:   "No tenés permisos para eliminar este comentario",
+		log:          "Error al eliminar comentario:",
+		errorInterno: "Error al eliminar el comentario",
+	})
+}
+
+func (h *ComentarioHandler) EliminarRespuesta(c *gin.Context) {
+
+	ruta, ok := leerRutaComentario(c)
+	if !ok {
+		return
+	}
+
+	codigoRespuesta, ok := parametroPositivo(c, "respuestaId", "Respuesta inválida")
+	if !ok {
+		return
+	}
+
+	err := h.service.EliminarRespuesta(
+		ruta.usuario.CodigoUsuario,
+		ruta.proyecto,
+		ruta.cancion,
+		ruta.version,
+		ruta.comentario,
+		codigoRespuesta,
+	)
+
+	responderEliminacion(c, err, mensajesEliminacion{
+		noEncontrado: service.ErrRespuestaComentarioNoEncontrada,
+		sinPermiso:   "No tenés permisos para eliminar esta respuesta",
+		log:          "Error al eliminar respuesta de comentario:",
+		errorInterno: "Error al eliminar la respuesta",
+	})
+}
+
+// Ids de .../proyectos/:proyectoId/canciones/:cancionId/versiones/:versionId/
+// comentarios/:comentarioId y el usuario autenticado.
+type rutaComentario struct {
+	usuario    *model.Usuario
+	proyecto   int64
+	cancion    int64
+	version    int64
+	comentario int64
+}
+
+// Lee la ruta de un comentario. Si algo falta o es inválido ya respondió
+// (400 o 401) y devuelve false.
+func leerRutaComentario(c *gin.Context) (rutaComentario, bool) {
+
+	var ruta rutaComentario
+
+	for _, parametro := range []struct {
+		nombre  string
+		mensaje string
+		destino *int64
+	}{
+		{"proyectoId", "Proyecto inválido", &ruta.proyecto},
+		{"cancionId", "Canción inválida", &ruta.cancion},
+		{"versionId", "Versión inválida", &ruta.version},
+		{"comentarioId", "Comentario inválido", &ruta.comentario},
+	} {
+		valor, ok := parametroPositivo(c, parametro.nombre, parametro.mensaje)
+		if !ok {
+			return ruta, false
+		}
+		*parametro.destino = valor
+	}
+
+	valorUsuario, existe := c.Get(middleware.UsuarioContextKey)
+	usuario, ok := valorUsuario.(*model.Usuario)
+
+	if !existe || !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return ruta, false
+	}
+
+	ruta.usuario = usuario
+
+	return ruta, true
+}
+
+func parametroPositivo(c *gin.Context, nombre string, mensaje string) (int64, bool) {
+
+	valor, err := strconv.ParseInt(c.Param(nombre), 10, 64)
+
+	if err != nil || valor <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": mensaje},
+		)
+		return 0, false
+	}
+
+	return valor, true
+}
+
+type mensajesEliminacion struct {
+	// Error del service que significa "no existe" (404) para este recurso.
+	noEncontrado error
+	sinPermiso   string
+	log          string
+	errorInterno string
+}
+
+// Traduce el resultado de eliminar un comentario o una respuesta a la
+// respuesta HTTP (204, 404, 403 o 500).
+func responderEliminacion(c *gin.Context, err error, mensajes mensajesEliminacion) {
 
 	switch {
 
-	case errors.Is(
-		err,
-		service.ErrComentarioProyectoNoEncontrado,
-	),
-		errors.Is(
-			err,
-			service.ErrComentarioCancionNoEncontrada,
-		),
-		errors.Is(
-			err,
-			service.ErrComentarioVersionNoEncontrada,
-		),
-		errors.Is(
-			err,
-			service.ErrComentarioNoEncontrado,
-		):
+	case errors.Is(err, service.ErrComentarioProyectoNoEncontrado),
+		errors.Is(err, service.ErrComentarioCancionNoEncontrada),
+		errors.Is(err, service.ErrComentarioVersionNoEncontrada),
+		errors.Is(err, mensajes.noEncontrado):
 
 		c.JSON(
 			http.StatusNotFound,
 			gin.H{"error": "El contenido solicitado no existe"},
 		)
 
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermisoEliminar,
-	):
+	case errors.Is(err, service.ErrComentarioSinPermisoEliminar):
 
 		c.JSON(
 			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permisos para eliminar este comentario",
-			},
+			gin.H{"error": mensajes.sinPermiso},
 		)
 
-	case errors.Is(
-		err,
-		service.ErrComentarioSinAcceso,
-	):
+	case errors.Is(err, service.ErrComentarioSinAcceso):
 
 		c.JSON(
 			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés acceso a este proyecto",
-			},
+			gin.H{"error": "No tenés acceso a este proyecto"},
 		)
 
 	case err != nil:
 
-		log.Println(
-			"Error al eliminar comentario:",
-			err,
-		)
+		log.Println(mensajes.log, err)
 
 		c.JSON(
 			http.StatusInternalServerError,
-			gin.H{
-				"error": "Error al eliminar el comentario",
-			},
+			gin.H{"error": mensajes.errorInterno},
 		)
 
 	default:

@@ -222,6 +222,7 @@ func main() {
 		cancionRepository,
 		integranteRepository,
 		mlCliente,
+		audioStorage,
 	)
 	comentarioHandler := handler.NewComentarioHandler(comentarioService)
 

@@ -42,6 +42,18 @@ type ComentarioRepository interface {
 		codigoVersion int64,
 	) (int64, error)
 
+	// Autor de una respuesta activa del comentario indicado, que a su vez
+	// tiene que estar activo en la versión.
+	ObtenerAutorRespuesta(
+		codigoRespuesta int64,
+		codigoComentario int64,
+		codigoVersion int64,
+	) (int64, error)
+
+	DarDeBajaRespuesta(
+		codigoRespuesta int64,
+	) (bool, error)
+
 	Modificar(
 		codigoComentario int64,
 		texto string,
@@ -167,6 +179,7 @@ func (r *comentarioRepository) ListarPorVersion(
 			c.fechahoraaltacomentario,
 			i.codintegrante,
 			i.nombreintegrante,
+			i.urlavatarintegrante,
 			(c.codintegrante = $2) AS espropio,
 
 			cr.codigorespuestacomentario,
@@ -174,6 +187,7 @@ func (r *comentarioRepository) ListarPorVersion(
 			cr.fechahoraaltarespuesta,
 			ir.codintegrante,
 			ir.nombreintegrante,
+			ir.urlavatarintegrante,
 			(cr.codintegrante = $2) AS espropiarespuesta
 
 		FROM comentario c
@@ -226,6 +240,7 @@ func (r *comentarioRepository) ListarPorVersion(
 		var fechaHoraAlta sql.NullTime
 		var autorCodigo int64
 		var autorNombre string
+		var autorAvatar sql.NullString
 		var esPropio bool
 
 		var codigoRespuesta sql.NullInt64
@@ -233,6 +248,7 @@ func (r *comentarioRepository) ListarPorVersion(
 		var fechaRespuesta sql.NullTime
 		var codigoAutorRespuesta sql.NullInt64
 		var nombreAutorRespuesta sql.NullString
+		var avatarAutorRespuesta sql.NullString
 		var esPropiaRespuesta sql.NullBool
 
 		err := rows.Scan(
@@ -245,6 +261,7 @@ func (r *comentarioRepository) ListarPorVersion(
 			&fechaHoraAlta,
 			&autorCodigo,
 			&autorNombre,
+			&autorAvatar,
 			&esPropio,
 
 			&codigoRespuesta,
@@ -252,6 +269,7 @@ func (r *comentarioRepository) ListarPorVersion(
 			&fechaRespuesta,
 			&codigoAutorRespuesta,
 			&nombreAutorRespuesta,
+			&avatarAutorRespuesta,
 			&esPropiaRespuesta,
 		)
 
@@ -275,6 +293,7 @@ func (r *comentarioRepository) ListarPorVersion(
 				Autor: dto.AutorComentarioResponse{
 					CodigoIntegrante: autorCodigo,
 					Nombre:           autorNombre,
+					AvatarObjectKey:  punteroTextoSiValido(autorAvatar),
 				},
 				EsPropio:   esPropio,
 				Respuestas: make([]dto.RespuestaComentarioResponse, 0),
@@ -299,6 +318,7 @@ func (r *comentarioRepository) ListarPorVersion(
 					Autor: dto.AutorComentarioResponse{
 						CodigoIntegrante: codigoAutorRespuesta.Int64,
 						Nombre:           nombreAutorRespuesta.String,
+						AvatarObjectKey:  punteroTextoSiValido(avatarAutorRespuesta),
 					},
 					EsPropia: esPropiaRespuesta.Bool,
 				}
@@ -400,6 +420,59 @@ func (r *comentarioRepository) ObtenerAutorComentario(
 	return codigoIntegrante, err
 }
 
+func (r *comentarioRepository) ObtenerAutorRespuesta(
+	codigoRespuesta int64,
+	codigoComentario int64,
+	codigoVersion int64,
+) (int64, error) {
+
+	var codigoIntegrante int64
+
+	err := r.db.QueryRow(`
+		SELECT cr.codintegrante
+		FROM comentariorespuesta cr
+		INNER JOIN comentario c
+			ON c.codigocomentario = cr.codigocomentario
+		WHERE cr.codigorespuestacomentario = $1
+		  AND cr.codigocomentario = $2
+		  AND c.codigocancionversion = $3
+		  AND cr.fechahorabajarespuesta IS NULL
+		  AND c.fechahorabajacomentario IS NULL
+	`,
+		codigoRespuesta,
+		codigoComentario,
+		codigoVersion,
+	).Scan(&codigoIntegrante)
+
+	return codigoIntegrante, err
+}
+
+func (r *comentarioRepository) DarDeBajaRespuesta(
+	codigoRespuesta int64,
+) (bool, error) {
+
+	resultado, err := r.db.Exec(`
+		UPDATE comentariorespuesta
+		SET fechahorabajarespuesta = CURRENT_TIMESTAMP
+		WHERE codigorespuestacomentario = $1
+		  AND fechahorabajarespuesta IS NULL
+	`,
+		codigoRespuesta,
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	filasAfectadas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return false, err
+	}
+
+	return filasAfectadas > 0, nil
+}
+
 func (r *comentarioRepository) Modificar(
 	codigoComentario int64,
 	texto string,
@@ -498,6 +571,13 @@ func (r *comentarioRepository) CambiarEstado(
 	}
 
 	return filasAfectadas > 0, nil
+}
+
+func punteroTextoSiValido(valor sql.NullString) *string {
+	if !valor.Valid {
+		return nil
+	}
+	return &valor.String
 }
 
 func punteroSiValido(valor sql.NullInt64) *int64 {

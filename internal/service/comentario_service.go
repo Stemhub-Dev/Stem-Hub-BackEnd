@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mlservice"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
 
 var (
@@ -64,6 +66,10 @@ var (
 		"no tiene permisos para eliminar este comentario",
 	)
 
+	ErrRespuestaComentarioNoEncontrada = errors.New(
+		"la respuesta no existe",
+	)
+
 	ErrComentarioEstadoInvalido = errors.New(
 		"el estado del comentario no es válido",
 	)
@@ -111,6 +117,17 @@ type ComentarioService interface {
 		codigoComentario int64,
 	) error
 
+	// Mismas reglas que Eliminar: el autor borra la suya y, con
+	// GESTIONAR_COMENTARIOS, también las de otros.
+	EliminarRespuesta(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoVersion int64,
+		codigoComentario int64,
+		codigoRespuesta int64,
+	) error
+
 	CambiarEstado(
 		codigoUsuario int64,
 		codigoProyecto int64,
@@ -136,6 +153,7 @@ type comentarioService struct {
 	cancionRepository    repository.CancionRepository
 	integranteRepository repository.IntegranteRepository
 	mlCliente            mlservice.Cliente
+	audioStorage         storage.AudioStorage
 }
 
 func NewComentarioService(
@@ -144,6 +162,7 @@ func NewComentarioService(
 	cancionRepository repository.CancionRepository,
 	integranteRepository repository.IntegranteRepository,
 	mlCliente mlservice.Cliente,
+	audioStorage storage.AudioStorage,
 ) ComentarioService {
 
 	return &comentarioService{
@@ -152,6 +171,7 @@ func NewComentarioService(
 		cancionRepository:    cancionRepository,
 		integranteRepository: integranteRepository,
 		mlCliente:            mlCliente,
+		audioStorage:         audioStorage,
 	}
 }
 
@@ -336,10 +356,64 @@ func (s *comentarioService) ListarPorVersion(
 		return nil, err
 	}
 
-	return s.comentarioRepository.ListarPorVersion(
+	comentarios, err := s.comentarioRepository.ListarPorVersion(
 		codigoVersion,
 		integrante.CodIntegrante,
 	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// El mismo integrante suele comentar varias veces: se firma una URL por
+	// avatar, no una por comentario.
+	urls := make(map[string]*string)
+
+	for i := range comentarios {
+		if err := s.resolverAvatar(&comentarios[i].Autor, urls); err != nil {
+			return nil, err
+		}
+
+		for j := range comentarios[i].Respuestas {
+			if err := s.resolverAvatar(&comentarios[i].Respuestas[j].Autor, urls); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return comentarios, nil
+}
+
+func (s *comentarioService) resolverAvatar(
+	autor *dto.AutorComentarioResponse,
+	urls map[string]*string,
+) error {
+
+	if autor.AvatarObjectKey == nil {
+		return nil
+	}
+
+	clave := *autor.AvatarObjectKey
+
+	if url, ok := urls[clave]; ok {
+		autor.AvatarUrl = url
+		return nil
+	}
+
+	url, err := s.audioStorage.ObtenerURLDescarga(
+		context.Background(),
+		clave,
+		VigenciaURLAvatar,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	urls[clave] = &url
+	autor.AvatarUrl = &url
+
+	return nil
 }
 
 func (s *comentarioService) Responder(
@@ -507,25 +581,12 @@ func (s *comentarioService) Eliminar(
 		return err
 	}
 
-	// El autor siempre puede eliminar su propio comentario.
-	if codigoAutor != integrante.CodIntegrante {
-
-		// Para eliminar un comentario ajeno debe tener
-		// el permiso GESTIONAR_COMENTARIOS.
-		puedeGestionarComentarios, err :=
-			s.proyectoRepository.PuedeRealizarEnProyecto(
-				integrante.CodIntegrante,
-				codigoProyecto,
-				"GESTIONAR_COMENTARIOS",
-			)
-
-		if err != nil {
-			return err
-		}
-
-		if !puedeGestionarComentarios {
-			return ErrComentarioSinPermisoEliminar
-		}
+	if err := s.validarPermisoEliminar(
+		codigoAutor,
+		integrante.CodIntegrante,
+		codigoProyecto,
+	); err != nil {
+		return err
 	}
 
 	eliminado, err :=
@@ -539,6 +600,95 @@ func (s *comentarioService) Eliminar(
 
 	if !eliminado {
 		return ErrComentarioNoEncontrado
+	}
+
+	return nil
+}
+
+func (s *comentarioService) EliminarRespuesta(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoVersion int64,
+	codigoComentario int64,
+	codigoRespuesta int64,
+) error {
+
+	integrante, err := s.validarAccesoVersion(
+		codigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+		codigoVersion,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	codigoAutor, err :=
+		s.comentarioRepository.ObtenerAutorRespuesta(
+			codigoRespuesta,
+			codigoComentario,
+			codigoVersion,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrRespuestaComentarioNoEncontrada
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if err := s.validarPermisoEliminar(
+		codigoAutor,
+		integrante.CodIntegrante,
+		codigoProyecto,
+	); err != nil {
+		return err
+	}
+
+	eliminada, err :=
+		s.comentarioRepository.DarDeBajaRespuesta(
+			codigoRespuesta,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !eliminada {
+		return ErrRespuestaComentarioNoEncontrada
+	}
+
+	return nil
+}
+
+// El autor siempre puede eliminar lo suyo; para eliminar algo ajeno hace
+// falta el permiso GESTIONAR_COMENTARIOS.
+func (s *comentarioService) validarPermisoEliminar(
+	codigoAutor int64,
+	codigoIntegrante int64,
+	codigoProyecto int64,
+) error {
+
+	if codigoAutor == codigoIntegrante {
+		return nil
+	}
+
+	puedeGestionarComentarios, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
+			codigoIntegrante,
+			codigoProyecto,
+			"GESTIONAR_COMENTARIOS",
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !puedeGestionarComentarios {
+		return ErrComentarioSinPermisoEliminar
 	}
 
 	return nil
