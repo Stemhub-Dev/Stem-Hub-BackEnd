@@ -45,3 +45,52 @@ type SeparacionStemsResponse struct {
 	FechaHoraSolicitud    time.Time  `json:"fechaHoraSolicitud"`
 	FechaHoraFin          *time.Time `json:"fechaHoraFin"`
 }
+
+// ListarStemsGlobalFiltro representa los filtros de GET /stems.
+// Categoria nil significa "todas las categorías".
+type ListarStemsGlobalFiltro struct {
+	Busqueda     string
+	Categoria    *int64
+	Pagina       int
+	TamanoPagina int
+}
+
+// StemGlobalListadoResponse contiene también el contexto al que pertenece
+// el stem para poder reutilizar las rutas existentes de Proyecto/Canción/Versión.
+type StemGlobalListadoResponse struct {
+	CodStem int64 `json:"codStem"`
+
+	Nombre string `json:"nombre"`
+
+	CodCategoriaStem int64 `json:"codCategoriaStem"`
+
+	NombreCategoria string `json:"nombreCategoria"`
+
+	GeneradoConIA bool `json:"generadoConIA"`
+
+	NombreArchivo string `json:"nombreArchivo"`
+
+	FormatoArchivo string `json:"formatoArchivo"`
+
+	CodigoProyecto int64 `json:"codigoProyecto"`
+
+	NombreProyecto string `json:"nombreProyecto"`
+
+	CodigoCancion int64 `json:"codigoCancion"`
+
+	NombreCancion string `json:"nombreCancion"`
+
+	CodigoCancionVersion int64 `json:"codigoCancionVersion"`
+
+	NumeroVersion int `json:"numeroVersion"`
+}
+
+type StemsGlobalesPaginadosResponse struct {
+	Data []StemGlobalListadoResponse `json:"data"`
+
+	TotalItems int `json:"totalItems"`
+
+	TotalPages int `json:"totalPages"`
+
+	CurrentPage int `json:"currentPage"`
+}

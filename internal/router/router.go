@@ -294,6 +294,13 @@ func NewRouter(db *sql.DB,
 		cancionHandler.ListarPorProyecto,
 	)
 
+	router.GET(
+		"/stems",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		stemHandler.ListarGlobal,
+	)
+
 	proyectos.GET(
 		"/:proyectoId/canciones/:cancionId/versiones",
 		cancionHandler.ListarVersiones,
