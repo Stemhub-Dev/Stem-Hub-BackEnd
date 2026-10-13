@@ -955,3 +955,368 @@ func (h *ProyectoHandler) DarDeBaja(
 		)
 	}
 }
+
+func (h *ProyectoHandler) ListarMiParticipacion(
+	c *gin.Context,
+) {
+
+	// 1. Usuario autenticado
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{
+				"error": "Usuario no autenticado",
+			},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{
+				"error": "Usuario no autenticado",
+			},
+		)
+		return
+	}
+
+	// 2. Filtro opcional
+	participacion :=
+		c.Query("participacion")
+
+	// Si no viene, el service lo interpreta como "todos".
+
+	proyectos, err :=
+		h.service.ListarMiParticipacion(
+			usuario.CodigoUsuario,
+			participacion,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrParticipacionProyectoNoValida,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "La participación indicada no es válida",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinAcceso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés un perfil activo de Stem-Hub",
+			},
+		)
+
+	case err != nil:
+
+		log.Println(
+			"Error al listar proyectos por participación:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al obtener los proyectos",
+			},
+		)
+
+	default:
+
+		c.JSON(
+			http.StatusOK,
+			proyectos,
+		)
+	}
+}
+
+func (h *ProyectoHandler) CambiarRolIntegrante(
+	c *gin.Context,
+) {
+
+	// Usuario autenticado.
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	// Proyecto.
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoProyecto <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	// Integrante objetivo.
+	codigoIntegrante, err :=
+		strconv.ParseInt(
+			c.Param("integranteId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoIntegrante <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Integrante inválido"},
+		)
+		return
+	}
+
+	var request dto.CambiarRolIntegranteProyectoRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Solicitud inválida"},
+		)
+		return
+	}
+
+	if request.CodRol <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El rol es obligatorio"},
+		)
+		return
+	}
+
+	colaborador, err :=
+		h.service.CambiarRolIntegrante(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoIntegrante,
+			request,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrGestionIntegrantesSoloPropietario,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "Solo el propietario puede gestionar los integrantes del proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrIntegranteProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "El integrante no pertenece activamente al proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrRolProyectoNoValido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": "El rol seleccionado no es válido para un proyecto",
+			},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al cambiar rol del integrante:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al cambiar el rol del integrante",
+			},
+		)
+
+	default:
+		c.JSON(
+			http.StatusOK,
+			colaborador,
+		)
+	}
+}
+
+func (h *ProyectoHandler) QuitarIntegrante(
+	c *gin.Context,
+) {
+
+	valorUsuario, existe :=
+		c.Get(middleware.UsuarioContextKey)
+
+	if !existe {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	usuario, ok :=
+		valorUsuario.(*model.Usuario)
+
+	if !ok || usuario == nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			gin.H{"error": "Usuario no autenticado"},
+		)
+		return
+	}
+
+	codigoProyecto, err :=
+		strconv.ParseInt(
+			c.Param("proyectoId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoProyecto <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Proyecto inválido"},
+		)
+		return
+	}
+
+	codigoIntegrante, err :=
+		strconv.ParseInt(
+			c.Param("integranteId"),
+			10,
+			64,
+		)
+
+	if err != nil || codigoIntegrante <= 0 {
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Integrante inválido"},
+		)
+		return
+	}
+
+	err =
+		h.service.QuitarIntegrante(
+			usuario.CodigoUsuario,
+			codigoProyecto,
+			codigoIntegrante,
+		)
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{"error": "El proyecto no existe"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrGestionIntegrantesSoloPropietario,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "Solo el propietario puede gestionar los integrantes del proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrIntegranteProyectoNoEncontrado,
+	):
+		c.JSON(
+			http.StatusNotFound,
+			gin.H{
+				"error": "El integrante no pertenece activamente al proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrNoSePuedeQuitarPropietario,
+	):
+		c.JSON(
+			http.StatusConflict,
+			gin.H{
+				"error": "No se puede quitar al propietario del proyecto",
+			},
+		)
+
+	case err != nil:
+		log.Println(
+			"Error al quitar integrante del proyecto:",
+			err,
+		)
+
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{
+				"error": "Error al quitar el integrante del proyecto",
+			},
+		)
+
+	default:
+		c.Status(http.StatusNoContent)
+	}
+}

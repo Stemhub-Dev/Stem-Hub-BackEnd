@@ -24,6 +24,7 @@ func NewRouter(db *sql.DB,
 	comentarioHandler *handler.ComentarioHandler,
 	stemHandler *handler.StemHandler,
 	reporteHandler *handler.ReporteHandler,
+	tableroHandler *handler.TableroHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -99,9 +100,57 @@ func NewRouter(db *sql.DB,
 		tipoProyectoHandler.Listar,
 	)
 
+	configuracion.POST(
+		"/tipos-proyecto",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.Crear,
+	)
+
+	configuracion.PUT(
+		"/tipos-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.Editar,
+	)
+
+	configuracion.PATCH(
+		"/tipos-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_TIPOS_PROYECTO",
+		),
+		tipoProyectoHandler.CambiarEstado,
+	)
+
 	configuracion.GET(
 		"/estados-proyecto",
 		estadoProyectoHandler.Listar,
+	)
+
+	configuracion.POST(
+		"/estados-proyecto",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.Crear,
+	)
+
+	configuracion.PUT(
+		"/estados-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.Editar,
+	)
+
+	configuracion.PATCH(
+		"/estados-proyecto/:id",
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ESTADOS_PROYECTO",
+		),
+		estadoProyectoHandler.CambiarEstado,
 	)
 
 	usuarios.POST(
@@ -133,6 +182,11 @@ func NewRouter(db *sql.DB,
 	proyectos.Use(
 		authMiddleware.ValidarJWT,
 		authMiddleware.UsuarioActivo,
+	)
+
+	proyectos.GET(
+		"/mi-participacion",
+		proyectoHandler.ListarMiParticipacion,
 	)
 
 	proyectos.POST(
@@ -190,6 +244,11 @@ func NewRouter(db *sql.DB,
 		comentarioHandler.Eliminar,
 	)
 
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId/comentarios/:comentarioId/respuestas/:respuestaId",
+		comentarioHandler.EliminarRespuesta,
+	)
+
 	proyectos.GET(
 		"",
 		proyectoHandler.Listar,
@@ -210,6 +269,16 @@ func NewRouter(db *sql.DB,
 		proyectoHandler.ListarColaboradores,
 	)
 
+	proyectos.PATCH(
+		"/:proyectoId/integrantes/:integranteId/rol",
+		proyectoHandler.CambiarRolIntegrante,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/integrantes/:integranteId",
+		proyectoHandler.QuitarIntegrante,
+	)
+
 	proyectos.POST(
 		"/:proyectoId/invitaciones",
 		invitacionProyectoHandler.Crear,
@@ -228,6 +297,13 @@ func NewRouter(db *sql.DB,
 	proyectos.GET(
 		"/:proyectoId/canciones",
 		cancionHandler.ListarPorProyecto,
+	)
+
+	router.GET(
+		"/stems",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		stemHandler.ListarGlobal,
 	)
 
 	proyectos.GET(
@@ -280,7 +356,7 @@ func NewRouter(db *sql.DB,
 	)
 
 	// "Separar Pistas" con IA: se procesa en segundo plano, el GET devuelve
-	// el estado de la última separación. Separar exige GESTIONAR_STEMS.
+	// el estado de la última separación. Cualquier integrante puede separar.
 	proyectos.POST(
 		"/:proyectoId/canciones/:cancionId/versiones/:versionId/stems/separacion",
 		stemHandler.SolicitarSeparacion,
@@ -307,6 +383,19 @@ func NewRouter(db *sql.DB,
 	reportes.POST("/:tipo/generar", reporteHandler.Generar)
 	reportes.POST("/:tipo/exportar-pdf", reporteHandler.ExportarPDF)
 
+	// Tablero (HU-DASH-B01/B02): cualquier usuario autenticado; los datos se
+	// limitan a los proyectos en los que participa (lo resuelve el service).
+	// Un endpoint por gráfico para que cada uno cargue y falle por separado.
+	tablero := router.Group("/tablero")
+	tablero.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	tablero.GET("/indicadores", tableroHandler.ObtenerIndicadores)
+	tablero.GET("/graficos/versiones-por-proyecto", tableroHandler.ObtenerVersionesPorProyecto)
+	tablero.GET("/graficos/canciones-por-etapa", tableroHandler.ObtenerCancionesPorEtapa)
+	tablero.GET("/graficos/actividad", tableroHandler.ObtenerActividad)
+
 	router.GET(
 		"/canciones",
 		authMiddleware.ValidarJWT,
@@ -329,12 +418,37 @@ func NewRouter(db *sql.DB,
 		permisoHandler.Listar,
 	)
 
+	permisos.POST(
+		"",
+		permisoHandler.Crear,
+	)
+
+	permisos.PUT(
+		"/:id",
+		permisoHandler.Editar,
+	)
+
+	permisos.PATCH(
+		"/:id",
+		permisoHandler.CambiarEstado,
+	)
+
 	router.GET(
 		"/roles/:id/permisos",
 		authMiddleware.ValidarJWT,
 		authMiddleware.UsuarioActivo,
-		permisoMiddleware.RequerirPermiso("GESTIONAR_ROLES"),
+		permisoMiddleware.RequerirPermiso(
+			"GESTIONAR_ROLES",
+		),
 		rolPermisoHandler.ObtenerPorRol,
+	)
+
+	router.PUT(
+		"/roles/:id/permisos",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("GESTIONAR_ROLES"),
+		rolPermisoHandler.Actualizar,
 	)
 
 	router.GET(

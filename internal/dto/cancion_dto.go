@@ -32,6 +32,11 @@ type CancionListadoResponse struct {
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
 }
 
+type AutorVersionResponse struct {
+	CodigoIntegrante int64  `json:"codigoIntegrante"`
+	Nombre           string `json:"nombre"`
+}
+
 type VersionCancionListadoResponse struct {
 	CodigoCancionVersion int64     `json:"codigoCancionVersion"`
 	NumeroVersion        int       `json:"numeroVersion"`
@@ -40,6 +45,10 @@ type VersionCancionListadoResponse struct {
 	URLArchivo           *string   `json:"urlArchivo"`
 	FormatoArchivo       *string   `json:"formatoArchivo"`
 	Notas                *string   `json:"notas"`
+	// Autor es nil en las versiones subidas antes de que se guardara.
+	Autor *AutorVersionResponse `json:"autor"`
+	// EsActual marca la última versión activa de la canción.
+	EsActual bool `json:"esActual"`
 }
 
 type AudioVersionResponse struct {

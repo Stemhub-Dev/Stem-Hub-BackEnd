@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
@@ -13,7 +14,14 @@ var (
 	ErrUsuarioNoEncontrado         = errors.New("usuario no encontrado")
 	ErrUsuarioInactivo             = errors.New("usuario inactivo")
 	ErrNombreIntegranteObligatorio = errors.New("el nombre del integrante es obligatorio")
+	ErrNombreIntegranteLargo       = errors.New("el nombre del integrante es demasiado largo")
 )
+
+// LargoMaximoNombreIntegrante limita el nombre visible del integrante (alta y
+// edición de perfil). La columna admite 150, pero el nombre se muestra en
+// saludos, avatares y listas de colaboradores, donde uno largo rompe el
+// layout. Coordinado con NOMBRE_INTEGRANTE_MAX en el frontend.
+const LargoMaximoNombreIntegrante = 50
 
 type UsuarioService interface {
 	ObtenerUsuarioActivoPorIDAutenticacion(idAutenticacion string) (*model.Usuario, error)
@@ -62,6 +70,10 @@ func (s *usuarioService) RegistrarUsuario(
 
 	if nombre == "" {
 		return nil, nil, false, ErrNombreIntegranteObligatorio
+	}
+
+	if utf8.RuneCountInString(nombre) > LargoMaximoNombreIntegrante {
+		return nil, nil, false, ErrNombreIntegranteLargo
 	}
 
 	if descripcion != nil {

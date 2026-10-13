@@ -72,6 +72,22 @@ var (
 	ErrProyectoErrorAlmacenamiento = errors.New(
 		"error al almacenar el logo del proyecto",
 	)
+
+	ErrParticipacionProyectoNoValida = errors.New(
+		"la participación indicada no es válida",
+	)
+
+	ErrGestionIntegrantesSoloPropietario = errors.New(
+		"solo el propietario puede gestionar los integrantes del proyecto",
+	)
+
+	ErrIntegranteProyectoNoEncontrado = errors.New(
+		"el integrante no pertenece activamente al proyecto",
+	)
+
+	ErrNoSePuedeQuitarPropietario = errors.New(
+		"no se puede quitar al propietario del proyecto",
+	)
 )
 
 type ProyectoService interface {
@@ -105,6 +121,24 @@ type ProyectoService interface {
 	DarDeBaja(
 		codigoUsuario int64,
 		codigoProyecto int64,
+	) error
+
+	ListarMiParticipacion(
+		codigoUsuario int64,
+		participacion string,
+	) ([]dto.MiParticipacionProyectoResponse, error)
+
+	CambiarRolIntegrante(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoIntegrante int64,
+		request dto.CambiarRolIntegranteProyectoRequest,
+	) (*dto.ColaboradorProyectoResponse, error)
+
+	QuitarIntegrante(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoIntegrante int64,
 	) error
 }
 
@@ -913,6 +947,316 @@ func (s *proyectoService) DarDeBaja(
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrProyectoNoEncontrado
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *proyectoService) ListarMiParticipacion(
+	codigoUsuario int64,
+	participacion string,
+) ([]dto.MiParticipacionProyectoResponse, error) {
+
+	// ---------------------------------------
+	// 1. NORMALIZAR FILTRO
+	// ---------------------------------------
+
+	participacion = strings.ToLower(
+		strings.TrimSpace(participacion),
+	)
+
+	// Si no se envía el query parameter,
+	// mostramos todos los proyectos.
+	if participacion == "" {
+		participacion = "todos"
+	}
+
+	switch participacion {
+
+	case "todos",
+		"propietario",
+		"productor",
+		"artista":
+
+		// válido
+
+	default:
+		return nil,
+			ErrParticipacionProyectoNoValida
+	}
+
+	// ---------------------------------------
+	// 2. OBTENER PERFIL DEL USUARIO
+	// ---------------------------------------
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// El integrante también debe estar activo.
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil, ErrProyectoSinAcceso
+	}
+
+	// ---------------------------------------
+	// 3. LISTAR PROYECTOS SEGÚN PARTICIPACIÓN
+	// ---------------------------------------
+
+	proyectos, err :=
+		s.proyectoRepository.ListarMiParticipacion(
+			integrante.CodIntegrante,
+			participacion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return proyectos, nil
+}
+
+func (s *proyectoService) CambiarRolIntegrante(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoIntegrante int64,
+	request dto.CambiarRolIntegranteProyectoRequest,
+) (*dto.ColaboradorProyectoResponse, error) {
+
+	// 1. El proyecto debe existir y estar activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !existeProyecto {
+		return nil, ErrProyectoNoEncontrado
+	}
+
+	// 2. Obtener al usuario que está realizando la operación.
+	integranteGestiona, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrGestionIntegrantesSoloPropietario
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if integranteGestiona.FechaHoraBajaIntegrante != nil {
+		return nil, ErrGestionIntegrantesSoloPropietario
+	}
+
+	// 3. Solamente el propietario activo puede administrar integrantes.
+	esPropietario, err :=
+		s.proyectoRepository.EsPropietarioActivo(
+			integranteGestiona.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !esPropietario {
+		return nil, ErrGestionIntegrantesSoloPropietario
+	}
+
+	// 4. El integrante objetivo debe pertenecer actualmente al proyecto.
+	_, err =
+		s.proyectoRepository.ObtenerColaboradorActivo(
+			codigoProyecto,
+			codigoIntegrante,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrIntegranteProyectoNoEncontrado
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. El nuevo rol debe existir, estar activo y pertenecer a PROYECTO.
+	ambitoRol, err :=
+		s.proyectoRepository.ObtenerAmbitoRolActivo(
+			request.CodRol,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrRolProyectoNoValido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if ambitoRol != ambitoRolProyecto {
+		return nil, ErrRolProyectoNoValido
+	}
+
+	// 6. Cambiar únicamente el rol.
+	// No se modifica espropietario.
+	err =
+		s.proyectoRepository.ActualizarRolIntegrante(
+			codigoProyecto,
+			codigoIntegrante,
+			request.CodRol,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrIntegranteProyectoNoEncontrado
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 7. Recuperamos al colaborador actualizado para devolverlo al frontend.
+	colaborador, err :=
+		s.proyectoRepository.ObtenerColaboradorActivo(
+			codigoProyecto,
+			codigoIntegrante,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrIntegranteProyectoNoEncontrado
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	var avatarURL *string
+
+	if colaborador.AvatarObjectKey != nil {
+
+		url, err :=
+			s.audioStorage.ObtenerURLDescarga(
+				context.Background(),
+				*colaborador.AvatarObjectKey,
+				VigenciaURLAvatar,
+			)
+
+		if err != nil {
+			return nil, err
+		}
+
+		avatarURL = &url
+	}
+
+	return &dto.ColaboradorProyectoResponse{
+		CodigoIntegrante: colaborador.CodIntegrante,
+		Nombre:           colaborador.NombreIntegrante,
+		AvatarUrl:        avatarURL,
+		CodRol:           colaborador.CodRol,
+		NombreRol:        colaborador.NombreRol,
+		EsPropietario:    colaborador.EsPropietario,
+	}, nil
+}
+
+func (s *proyectoService) QuitarIntegrante(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoIntegrante int64,
+) error {
+
+	// 1. El proyecto debe existir y estar activo.
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !existeProyecto {
+		return ErrProyectoNoEncontrado
+	}
+
+	// 2. Obtener al integrante que realiza la operación.
+	integranteGestiona, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrGestionIntegrantesSoloPropietario
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if integranteGestiona.FechaHoraBajaIntegrante != nil {
+		return ErrGestionIntegrantesSoloPropietario
+	}
+
+	// 3. Solo el propietario puede quitar integrantes.
+	esPropietario, err :=
+		s.proyectoRepository.EsPropietarioActivo(
+			integranteGestiona.CodIntegrante,
+			codigoProyecto,
+		)
+
+	if err != nil {
+		return err
+	}
+
+	if !esPropietario {
+		return ErrGestionIntegrantesSoloPropietario
+	}
+
+	// 4. Obtener al integrante que se quiere quitar.
+	colaborador, err :=
+		s.proyectoRepository.ObtenerColaboradorActivo(
+			codigoProyecto,
+			codigoIntegrante,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrIntegranteProyectoNoEncontrado
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// 5. El propietario nunca puede ser quitado.
+	if colaborador.EsPropietario {
+		return ErrNoSePuedeQuitarPropietario
+	}
+
+	// 6. Baja lógica exclusivamente de integranteproyecto.
+	err =
+		s.proyectoRepository.DarDeBajaIntegrante(
+			codigoProyecto,
+			codigoIntegrante,
+		)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrIntegranteProyectoNoEncontrado
 	}
 
 	if err != nil {

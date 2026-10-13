@@ -2,11 +2,18 @@ package model
 
 import "time"
 
-// NombreRolAdministradorSistema es el nombre exacto (comparado sin
-// distinguir mayúsculas) del rol de ámbito SISTEMA con permisos de
-// administración global, tal como se lo crea en la migración
-// 004datosseguridadl.sql.
-const NombreRolAdministradorSistema = "Administrador del sistema"
+// Nombres exactos de los roles como están en la tabla rol (se comparan sin
+// distinguir mayúsculas). Tienen que coincidir carácter por carácter con lo
+// que dejan las migraciones: un nombre desfasado no rompe la compilación, la
+// consulta simplemente no matchea ninguna fila y el filtro queda vacío en
+// silencio.
+const (
+	NombreRolAdministradorSistema = "Administrador"
+	NombreRolProductor            = "Productor"
+	// 002datosiniciales.sql lo creó como "Artista Musical" y
+	// 004datosseguridadl.sql lo renombró a "Músico (Artista)".
+	NombreRolMusicoArtista = "Músico (Artista)"
+)
 
 type Rol struct {
 	//el asterisco indica que el campo puede ser nulo

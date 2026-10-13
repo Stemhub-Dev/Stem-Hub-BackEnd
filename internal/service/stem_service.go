@@ -42,6 +42,7 @@ var (
 	ErrStemArchivoVacio           = errors.New("el archivo del stem está vacío")
 	ErrStemFormatoInvalido        = errors.New("el formato del stem no está soportado")
 	ErrStemArchivoDemasiadoGrande = errors.New("el stem supera el tamaño máximo permitido")
+	ErrStemPerfilRequerido        = errors.New("el usuario no posee un perfil de integrante")
 )
 
 // CrearStemRequest: la categoría es una existente (CodCategoriaStem) o una
@@ -100,6 +101,11 @@ type StemService interface {
 		codigoVersion int64,
 		codStem int64,
 	) (*dto.AudioStemResponse, error)
+
+	ListarGlobal(
+		codigoUsuario int64,
+		filtro dto.ListarStemsGlobalFiltro,
+	) (*dto.StemsGlobalesPaginadosResponse, error)
 }
 
 type stemService struct {
@@ -737,4 +743,100 @@ func (s *stemService) ObtenerURLAudio(
 		URL:              url,
 		ExpiraEnSegundos: int(VigenciaURLDescargaAudio.Seconds()),
 	}, nil
+}
+
+func (s *stemService) ListarGlobal(
+	codigoUsuario int64,
+	filtro dto.ListarStemsGlobalFiltro,
+) (*dto.StemsGlobalesPaginadosResponse, error) {
+
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
+
+	if errors.Is(
+		err,
+		sql.ErrNoRows,
+	) {
+		return nil,
+			ErrStemPerfilRequerido
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil,
+			ErrStemPerfilRequerido
+	}
+
+	filtro.Busqueda =
+		strings.TrimSpace(
+			filtro.Busqueda,
+		)
+
+	total, err :=
+		s.stemRepository.
+			ContarGlobalPorProductor(
+				integrante.CodIntegrante,
+				filtro,
+			)
+
+	if err != nil {
+		return nil, err
+	}
+
+	totalPaginas :=
+		(total +
+			filtro.TamanoPagina -
+			1) /
+			filtro.TamanoPagina
+
+	respuesta :=
+		&dto.StemsGlobalesPaginadosResponse{
+			Data: make(
+				[]dto.StemGlobalListadoResponse,
+				0,
+			),
+
+			TotalItems: total,
+
+			TotalPages: totalPaginas,
+
+			CurrentPage: filtro.Pagina,
+		}
+
+	// Si no existen stems o la página solicitada
+	// supera la última página, respondemos 200 con data vacía.
+	if total == 0 ||
+		filtro.Pagina > totalPaginas {
+
+		return respuesta, nil
+	}
+
+	desplazamiento :=
+		(filtro.Pagina - 1) *
+			filtro.TamanoPagina
+
+	stems, err :=
+		s.stemRepository.
+			ListarGlobalPorProductor(
+				integrante.CodIntegrante,
+				filtro,
+				desplazamiento,
+			)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta.Data =
+		append(
+			respuesta.Data,
+			stems...,
+		)
+
+	return respuesta, nil
 }

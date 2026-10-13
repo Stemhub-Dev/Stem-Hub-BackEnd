@@ -134,10 +134,15 @@ func (r *reporteRepository) ObtenerParticipacionColaboradores(codigoProyecto int
 }
 
 func (r *reporteRepository) ObtenerEstadoCanciones(codigoProyecto int64, filtros ReporteFiltros) ([]map[string]interface{}, error) {
+	// Pendientes y resueltos como números (no la lista de estados distintos):
+	// es lo que dice qué canción necesita atención. Las que más pendientes
+	// tienen van primero.
 	rows, err := r.db.Query(`
 		SELECT c.codigocancion, c.nombrecancion,
 		       COALESCE(MAX(cv.numeroversion), 0), COUNT(DISTINCT cv.codigocancionversion),
-		       COUNT(DISTINCT co.codigocomentario), COALESCE(STRING_AGG(DISTINCT ec.nombreestadocom, ', '), '')
+		       COUNT(DISTINCT co.codigocomentario),
+		       COUNT(DISTINCT co.codigocomentario) FILTER (WHERE LOWER(ec.nombreestadocom) = 'pendiente'),
+		       COUNT(DISTINCT co.codigocomentario) FILTER (WHERE LOWER(ec.nombreestadocom) = 'resuelto')
 		FROM cancion c
 		LEFT JOIN cancionversion cv ON cv.codigocancion = c.codigocancion AND cv.fechahorabajaversion IS NULL
 		LEFT JOIN comentario co ON co.codigocancionversion = cv.codigocancionversion AND co.fechahorabajacomentario IS NULL
@@ -146,7 +151,7 @@ func (r *reporteRepository) ObtenerEstadoCanciones(codigoProyecto int64, filtros
 		WHERE c.codigoproyecto = $1 AND c.fechahorabajacancion IS NULL
 		  AND ($2::bigint IS NULL OR c.codigocancion = $2)
 		GROUP BY c.codigocancion, c.nombrecancion
-		ORDER BY c.nombrecancion
+		ORDER BY 6 DESC, c.nombrecancion
 	`, codigoProyecto, filtros.CodigoCancion, filtros.EstadoComentario)
 	if err != nil {
 		return nil, err
@@ -155,12 +160,12 @@ func (r *reporteRepository) ObtenerEstadoCanciones(codigoProyecto int64, filtros
 	resultado := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id int64
-		var nombre, estados string
-		var ultima, versiones, comentarios int64
-		if err := rows.Scan(&id, &nombre, &ultima, &versiones, &comentarios, &estados); err != nil {
+		var nombre string
+		var ultima, versiones, comentarios, pendientes, resueltos int64
+		if err := rows.Scan(&id, &nombre, &ultima, &versiones, &comentarios, &pendientes, &resueltos); err != nil {
 			return nil, err
 		}
-		resultado = append(resultado, map[string]interface{}{"codigo_cancion": id, "cancion": nombre, "ultima_version": ultima, "total_versiones": versiones, "comentarios": comentarios, "estados_comentarios": estados})
+		resultado = append(resultado, map[string]interface{}{"codigo_cancion": id, "cancion": nombre, "ultima_version": ultima, "total_versiones": versiones, "comentarios": comentarios, "comentarios_pendientes": pendientes, "comentarios_resueltos": resueltos})
 	}
 	return resultado, rows.Err()
 }

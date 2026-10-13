@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -36,6 +37,58 @@ type rutaStem struct {
 	codigoCancion  int64
 	codigoVersion  int64
 	codStem        int64
+}
+
+func parsearFiltroStemsGlobales(
+	c *gin.Context,
+) (dto.ListarStemsGlobalFiltro, string) {
+
+	pagina, tamanoPagina, mensajeError :=
+		parsearPaginacion(c)
+
+	if mensajeError != "" {
+		return dto.ListarStemsGlobalFiltro{},
+			mensajeError
+	}
+
+	var categoria *int64
+
+	categoriaTexto :=
+		strings.TrimSpace(
+			c.Query("categoriaId"),
+		)
+
+	if categoriaTexto != "" {
+
+		codigoCategoria, err :=
+			strconv.ParseInt(
+				categoriaTexto,
+				10,
+				64,
+			)
+
+		if err != nil ||
+			codigoCategoria < 1 {
+
+			return dto.ListarStemsGlobalFiltro{},
+				"categoriaId debe ser un entero mayor o igual a 1"
+		}
+
+		categoria =
+			&codigoCategoria
+	}
+
+	return dto.ListarStemsGlobalFiltro{
+		Busqueda: strings.TrimSpace(
+			c.Query("q"),
+		),
+
+		Categoria: categoria,
+
+		Pagina: pagina,
+
+		TamanoPagina: tamanoPagina,
+	}, ""
 }
 
 // leerRutaStem responde el error y devuelve false si algún parámetro es
@@ -145,6 +198,11 @@ func responderErrorStem(c *gin.Context, err error) {
 		r = respuesta{http.StatusConflict, "Esta versión ya tiene stems generados con IA. Eliminalos antes de volver a separar."}
 	case errors.Is(err, service.ErrSeparacionNoEncontrada):
 		r = respuesta{http.StatusNotFound, "Todavía no se separaron las pistas de esta versión"}
+	case errors.Is(err, service.ErrStemPerfilRequerido):
+		r = respuesta{
+			http.StatusForbidden,
+			"Perfil de StemHub requerido",
+		}
 	default:
 		log.Println("Error en stems:", err)
 		r = respuesta{http.StatusInternalServerError, "Error al procesar el stem"}
@@ -410,4 +468,60 @@ func (h *StemHandler) ObtenerSeparacion(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, separacion)
+}
+
+// GET /stems
+//
+// Devuelve los stems pertenecientes a proyectos donde el usuario
+// autenticado participa activamente como Productor.
+//
+// Filtros:
+//
+//	q
+//	categoriaId
+//	page
+//	pageSize
+func (h *StemHandler) ListarGlobal(
+	c *gin.Context,
+) {
+
+	usuario, ok :=
+		usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	filtro, mensajeError :=
+		parsearFiltroStemsGlobales(c)
+
+	if mensajeError != "" {
+
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{
+				"error": mensajeError,
+			},
+		)
+		return
+	}
+
+	stems, err :=
+		h.service.ListarGlobal(
+			usuario.CodigoUsuario,
+			filtro,
+		)
+
+	if err != nil {
+		responderErrorStem(
+			c,
+			err,
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		stems,
+	)
 }

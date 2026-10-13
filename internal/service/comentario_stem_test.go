@@ -41,6 +41,7 @@ func nuevoServicioComentarios(repo *comentarioRepositoryFalso) ComentarioService
 		&cancionExistenciaFalsa{},
 		&integranteRepositoryFalso{integrante: &model.Integrante{CodIntegrante: 42}},
 		nil,
+		nil,
 	)
 }
 

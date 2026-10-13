@@ -15,27 +15,45 @@ func NewGeneroMusicalRepository(db *sql.DB) *GeneroMusicalRepository {
 	return &GeneroMusicalRepository{db: db}
 }
 
-func (r *GeneroMusicalRepository) Listar() ([]model.GeneroMusicalProyecto, error) {
+func (r *GeneroMusicalRepository) Listar(
+	incluirInactivos bool,
+) ([]model.GeneroMusicalProyecto, error) {
 
 	query := `
-	SELECT codigogeneroproy,
-	nombregeneroproy,
-	descripciongeneroproy,
-	fechahorabajageneroproy
-	FROM generomusicalproyecto
-	ORDER BY nombregeneroproy
+		SELECT
+			codigogeneroproy,
+			nombregeneroproy,
+			descripciongeneroproy,
+			fechahorabajageneroproy
+		FROM generomusicalproyecto
+	`
+
+	if !incluirInactivos {
+		query += `
+			WHERE fechahorabajageneroproy IS NULL
+		`
+	}
+
+	query += `
+		ORDER BY nombregeneroproy
 	`
 
 	rows, err := r.db.Query(query)
-
 	if err != nil {
-		return nil, fmt.Errorf("error al consultar géneros musicales: %w", err)
+		return nil, fmt.Errorf(
+			"error al consultar géneros musicales: %w",
+			err,
+		)
 	}
 	defer rows.Close()
 
-	generos := make([]model.GeneroMusicalProyecto, 0)
+	generos := make(
+		[]model.GeneroMusicalProyecto,
+		0,
+	)
 
 	for rows.Next() {
+
 		var genero model.GeneroMusicalProyecto
 
 		err := rows.Scan(
@@ -46,18 +64,26 @@ func (r *GeneroMusicalRepository) Listar() ([]model.GeneroMusicalProyecto, error
 		)
 
 		if err != nil {
-			return nil, fmt.Errorf("Error al leer género musical: %w", err)
+			return nil, fmt.Errorf(
+				"error al leer género musical: %w",
+				err,
+			)
 		}
 
-		generos = append(generos, genero)
+		generos = append(
+			generos,
+			genero,
+		)
+	}
 
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("Error al recorrer géneros musicales: %w", err)
-		}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"error al recorrer géneros musicales: %w",
+			err,
+		)
 	}
 
 	return generos, nil
-
 }
 
 func (r *GeneroMusicalRepository) ExistePorNombre(nombre string) (bool, error) {
@@ -219,4 +245,28 @@ func (r *GeneroMusicalRepository) CambiarEstado(
 	}
 
 	return genero, nil
+}
+
+func (r *GeneroMusicalRepository) EstaEnUso(
+	id int64,
+) (bool, error) {
+
+	var enUso bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM proyectogeneromusical
+			WHERE codigogeneroproy = $1
+		)
+	`, id).Scan(&enUso)
+
+	if err != nil {
+		return false, fmt.Errorf(
+			"error al verificar si el género musical está en uso: %w",
+			err,
+		)
+	}
+
+	return enUso, nil
 }

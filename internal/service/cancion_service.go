@@ -323,6 +323,7 @@ func (s *cancionService) Crear(
 		s.cancionRepository.FinalizarCreacionVersionInicial(
 			tx,
 			codigoCancion,
+			integrante.CodIntegrante,
 			objectKey,
 			formato,
 		)
@@ -348,29 +349,8 @@ func (s *cancionService) CrearVersion(
 	notas *string,
 ) (*dto.CrearVersionCancionResponse, error) {
 
-	if archivo.Contenido == nil {
-		return nil, ErrVersionPistaObligatoria
-	}
-
-	if archivo.Tamano > TamanoMaximoArchivoAudio {
-		return nil, ErrCancionArchivoDemasiadoGrande
-	}
-
-	formato, err := formatoDesdeNombreArchivo(archivo.NombreOriginal)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if notas != nil {
-		notasLimpias := strings.TrimSpace(*notas)
-		if notasLimpias == "" {
-			notas = nil
-		} else {
-			notas = &notasLimpias
-		}
-	}
-
+	// La autorización va antes que validar el archivo: alguien sin permiso
+	// recibe 403 sin importar qué haya mandado en el cuerpo.
 	existeCancion, err :=
 		s.cancionRepository.ExisteCancionActivaEnProyecto(
 			codigoProyecto,
@@ -413,6 +393,29 @@ func (s *cancionService) CrearVersion(
 		return nil, ErrVersionSinPermiso
 	}
 
+	if archivo.Contenido == nil {
+		return nil, ErrVersionPistaObligatoria
+	}
+
+	if archivo.Tamano > TamanoMaximoArchivoAudio {
+		return nil, ErrCancionArchivoDemasiadoGrande
+	}
+
+	formato, err := formatoDesdeNombreArchivo(archivo.NombreOriginal)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if notas != nil {
+		notasLimpias := strings.TrimSpace(*notas)
+		if notasLimpias == "" {
+			notas = nil
+		} else {
+			notas = &notasLimpias
+		}
+	}
+
 	tx, siguienteVersion, err :=
 		s.cancionRepository.IniciarCreacionVersion(
 			codigoCancion,
@@ -440,6 +443,7 @@ func (s *cancionService) CrearVersion(
 			tx,
 			codigoCancion,
 			siguienteVersion,
+			integrante.CodIntegrante,
 			objectKey,
 			formato,
 			notas,

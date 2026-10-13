@@ -174,8 +174,8 @@ func TestSolicitarSeparacion_CompletaYGuardaStems(t *testing.T) {
 	if separacion.Estado != model.EstadoSeparacionPendiente || separacion.CantidadStems != 4 {
 		t.Fatalf("separación = %+v", separacion)
 	}
-	if e.proyecto.permisoPide != "GESTIONAR_STEMS" {
-		t.Fatalf("permiso pedido = %q", e.proyecto.permisoPide)
+	if e.proyecto.permisoPide != "" {
+		t.Fatalf("separar no debería pedir permiso, pidió %q", e.proyecto.permisoPide)
 	}
 	if e.separaciones.creada.CodIntegrante != 42 {
 		t.Fatalf("integrante = %d", e.separaciones.creada.CodIntegrante)
@@ -224,6 +224,20 @@ func TestSolicitarSeparacion_PorDefectoCuatroStems(t *testing.T) {
 	}
 }
 
+// HU-IA-F01: separar está habilitado para todos los roles, también para un
+// integrante sin GESTIONAR_STEMS (Músico).
+func TestSolicitarSeparacion_IntegranteSinGestionarStemsPuedeSeparar(t *testing.T) {
+	e := nuevoEscenarioSeparacion()
+	e.proyecto.sinPermiso = true
+
+	if _, err := e.servicio.Solicitar(1, 7, 8, 9, nil); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if e.ml.recibido == nil {
+		t.Fatal("debería llamar al servicio de IA")
+	}
+}
+
 func TestSolicitarSeparacion_Rechazos(t *testing.T) {
 	casos := []struct {
 		nombre   string
@@ -232,7 +246,6 @@ func TestSolicitarSeparacion_Rechazos(t *testing.T) {
 		esperado error
 	}{
 		{"cantidad inválida", func(*escenarioSeparacion) {}, cantidad(3), ErrSeparacionCantidadInvalida},
-		{"sin permiso", func(e *escenarioSeparacion) { e.proyecto.sinPermiso = true }, nil, ErrStemSinPermiso},
 		{"no integrante", func(e *escenarioSeparacion) { e.proyecto.noIntegra = true }, nil, ErrStemSinAcceso},
 		{"versión sin archivo", func(e *escenarioSeparacion) { e.cancion.version.URLArchivoCancionVer = nil }, nil, ErrSeparacionVersionSinArchivo},
 		{"ya generada", func(e *escenarioSeparacion) { e.separaciones.yaGenerada = true }, nil, ErrSeparacionYaGenerada},
