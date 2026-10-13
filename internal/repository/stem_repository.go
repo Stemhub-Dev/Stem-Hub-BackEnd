@@ -15,6 +15,19 @@ type ArchivoStemGuardado struct {
 	NombreOriginal string
 }
 
+// CambiosStem es el estado final de un stem editado, ya resuelto por el
+// service: lo que no cambia viaja con su valor actual.
+type CambiosStem struct {
+	Nombre           string
+	NombreArchivo    string
+	CodCategoriaStem int64
+	// Si no es nil se crea la categoría en el proyecto y CodCategoriaStem se
+	// ignora, igual que en Crear.
+	NuevaCategoria *string
+	// nil = se conserva el archivo actual.
+	Archivo *ArchivoStemGuardado
+}
+
 type StemRepository interface {
 	// Categorías por defecto + las del proyecto, activas. Primero las por
 	// defecto (en su orden de alta), después las del proyecto.
@@ -65,11 +78,12 @@ type StemRepository interface {
 		archivo ArchivoStemGuardado,
 	) (int64, error)
 
-	// Si archivo no es nil lo reemplaza y el stem pierde la marca de IA.
+	// Si cambios.Archivo no es nil lo reemplaza y el stem pierde la marca de
+	// IA. La versión (y con ella la canción) del stem no cambia nunca.
 	Actualizar(
+		codigoProyecto int64,
 		codStem int64,
-		nombre string,
-		archivo *ArchivoStemGuardado,
+		cambios CambiosStem,
 	) error
 
 	// Borrado real de la fila, junto con sus comentarios y las respuestas a
@@ -442,17 +456,7 @@ func (r *stemRepository) Crear(
 	defer tx.Rollback()
 
 	if nuevaCategoria != nil {
-		if err := tx.QueryRow(`
-			INSERT INTO categoriastem (
-				nombrecategoriastem,
-				codigoproyecto
-			)
-			VALUES ($1, $2)
-			RETURNING codcategoriastem
-		`,
-			*nuevaCategoria,
-			codigoProyecto,
-		).Scan(&codCategoriaStem); err != nil {
+		if codCategoriaStem, err = insertarCategoriaProyecto(tx, codigoProyecto, *nuevaCategoria); err != nil {
 			return 0, err
 		}
 	}
@@ -488,41 +492,89 @@ func (r *stemRepository) Crear(
 	return codStem, nil
 }
 
-func (r *stemRepository) Actualizar(
-	codStem int64,
+func insertarCategoriaProyecto(
+	tx *sql.Tx,
+	codigoProyecto int64,
 	nombre string,
-	archivo *ArchivoStemGuardado,
+) (int64, error) {
+
+	var codCategoriaStem int64
+
+	err := tx.QueryRow(`
+		INSERT INTO categoriastem (
+			nombrecategoriastem,
+			codigoproyecto
+		)
+		VALUES ($1, $2)
+		RETURNING codcategoriastem
+	`,
+		nombre,
+		codigoProyecto,
+	).Scan(&codCategoriaStem)
+
+	return codCategoriaStem, err
+}
+
+func (r *stemRepository) Actualizar(
+	codigoProyecto int64,
+	codStem int64,
+	cambios CambiosStem,
 ) error {
 
-	if archivo == nil {
-		_, err := r.db.Exec(`
-			UPDATE stem
-			SET nombrestem = $2
-			WHERE codstem = $1
-		`,
-			codStem,
-			nombre,
-		)
+	tx, err := r.db.Begin()
+
+	if err != nil {
 		return err
 	}
 
-	_, err := r.db.Exec(`
-		UPDATE stem
-		SET nombrestem = $2,
-			urlarchivostem = $3,
-			formatoarchivostem = $4,
-			nombrearchivostem = $5,
-			generadoconia = false
-		WHERE codstem = $1
-	`,
-		codStem,
-		nombre,
-		archivo.URL,
-		archivo.Formato,
-		archivo.NombreOriginal,
-	)
+	defer tx.Rollback()
 
-	return err
+	codCategoriaStem := cambios.CodCategoriaStem
+
+	if cambios.NuevaCategoria != nil {
+		if codCategoriaStem, err = insertarCategoriaProyecto(tx, codigoProyecto, *cambios.NuevaCategoria); err != nil {
+			return err
+		}
+	}
+
+	if cambios.Archivo == nil {
+		_, err = tx.Exec(`
+			UPDATE stem
+			SET nombrestem = $2,
+				nombrearchivostem = $3,
+				codcategoriastem = $4
+			WHERE codstem = $1
+		`,
+			codStem,
+			cambios.Nombre,
+			cambios.NombreArchivo,
+			codCategoriaStem,
+		)
+	} else {
+		_, err = tx.Exec(`
+			UPDATE stem
+			SET nombrestem = $2,
+				nombrearchivostem = $3,
+				codcategoriastem = $4,
+				urlarchivostem = $5,
+				formatoarchivostem = $6,
+				generadoconia = false
+			WHERE codstem = $1
+		`,
+			codStem,
+			cambios.Nombre,
+			cambios.NombreArchivo,
+			codCategoriaStem,
+			cambios.Archivo.URL,
+			cambios.Archivo.Formato,
+		)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *stemRepository) Eliminar(

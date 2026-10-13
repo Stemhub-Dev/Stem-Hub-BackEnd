@@ -62,6 +62,7 @@ type stemRepositoryFalso struct {
 	creado       *repository.ArchivoStemGuardado
 	nuevaCatPide *string
 	actualizado  *repository.ArchivoStemGuardado
+	cambios      *repository.CambiosStem
 	eliminado    int64
 }
 
@@ -124,12 +125,16 @@ func (r *stemRepositoryFalso) Crear(
 	return 99, nil
 }
 
-func (r *stemRepositoryFalso) Actualizar(cod int64, nombre string, archivo *repository.ArchivoStemGuardado) error {
-	r.actualizado = archivo
+func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.CambiosStem) error {
+	r.cambios = &cambios
+	r.actualizado = cambios.Archivo
 	s := r.stems[cod]
-	s.NombreStem = nombre
-	if archivo != nil {
-		s.URLArchivoStem = archivo.URL
+	s.NombreStem = cambios.Nombre
+	s.NombreArchivoStem = cambios.NombreArchivo
+	s.CodCategoriaStem = cambios.CodCategoriaStem
+	if cambios.Archivo != nil {
+		s.URLArchivoStem = cambios.Archivo.URL
+		s.FormatoArchivoStem = cambios.Archivo.Formato
 		s.GeneradoConIA = false
 	}
 	r.stems[cod] = s
@@ -179,7 +184,15 @@ func nuevoEscenarioStems() *escenarioStems {
 		cancion:  &cancionExistenciaFalsa{},
 		stems: &stemRepositoryFalso{
 			stems: map[int64]model.Stem{
-				10: {CodStem: 10, NombreStem: "Bajo", CodCategoriaStem: 2, URLArchivoStem: "viejo.wav", GeneradoConIA: true},
+				10: {
+					CodStem:            10,
+					NombreStem:         "Bajo",
+					CodCategoriaStem:   2,
+					URLArchivoStem:     "viejo.wav",
+					FormatoArchivoStem: "wav",
+					NombreArchivoStem:  "bass.wav",
+					GeneradoConIA:      true,
+				},
 			},
 			categorias: []model.CategoriaStem{
 				{CodCategoriaStem: 2, NombreCategoriaStem: "Bajo"},
@@ -314,12 +327,13 @@ func TestCrearStem_SiFallaLaBaseBorraElArchivoSubido(t *testing.T) {
 func TestEditarStem_SoloNombreConservaArchivoEIA(t *testing.T) {
 	e := nuevoEscenarioStems()
 
-	stem, err := e.servicio.Editar(1, 7, 8, 9, 10, "Bajo eléctrico", nil)
+	stem, err := e.servicio.Editar(1, 7, 8, 9, 10, EditarStemRequest{Nombre: "Bajo eléctrico"}, nil)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if stem.Nombre != "Bajo eléctrico" || !stem.GeneradoConIA {
+	if stem.Nombre != "Bajo eléctrico" || !stem.GeneradoConIA ||
+		stem.NombreArchivo != "bass.wav" || stem.CodCategoriaStem != 2 {
 		t.Fatalf("stem = %+v", stem)
 	}
 	if e.stems.actualizado != nil || len(e.storage.subidos) != 0 || len(e.storage.eliminados) != 0 {
@@ -331,26 +345,142 @@ func TestEditarStem_ReemplazoBorraElArchivoViejoYQuitaIA(t *testing.T) {
 	e := nuevoEscenarioStems()
 	archivo := archivoDePrueba("bajo_v2.mp3", 10)
 
-	stem, err := e.servicio.Editar(1, 7, 8, 9, 10, "Bajo", &archivo)
+	stem, err := e.servicio.Editar(1, 7, 8, 9, 10, EditarStemRequest{Nombre: "Bajo"}, &archivo)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if stem.GeneradoConIA {
-		t.Fatal("el stem reemplazado no debería conservar la marca de IA")
+	if stem.GeneradoConIA || stem.NombreArchivo != "bajo_v2.mp3" {
+		t.Fatalf("stem = %+v", stem)
 	}
 	if len(e.storage.eliminados) != 1 || e.storage.eliminados[0] != "viejo.wav" {
 		t.Fatalf("eliminados = %v", e.storage.eliminados)
 	}
 }
 
-func TestEditarStem_StemInexistente(t *testing.T) {
+func TestEditarStem_RenombraElArchivoConservandoLaExtension(t *testing.T) {
+	casos := []struct {
+		nombre        string
+		nombreArchivo string
+		archivo       *ArchivoAudio
+		esperado      string
+	}{
+		{"sin extensión", " bajo final ", nil, "bajo final.wav"},
+		{"con la extensión ya escrita", "bajo final.WAV", nil, "bajo final.wav"},
+		{"con otra extensión", "bajo.mp3", nil, "bajo.mp3.wav"},
+		{"junto con un archivo nuevo", "bajo final", func() *ArchivoAudio { a := archivoDePrueba("x.flac", 10); return &a }(), "bajo final.flac"},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			e := nuevoEscenarioStems()
+
+			stem, err := e.servicio.Editar(1, 7, 8, 9, 10,
+				EditarStemRequest{Nombre: "Bajo", NombreArchivo: texto(caso.nombreArchivo)},
+				caso.archivo,
+			)
+
+			if err != nil {
+				t.Fatalf("error inesperado: %v", err)
+			}
+			if stem.NombreArchivo != caso.esperado {
+				t.Fatalf("nombre de archivo = %q, se esperaba %q", stem.NombreArchivo, caso.esperado)
+			}
+			if caso.archivo == nil && !stem.GeneradoConIA {
+				t.Fatal("renombrar el archivo no debería quitar la marca de IA")
+			}
+		})
+	}
+}
+
+func TestEditarStem_CambiaACategoriaExistenteConservandoIA(t *testing.T) {
 	e := nuevoEscenarioStems()
 
-	_, err := e.servicio.Editar(1, 7, 8, 9, 404, "X", nil)
+	stem, err := e.servicio.Editar(1, 7, 8, 9, 10,
+		EditarStemRequest{Nombre: "Bajo", CodCategoriaStem: codigo(3)},
+		nil,
+	)
 
-	if !errors.Is(err, ErrStemNoEncontrado) {
-		t.Fatalf("err = %v", err)
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if stem.CodCategoriaStem != 3 || !stem.GeneradoConIA {
+		t.Fatalf("stem = %+v", stem)
+	}
+	if e.stems.cambios.NuevaCategoria != nil {
+		t.Fatalf("no debería crear categoría: %v", e.stems.cambios.NuevaCategoria)
+	}
+}
+
+func TestEditarStem_CambiaACategoriaNueva(t *testing.T) {
+	e := nuevoEscenarioStems()
+
+	_, err := e.servicio.Editar(1, 7, 8, 9, 10,
+		EditarStemRequest{Nombre: "Bajo", NuevaCategoria: texto(" Sintes ")},
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if e.stems.cambios.NuevaCategoria == nil || *e.stems.cambios.NuevaCategoria != "Sintes" {
+		t.Fatalf("nueva categoría = %v", e.stems.cambios.NuevaCategoria)
+	}
+}
+
+func TestEditarStem_MismaCategoriaNoLaVuelveAValidar(t *testing.T) {
+	e := nuevoEscenarioStems()
+	// La categoría actual del stem (2) ya no figura entre las utilizables.
+	e.stems.categorias = e.stems.categorias[1:]
+
+	stem, err := e.servicio.Editar(1, 7, 8, 9, 10,
+		EditarStemRequest{Nombre: "Bajo", CodCategoriaStem: codigo(2)},
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if stem.CodCategoriaStem != 2 {
+		t.Fatalf("stem = %+v", stem)
+	}
+}
+
+func TestEditarStem_Validaciones(t *testing.T) {
+	casos := []struct {
+		nombre   string
+		request  EditarStemRequest
+		codStem  int64
+		ajustar  func(*escenarioStems)
+		esperado error
+	}{
+		{"stem inexistente", EditarStemRequest{Nombre: "X"}, 404, nil, ErrStemNoEncontrado},
+		{"sin nombre", EditarStemRequest{Nombre: " "}, 10, nil, ErrStemNombreObligatorio},
+		{"nombre de archivo vacío", EditarStemRequest{Nombre: "X", NombreArchivo: texto(" .wav ")}, 10, nil, ErrStemNombreArchivoObligatorio},
+		{"nombre de archivo con barras", EditarStemRequest{Nombre: "X", NombreArchivo: texto("a/b")}, 10, nil, ErrStemNombreArchivoInvalido},
+		{"nombre de archivo largo", EditarStemRequest{Nombre: "X", NombreArchivo: texto(strings.Repeat("a", 252))}, 10, nil, ErrStemNombreArchivoLargo},
+		{"categoría de otro proyecto", EditarStemRequest{Nombre: "X", CodCategoriaStem: codigo(77)}, 10, nil, ErrStemCategoriaNoEncontrada},
+		{"categoría nueva vacía", EditarStemRequest{Nombre: "X", NuevaCategoria: texto("  ")}, 10, nil, ErrStemCategoriaObligatoria},
+		{"categoría nueva repetida", EditarStemRequest{Nombre: "X", NuevaCategoria: texto("guitarra")}, 10, nil, ErrStemCategoriaDuplicada},
+		{"sin permiso", EditarStemRequest{Nombre: "X", CodCategoriaStem: codigo(3)}, 10, func(e *escenarioStems) { e.proyecto.sinPermiso = true }, ErrStemSinPermiso},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nombre, func(t *testing.T) {
+			e := nuevoEscenarioStems()
+			if caso.ajustar != nil {
+				caso.ajustar(e)
+			}
+
+			_, err := e.servicio.Editar(1, 7, 8, 9, caso.codStem, caso.request, nil)
+
+			if !errors.Is(err, caso.esperado) {
+				t.Fatalf("err = %v, se esperaba %v", err, caso.esperado)
+			}
+			if e.stems.cambios != nil {
+				t.Fatal("no debería actualizar el stem")
+			}
+		})
 	}
 }
 

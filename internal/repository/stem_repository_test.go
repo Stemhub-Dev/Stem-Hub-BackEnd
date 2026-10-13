@@ -30,3 +30,36 @@ func TestEliminarStem_BorraRespuestasComentariosYStemEnOrden(t *testing.T) {
 		t.Fatalf("expectativas no cumplidas: %v", err)
 	}
 }
+
+func TestActualizarStem_CreaLaCategoriaNuevaYLaAsignaEnLaMismaTransaccion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("no se pudo crear sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	nueva := "Sintes"
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO categoriastem")).
+		WithArgs("Sintes", int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"codcategoriastem"}).AddRow(int64(31)))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE stem")).
+		WithArgs(int64(10), "Bajo", "bajo.wav", int64(31)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = NewStemRepository(db).Actualizar(7, 10, CambiosStem{
+		Nombre:           "Bajo",
+		NombreArchivo:    "bajo.wav",
+		CodCategoriaStem: 2,
+		NuevaCategoria:   &nueva,
+	})
+
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectativas no cumplidas: %v", err)
+	}
+}
