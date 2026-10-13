@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	permisoGestionarStems      = "GESTIONAR_STEMS"
-	largoMaximoNombreStem      = 150
-	largoMaximoNombreCategoria = 100
+	permisoGestionarStems        = "GESTIONAR_STEMS"
+	largoMaximoNombreStem        = 150
+	largoMaximoNombreCategoria   = 100
+	largoMaximoNombreArchivoStem = 255
 )
 
 var (
@@ -33,6 +34,10 @@ var (
 	ErrStemNombreObligatorio = errors.New("el nombre del stem es obligatorio")
 	ErrStemNombreLargo       = errors.New("el nombre del stem es demasiado largo")
 	ErrStemNombreDuplicado   = errors.New("ya existe un stem con ese nombre en la versión")
+
+	ErrStemNombreArchivoObligatorio = errors.New("el nombre del archivo del stem es obligatorio")
+	ErrStemNombreArchivoLargo       = errors.New("el nombre del archivo del stem es demasiado largo")
+	ErrStemNombreArchivoInvalido    = errors.New("el nombre del archivo del stem no puede contener barras")
 
 	ErrStemCategoriaObligatoria   = errors.New("la categoría del stem es obligatoria")
 	ErrStemCategoriaNoEncontrada  = errors.New("la categoría no existe")
@@ -49,6 +54,17 @@ var (
 // nueva del proyecto (NuevaCategoria), nunca ambas.
 type CrearStemRequest struct {
 	Nombre           string
+	CodCategoriaStem *int64
+	NuevaCategoria   *string
+}
+
+// EditarStemRequest: el nombre es obligatorio; NombreArchivo y la categoría
+// son opcionales (nil = se conservan). NombreArchivo va sin extensión: la
+// pone el service según el formato real del archivo. La categoría sigue las
+// reglas del alta. La canción y la versión del stem no se pueden cambiar.
+type EditarStemRequest struct {
+	Nombre           string
+	NombreArchivo    *string
 	CodCategoriaStem *int64
 	NuevaCategoria   *string
 }
@@ -82,7 +98,7 @@ type StemService interface {
 		codigoCancion int64,
 		codigoVersion int64,
 		codStem int64,
-		nombre string,
+		request EditarStemRequest,
 		archivo *ArchivoAudio,
 	) (*dto.StemListadoResponse, error)
 
@@ -349,6 +365,93 @@ func validarNombreStem(nombre string) (string, error) {
 	return nombre, nil
 }
 
+// validarNuevaCategoria recorta el nombre de la categoría a crear; nil si
+// se eligió una existente.
+func validarNuevaCategoria(nuevaCategoria *string) (*string, error) {
+
+	if nuevaCategoria == nil {
+		return nil, nil
+	}
+
+	categoria := strings.TrimSpace(*nuevaCategoria)
+
+	if categoria == "" {
+		return nil, ErrStemCategoriaObligatoria
+	}
+
+	if utf8.RuneCountInString(categoria) > largoMaximoNombreCategoria {
+		return nil, ErrStemCategoriaNombreLargo
+	}
+
+	return &categoria, nil
+}
+
+// resolverCategoria devuelve el código de la categoría existente elegida,
+// o 0 si se va a crear una nueva (que no puede repetir el nombre de otra).
+func (s *stemService) resolverCategoria(
+	codigoProyecto int64,
+	codCategoriaStem *int64,
+	nuevaCategoria *string,
+) (int64, error) {
+
+	if nuevaCategoria != nil {
+		existe, err := s.stemRepository.ExisteCategoriaConNombre(codigoProyecto, *nuevaCategoria)
+
+		if err != nil {
+			return 0, err
+		}
+
+		if existe {
+			return 0, ErrStemCategoriaDuplicada
+		}
+
+		return 0, nil
+	}
+
+	categoria, err := s.stemRepository.BuscarCategoria(codigoProyecto, *codCategoriaStem)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrStemCategoriaNoEncontrada
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	return categoria.CodCategoriaStem, nil
+}
+
+// nombreArchivoStem arma el nombre de archivo que se muestra del stem: el
+// que eligió el usuario más la extensión del formato real. Si el usuario ya
+// la escribió, no se repite. Es solo el nombre visible: la key en MinIO no
+// cambia.
+func nombreArchivoStem(nombre string, formato string) (string, error) {
+
+	nombre = strings.TrimSpace(nombre)
+	extension := "." + formato
+
+	if len(nombre) >= len(extension) &&
+		strings.EqualFold(nombre[len(nombre)-len(extension):], extension) {
+		nombre = strings.TrimSpace(nombre[:len(nombre)-len(extension)])
+	}
+
+	if nombre == "" {
+		return "", ErrStemNombreArchivoObligatorio
+	}
+
+	if strings.ContainsAny(nombre, `/\`) {
+		return "", ErrStemNombreArchivoInvalido
+	}
+
+	nombre += extension
+
+	if utf8.RuneCountInString(nombre) > largoMaximoNombreArchivoStem {
+		return "", ErrStemNombreArchivoLargo
+	}
+
+	return nombre, nil
+}
+
 // validarArchivoStem aplica las mismas reglas de formato que la pista de
 // una canción, con su propio límite de tamaño.
 func validarArchivoStem(archivo ArchivoAudio) (string, error) {
@@ -484,21 +587,13 @@ func (s *stemService) Crear(
 		return nil, err
 	}
 
-	var nuevaCategoria *string
+	nuevaCategoria, err := validarNuevaCategoria(request.NuevaCategoria)
 
-	if request.NuevaCategoria != nil {
-		categoria := strings.TrimSpace(*request.NuevaCategoria)
+	if err != nil {
+		return nil, err
+	}
 
-		if categoria == "" {
-			return nil, ErrStemCategoriaObligatoria
-		}
-
-		if utf8.RuneCountInString(categoria) > largoMaximoNombreCategoria {
-			return nil, ErrStemCategoriaNombreLargo
-		}
-
-		nuevaCategoria = &categoria
-	} else if request.CodCategoriaStem == nil {
+	if nuevaCategoria == nil && request.CodCategoriaStem == nil {
 		return nil, ErrStemCategoriaObligatoria
 	}
 
@@ -518,30 +613,10 @@ func (s *stemService) Crear(
 		return nil, err
 	}
 
-	var codCategoriaStem int64
+	codCategoriaStem, err := s.resolverCategoria(codigoProyecto, request.CodCategoriaStem, nuevaCategoria)
 
-	if nuevaCategoria != nil {
-		existe, err := s.stemRepository.ExisteCategoriaConNombre(codigoProyecto, *nuevaCategoria)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if existe {
-			return nil, ErrStemCategoriaDuplicada
-		}
-	} else {
-		categoria, err := s.stemRepository.BuscarCategoria(codigoProyecto, *request.CodCategoriaStem)
-
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrStemCategoriaNoEncontrada
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		codCategoriaStem = categoria.CodCategoriaStem
+	if err != nil {
+		return nil, err
 	}
 
 	existeNombre, err := s.stemRepository.ExisteNombreEnVersion(codigoVersion, nombre, 0)
@@ -602,11 +677,17 @@ func (s *stemService) Editar(
 	codigoCancion int64,
 	codigoVersion int64,
 	codStem int64,
-	nombre string,
+	request EditarStemRequest,
 	archivo *ArchivoAudio,
 ) (*dto.StemListadoResponse, error) {
 
-	nombre, err := validarNombreStem(nombre)
+	nombre, err := validarNombreStem(request.Nombre)
+
+	if err != nil {
+		return nil, err
+	}
+
+	nuevaCategoria, err := validarNuevaCategoria(request.NuevaCategoria)
 
 	if err != nil {
 		return nil, err
@@ -646,6 +727,34 @@ func (s *stemService) Editar(
 		return nil, ErrStemNombreDuplicado
 	}
 
+	// Elegir la categoría que ya tiene no la vuelve a validar: puede ser una
+	// que se dio de baja después de cargar el stem.
+	codCategoriaStem := actual.CodCategoriaStem
+	cambiaCategoria := nuevaCategoria != nil ||
+		(request.CodCategoriaStem != nil && *request.CodCategoriaStem != actual.CodCategoriaStem)
+
+	if cambiaCategoria {
+		if codCategoriaStem, err = s.resolverCategoria(codigoProyecto, request.CodCategoriaStem, nuevaCategoria); err != nil {
+			return nil, err
+		}
+	}
+
+	// Sin nombre de archivo explícito: el del archivo nuevo si se reemplaza,
+	// si no el actual.
+	nombreArchivo := actual.NombreArchivoStem
+
+	if archivo != nil {
+		nombreArchivo = archivo.NombreOriginal
+	} else {
+		formato = actual.FormatoArchivoStem
+	}
+
+	if request.NombreArchivo != nil {
+		if nombreArchivo, err = nombreArchivoStem(*request.NombreArchivo, formato); err != nil {
+			return nil, err
+		}
+	}
+
 	var guardado *repository.ArchivoStemGuardado
 
 	if archivo != nil {
@@ -654,7 +763,13 @@ func (s *stemService) Editar(
 		}
 	}
 
-	if err := s.stemRepository.Actualizar(codStem, nombre, guardado); err != nil {
+	if err := s.stemRepository.Actualizar(codigoProyecto, codStem, repository.CambiosStem{
+		Nombre:           nombre,
+		NombreArchivo:    nombreArchivo,
+		CodCategoriaStem: codCategoriaStem,
+		NuevaCategoria:   nuevaCategoria,
+		Archivo:          guardado,
+	}); err != nil {
 		if guardado != nil {
 			s.eliminarArchivo(guardado.URL)
 		}

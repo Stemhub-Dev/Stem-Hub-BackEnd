@@ -167,6 +167,12 @@ func responderErrorStem(c *gin.Context, err error) {
 		r = respuesta{http.StatusBadRequest, "El nombre del stem es demasiado largo."}
 	case errors.Is(err, service.ErrStemNombreDuplicado):
 		r = respuesta{http.StatusConflict, "Ya existe un stem con ese nombre en esta versión."}
+	case errors.Is(err, service.ErrStemNombreArchivoObligatorio):
+		r = respuesta{http.StatusBadRequest, "Ingresá un nombre para el archivo del stem."}
+	case errors.Is(err, service.ErrStemNombreArchivoLargo):
+		r = respuesta{http.StatusBadRequest, "El nombre del archivo es demasiado largo."}
+	case errors.Is(err, service.ErrStemNombreArchivoInvalido):
+		r = respuesta{http.StatusBadRequest, "El nombre del archivo no puede contener / ni \\."}
 	case errors.Is(err, service.ErrStemCategoriaObligatoria):
 		r = respuesta{http.StatusBadRequest, "Elegí una categoría."}
 	case errors.Is(err, service.ErrStemCategoriaNombreLargo):
@@ -284,21 +290,16 @@ func (h *StemHandler) Crear(c *gin.Context) {
 		defer archivoAbierto.Close()
 	}
 
-	request := service.CrearStemRequest{
-		Nombre: c.PostForm("nombre"),
+	codCategoriaStem, nuevaCategoria, ok := leerCategoriaStem(c)
+
+	if !ok {
+		return
 	}
 
-	if valor, existe := c.GetPostForm("nuevaCategoria"); existe {
-		request.NuevaCategoria = &valor
-	} else if valor, existe := c.GetPostForm("codCategoriaStem"); existe {
-		codigo, err := strconv.ParseInt(valor, 10, 64)
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Categoría inválida"})
-			return
-		}
-
-		request.CodCategoriaStem = &codigo
+	request := service.CrearStemRequest{
+		Nombre:           c.PostForm("nombre"),
+		CodCategoriaStem: codCategoriaStem,
+		NuevaCategoria:   nuevaCategoria,
 	}
 
 	stem, err := h.service.Crear(
@@ -318,9 +319,36 @@ func (h *StemHandler) Crear(c *gin.Context) {
 	c.JSON(http.StatusCreated, stem)
 }
 
-// PUT .../stems/:stemId — multipart/form-data con "nombre" y, si se
-// reemplaza el audio, "archivo". La categoría no se puede cambiar
-// (HU-ABM-04-02 CA2).
+// leerCategoriaStem lee la categoría de un formulario de stem:
+// "codCategoriaStem" (existente) o "nuevaCategoria" (se crea en el
+// proyecto); si vienen ambas, gana nuevaCategoria. Ninguna = nil, nil.
+// Responde el error y devuelve false si el código no es un número.
+func leerCategoriaStem(c *gin.Context) (*int64, *string, bool) {
+
+	if valor, existe := c.GetPostForm("nuevaCategoria"); existe {
+		return nil, &valor, true
+	}
+
+	valor, existe := c.GetPostForm("codCategoriaStem")
+
+	if !existe {
+		return nil, nil, true
+	}
+
+	codigo, err := strconv.ParseInt(valor, 10, 64)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Categoría inválida"})
+		return nil, nil, false
+	}
+
+	return &codigo, nil, true
+}
+
+// PUT .../stems/:stemId — multipart/form-data con "nombre" y, opcionales,
+// "nombreArchivo" (sin extensión), la categoría (como en el alta) y
+// "archivo" si se reemplaza el audio. Lo que no viene se conserva. La
+// canción y la versión del stem no se pueden cambiar.
 func (h *StemHandler) Editar(c *gin.Context) {
 
 	ruta, ok := leerRutaStem(c, true)
@@ -343,13 +371,29 @@ func (h *StemHandler) Editar(c *gin.Context) {
 		reemplazo = &archivo
 	}
 
+	codCategoriaStem, nuevaCategoria, ok := leerCategoriaStem(c)
+
+	if !ok {
+		return
+	}
+
+	request := service.EditarStemRequest{
+		Nombre:           c.PostForm("nombre"),
+		CodCategoriaStem: codCategoriaStem,
+		NuevaCategoria:   nuevaCategoria,
+	}
+
+	if valor, existe := c.GetPostForm("nombreArchivo"); existe {
+		request.NombreArchivo = &valor
+	}
+
 	stem, err := h.service.Editar(
 		ruta.codigoUsuario,
 		ruta.codigoProyecto,
 		ruta.codigoCancion,
 		ruta.codigoVersion,
 		ruta.codStem,
-		c.PostForm("nombre"),
+		request,
 		reemplazo,
 	)
 
