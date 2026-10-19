@@ -2,10 +2,21 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
+
+// El cambio se revierte si dejaría al sistema sin ningún usuario activo con
+// el rol Administrador del sistema (nadie podría volver a administrarlo).
+var ErrSinAdministradoresActivos = errors.New("no quedan administradores del sistema activos")
+
+// Clave del advisory lock que serializa las bajas de usuarios y de rol
+// Administrador: sin él, dos admins quitándose el rol entre sí en paralelo
+// podrían ver cada uno al otro como admin restante y dejar al sistema sin
+// ninguno.
+const lockCambiosAdministradores int64 = 7_301_001
 
 type UsuarioAdministracionRepository interface {
 	Listar() ([]dto.UsuarioAdministracionResponse, error)
@@ -432,6 +443,11 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 		_ = tx.Rollback()
 	}()
 
+	eraAdministradorActivo, err := prepararCambioAdministradores(tx, codigoUsuario)
+	if err != nil {
+		return nil, err
+	}
+
 	// 1. Actualizar estado activo/inactivo del usuario.
 	result, err := tx.Exec(`
 		UPDATE usuario
@@ -524,6 +540,10 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 		}
 	}
 
+	if err = verificarQuedaAdministrador(tx, eraAdministradorActivo); err != nil {
+		return nil, err
+	}
+
 	// 3. Si las dos operaciones salieron bien,
 	//    recién ahí confirmamos la transacción.
 	if err = tx.Commit(); err != nil {
@@ -542,7 +562,21 @@ func (r *usuarioAdministracionRepository) CambiarEstado(
 	activo bool,
 ) (*dto.CambiarEstadoUsuarioResponse, error) {
 
-	result, err := r.db.Exec(`
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	eraAdministradorActivo, err := prepararCambioAdministradores(tx, codigoUsuario)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := tx.Exec(`
 		UPDATE usuario
 		SET fechahorabajausuario =
 			CASE
@@ -570,8 +604,84 @@ func (r *usuarioAdministracionRepository) CambiarEstado(
 		return nil, sql.ErrNoRows
 	}
 
+	if err = verificarQuedaAdministrador(tx, eraAdministradorActivo); err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
 	return &dto.CambiarEstadoUsuarioResponse{
 		CodigoUsuario: codigoUsuario,
 		Activo:        activo,
 	}, nil
+}
+
+// Toma el lock de cambios de administradores y devuelve si el usuario es,
+// antes del cambio, un administrador del sistema activo.
+func prepararCambioAdministradores(tx *sql.Tx, codigoUsuario int64) (bool, error) {
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, lockCambiosAdministradores); err != nil {
+		return false, err
+	}
+
+	var esAdministradorActivo bool
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM usuario u
+			JOIN usuariorol ur
+			  ON ur.codigousuario = u.codigousuario
+			 AND ur.ambitorol = 'SISTEMA'
+			 AND ur.fechahorabajausuariorol IS NULL
+			JOIN rol r
+			  ON r.codrol = ur.codrol
+			 AND r.ambitorol = ur.ambitorol
+			 AND r.fechahorabajarol IS NULL
+			WHERE u.codigousuario = $1
+			  AND u.fechahorabajausuario IS NULL
+			  AND LOWER(r.nombrerol) = LOWER($2)
+		)
+	`,
+		codigoUsuario,
+		model.NombreRolAdministradorSistema,
+	).Scan(&esAdministradorActivo)
+
+	return esAdministradorActivo, err
+}
+
+// Si el usuario era administrador activo, exige que después del cambio quede
+// al menos uno. Solo se mira en ese caso para no bloquear operaciones sobre
+// otros usuarios en una base que ya no tiene administradores.
+func verificarQuedaAdministrador(tx *sql.Tx, eraAdministradorActivo bool) error {
+	if !eraAdministradorActivo {
+		return nil
+	}
+
+	var cantidad int
+	err := tx.QueryRow(`
+		SELECT COUNT(DISTINCT u.codigousuario)
+		FROM usuario u
+		JOIN usuariorol ur
+		  ON ur.codigousuario = u.codigousuario
+		 AND ur.ambitorol = 'SISTEMA'
+		 AND ur.fechahorabajausuariorol IS NULL
+		JOIN rol r
+		  ON r.codrol = ur.codrol
+		 AND r.ambitorol = ur.ambitorol
+		 AND r.fechahorabajarol IS NULL
+		WHERE u.fechahorabajausuario IS NULL
+		  AND LOWER(r.nombrerol) = LOWER($1)
+	`,
+		model.NombreRolAdministradorSistema,
+	).Scan(&cantidad)
+	if err != nil {
+		return err
+	}
+
+	if cantidad == 0 {
+		return ErrSinAdministradoresActivos
+	}
+
+	return nil
 }

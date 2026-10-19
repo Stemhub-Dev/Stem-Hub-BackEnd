@@ -116,6 +116,12 @@ func (h *UsuarioAdministracionHandler) ObtenerProyectosPorUsuario(c *gin.Context
 }
 
 func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) {
+	actor, ok := usuarioDesdeContexto(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
+		return
+	}
+
 	codigoUsuario, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || codigoUsuario <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -134,6 +140,7 @@ func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) 
 	}
 
 	response, err := h.service.ActualizarAdministracion(
+		actor.CodigoUsuario,
 		codigoUsuario,
 		request,
 	)
@@ -149,6 +156,13 @@ func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) 
 				"error": "usuario no encontrado",
 			})
 
+		case errors.Is(err, service.ErrAutoBajaNoPermitida),
+			errors.Is(err, service.ErrAutoQuitarAdministradorNoPermitido),
+			errors.Is(err, service.ErrUltimoAdministradorSistema):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
+			})
+
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "no se pudo actualizar la administración del usuario",
@@ -162,6 +176,12 @@ func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) 
 }
 
 func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
+	actor, ok := usuarioDesdeContexto(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
+		return
+	}
+
 	codigoUsuario, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || codigoUsuario <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -180,6 +200,7 @@ func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
 	}
 
 	response, err := h.service.CambiarEstado(
+		actor.CodigoUsuario,
 		codigoUsuario,
 		request,
 	)
@@ -193,6 +214,13 @@ func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
 		case errors.Is(err, service.ErrUsuarioAdministracionNoEncontrado):
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": "usuario no encontrado",
+			})
+
+		case errors.Is(err, service.ErrAutoBajaNoPermitida),
+			errors.Is(err, service.ErrAutoQuitarAdministradorNoPermitido),
+			errors.Is(err, service.ErrUltimoAdministradorSistema):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
 			})
 
 		default:

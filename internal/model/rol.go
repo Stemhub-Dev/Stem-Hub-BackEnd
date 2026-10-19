@@ -8,7 +8,8 @@ import "time"
 // consulta simplemente no matchea ninguna fila y el filtro queda vacío en
 // silencio.
 const (
-	NombreRolAdministradorSistema = "Administrador"
+	// 004datosseguridadl.sql. Ya se rompió una vez por volver a "Administrador".
+	NombreRolAdministradorSistema = "Administrador del sistema"
 	NombreRolProductor            = "Productor"
 	// 002datosiniciales.sql lo creó como "Artista Musical" y
 	// 004datosseguridadl.sql lo renombró a "Músico (Artista)".
