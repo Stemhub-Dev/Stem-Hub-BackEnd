@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -58,6 +59,14 @@ type InvitacionProyectoService interface {
 		codigoUsuario int64,
 		codigoProyecto int64,
 		request dto.CrearInvitacionRequest,
+	) (*dto.InvitacionResponse, error)
+
+	// CrearEnlace genera una invitación sin email, con el rol elegido, y
+	// devuelve el enlace para copiar (HU-NOT-F02 "Copiar enlace").
+	CrearEnlace(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		request dto.CrearEnlaceInvitacionRequest,
 	) (*dto.InvitacionResponse, error)
 
 	ListarPendientes(
@@ -143,55 +152,18 @@ func (s *invitacionProyectoService) Invitar(
 
 	email := strings.TrimSpace(strings.ToLower(request.Email))
 
-	if email == "" {
+	if !esEmailValido(email) {
 		return nil, ErrInvitacionEmailInvalido
 	}
 
-	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !existeProyecto {
-		return nil, ErrProyectoNoEncontrado
-	}
-
-	integranteInvito, err := s.integranteRepository.BuscarPorCodigoUsuario(codigoUsuario)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrInvitacionNoEsOwner
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	esPropietario, err := s.proyectoRepository.EsPropietarioActivo(
-		integranteInvito.CodIntegrante,
+	integranteInvito, ambitoRol, err := s.validarPuedeInvitar(
+		codigoUsuario,
 		codigoProyecto,
+		request.CodRol,
 	)
 
 	if err != nil {
 		return nil, err
-	}
-
-	if !esPropietario {
-		return nil, ErrInvitacionNoEsOwner
-	}
-
-	ambitoRol, err := s.proyectoRepository.ObtenerAmbitoRolActivo(request.CodRol)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrInvitacionRolNoValido
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if ambitoRol != ambitoRolProyecto {
-		return nil, ErrInvitacionRolNoValido
 	}
 
 	if err := s.validarNoEsYaIntegrante(email, codigoProyecto); err != nil {
@@ -204,8 +176,6 @@ func (s *invitacionProyectoService) Invitar(
 		return nil, err
 	}
 
-	expiracion := time.Now().Add(time.Duration(s.diasVencimiento) * 24 * time.Hour)
-
 	invitacion, err := s.invitacionRepository.CrearOReemplazarPendiente(
 		codigoProyecto,
 		email,
@@ -213,7 +183,7 @@ func (s *invitacionProyectoService) Invitar(
 		ambitoRol,
 		integranteInvito.CodIntegrante,
 		token,
-		expiracion,
+		s.calcularExpiracion(),
 	)
 
 	if err != nil {
@@ -237,22 +207,157 @@ func (s *invitacionProyectoService) Invitar(
 		NombreProyecto:  nombreProyecto,
 		NombreInvitador: integranteInvito.NombreIntegrante,
 		NombreRol:       nombreRol,
-		LinkAceptacion:  s.frontendBaseURL + "/invitaciones/" + token,
+		LinkAceptacion:  s.enlaceInvitacion(token),
 		DiasVencimiento: s.diasVencimiento,
 	})
 
-	if err != nil {
+	// La invitación queda creada aunque falle el mail: el front avisa y
+	// ofrece copiar el enlace para compartirlo a mano.
+	emailEnviado := err == nil
+
+	if !emailEnviado {
 		log.Println("Error al enviar mail de invitación:", err)
 	}
 
-	return &dto.InvitacionResponse{
+	respuesta := s.armarRespuesta(*invitacion, nombreRol)
+	respuesta.EmailEnviado = &emailEnviado
+
+	return &respuesta, nil
+}
+
+func (s *invitacionProyectoService) CrearEnlace(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	request dto.CrearEnlaceInvitacionRequest,
+) (*dto.InvitacionResponse, error) {
+
+	integranteInvito, ambitoRol, err := s.validarPuedeInvitar(
+		codigoUsuario,
+		codigoProyecto,
+		request.CodRol,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := generarTokenInvitacion()
+
+	if err != nil {
+		return nil, err
+	}
+
+	invitacion, err := s.invitacionRepository.CrearEnlace(
+		codigoProyecto,
+		request.CodRol,
+		ambitoRol,
+		integranteInvito.CodIntegrante,
+		token,
+		s.calcularExpiracion(),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	nombreRol, err := s.rolRepository.ObtenerNombreRol(request.CodRol)
+
+	if err != nil {
+		return nil, err
+	}
+
+	respuesta := s.armarRespuesta(*invitacion, nombreRol)
+
+	return &respuesta, nil
+}
+
+// validarPuedeInvitar valida lo común a invitar por email y por enlace:
+// proyecto activo, quien invita es propietario y el rol es de proyecto.
+func (s *invitacionProyectoService) validarPuedeInvitar(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codRol int64,
+) (*model.Integrante, string, error) {
+
+	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	if !existeProyecto {
+		return nil, "", ErrProyectoNoEncontrado
+	}
+
+	integranteInvito, err := s.integranteRepository.BuscarPorCodigoUsuario(codigoUsuario)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", ErrInvitacionNoEsOwner
+	}
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	esPropietario, err := s.proyectoRepository.EsPropietarioActivo(
+		integranteInvito.CodIntegrante,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	if !esPropietario {
+		return nil, "", ErrInvitacionNoEsOwner
+	}
+
+	ambitoRol, err := s.proyectoRepository.ObtenerAmbitoRolActivo(codRol)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", ErrInvitacionRolNoValido
+	}
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	if ambitoRol != ambitoRolProyecto {
+		return nil, "", ErrInvitacionRolNoValido
+	}
+
+	return integranteInvito, ambitoRol, nil
+}
+
+func (s *invitacionProyectoService) calcularExpiracion() time.Time {
+	return time.Now().Add(time.Duration(s.diasVencimiento) * 24 * time.Hour)
+}
+
+func (s *invitacionProyectoService) enlaceInvitacion(token string) string {
+	return s.frontendBaseURL + "/invitaciones/" + token
+}
+
+func (s *invitacionProyectoService) armarRespuesta(
+	invitacion model.InvitacionProyecto,
+	nombreRol string,
+) dto.InvitacionResponse {
+
+	estado := "pendiente"
+
+	if invitacion.FechaHoraExpiracion.Before(time.Now()) {
+		estado = "vencida"
+	}
+
+	return dto.InvitacionResponse{
 		CodigoInvitacionProy: invitacion.CodigoInvitacionProy,
 		Email:                invitacion.EmailInvitado,
+		PorEnlace:            invitacion.EmailInvitado == "",
 		CodRol:               invitacion.CodRol,
 		NombreRol:            nombreRol,
 		FechaHoraExpiracion:  invitacion.FechaHoraExpiracion,
-		Estado:               "pendiente",
-	}, nil
+		Estado:               estado,
+		Enlace:               s.enlaceInvitacion(invitacion.TokenInvitacion),
+	}
 }
 
 // validarNoEsYaIntegrante chequea si el email invitado ya pertenece a un
@@ -327,20 +432,7 @@ func (s *invitacionProyectoService) ListarPendientes(
 			return nil, err
 		}
 
-		estado := "pendiente"
-
-		if invitacion.FechaHoraExpiracion.Before(time.Now()) {
-			estado = "vencida"
-		}
-
-		respuesta = append(respuesta, dto.InvitacionResponse{
-			CodigoInvitacionProy: invitacion.CodigoInvitacionProy,
-			Email:                invitacion.EmailInvitado,
-			CodRol:               invitacion.CodRol,
-			NombreRol:            nombreRol,
-			FechaHoraExpiracion:  invitacion.FechaHoraExpiracion,
-			Estado:               estado,
-		})
+		respuesta = append(respuesta, s.armarRespuesta(invitacion, nombreRol))
 	}
 
 	return respuesta, nil
@@ -432,6 +524,7 @@ func (s *invitacionProyectoService) ObtenerDetalle(
 
 	return &dto.InvitacionDetalleResponse{
 		Email:          detalle.EmailInvitado,
+		PorEnlace:      detalle.EmailInvitado == "",
 		NombreProyecto: detalle.NombreProyecto,
 		InvitadoPor:    detalle.NombreIntegranteInvito,
 		NombreRol:      detalle.NombreRol,
@@ -452,10 +545,7 @@ func (s *invitacionProyectoService) Aceptar(
 		return 0, err
 	}
 
-	if !strings.EqualFold(
-		usuario.Email,
-		invitacion.EmailInvitado,
-	) {
+	if !emailPuedeUsarInvitacion(usuario.Email, invitacion) {
 		return 0, ErrInvitacionEmailNoCoincide
 	}
 
@@ -480,6 +570,20 @@ func (s *invitacionProyectoService) Aceptar(
 
 	if err != nil {
 		return 0, err
+	}
+
+	// Con un enlace lo puede abrir alguien que ya está en el proyecto.
+	yaEsIntegrante, err := s.proyectoRepository.EsIntegranteActivo(
+		integrante.CodIntegrante,
+		invitacion.CodigoProyecto,
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if yaEsIntegrante {
+		return 0, ErrInvitacionYaEsIntegrante
 	}
 
 	err = s.invitacionRepository.Aceptar(
@@ -534,7 +638,7 @@ func (s *invitacionProyectoService) Rechazar(
 		return err
 	}
 
-	if !strings.EqualFold(usuario.Email, invitacion.EmailInvitado) {
+	if !emailPuedeUsarInvitacion(usuario.Email, invitacion) {
 		return ErrInvitacionEmailNoCoincide
 	}
 
@@ -571,4 +675,22 @@ func (s *invitacionProyectoService) buscarInvitacionValidaPorToken(
 	}
 
 	return invitacion, nil
+}
+
+// emailPuedeUsarInvitacion: una invitación por email solo la usa esa
+// cuenta; una por enlace (sin email), cualquiera que tenga el enlace.
+func emailPuedeUsarInvitacion(email string, invitacion *model.InvitacionProyecto) bool {
+	return invitacion.EmailInvitado == "" ||
+		strings.EqualFold(email, invitacion.EmailInvitado)
+}
+
+// esEmailValido acepta solo una dirección suelta ("a@b.com"): sin nombre
+// ni <> (que net/mail permite) y con un punto en el dominio.
+func esEmailValido(email string) bool {
+	direccion, err := mail.ParseAddress(email)
+	if err != nil || direccion.Address != email {
+		return false
+	}
+	dominio := email[strings.LastIndex(email, "@")+1:]
+	return strings.Contains(dominio, ".")
 }

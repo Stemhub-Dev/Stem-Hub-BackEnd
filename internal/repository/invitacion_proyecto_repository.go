@@ -23,6 +23,17 @@ type InvitacionProyectoRepository interface {
 		expiracion time.Time,
 	) (*model.InvitacionProyecto, error)
 
+	// CrearEnlace inserta una invitación sin email (por enlace copiable):
+	// la acepta el primer usuario que abre el enlace.
+	CrearEnlace(
+		codigoProyecto int64,
+		codRol int64,
+		ambitoRol string,
+		codIntegranteInvito int64,
+		token string,
+		expiracion time.Time,
+	) (*model.InvitacionProyecto, error)
+
 	BuscarPorToken(token string) (*model.InvitacionProyecto, error)
 
 	BuscarDetallePorToken(token string) (*model.InvitacionDetalle, error)
@@ -67,8 +78,9 @@ func NewInvitacionProyectoRepository(db *sql.DB) InvitacionProyectoRepository {
 	}
 }
 
+// emailinvitado es NULL en las invitaciones por enlace: se leen como "".
 const columnasInvitacionProyecto = `
-	codigoinvitacionproy, codigoproyecto, emailinvitado, codrol,
+	codigoinvitacionproy, codigoproyecto, COALESCE(emailinvitado, ''), codrol,
 	ambitorol, codintegranteinvito, tokeninvitacion,
 	fechahoraaltainvitacionproy, fechahoraexpiracioninvitacion,
 	fechahoraaceptacioninvitacion, fechahorabajainvitacionproy
@@ -184,6 +196,36 @@ func (r *invitacionProyectoRepository) CrearOReemplazarPendiente(
 	return &invitacion, nil
 }
 
+func (r *invitacionProyectoRepository) CrearEnlace(
+	codigoProyecto int64,
+	codRol int64,
+	ambitoRol string,
+	codIntegranteInvito int64,
+	token string,
+	expiracion time.Time,
+) (*model.InvitacionProyecto, error) {
+
+	var invitacion model.InvitacionProyecto
+
+	row := r.db.QueryRow(`
+		INSERT INTO invitacionproyecto (
+			codigoproyecto, emailinvitado, codrol, ambitorol,
+			codintegranteinvito, tokeninvitacion,
+			fechahoraexpiracioninvitacion
+		)
+		VALUES ($1, NULL, $2, $3, $4, $5, $6)
+		RETURNING `+columnasInvitacionProyecto,
+		codigoProyecto, codRol, ambitoRol,
+		codIntegranteInvito, token, expiracion,
+	)
+
+	if err := escanearInvitacion(row, &invitacion); err != nil {
+		return nil, err
+	}
+
+	return &invitacion, nil
+}
+
 func (r *invitacionProyectoRepository) BuscarPorToken(
 	token string,
 ) (*model.InvitacionProyecto, error) {
@@ -211,7 +253,7 @@ func (r *invitacionProyectoRepository) BuscarDetallePorToken(
 
 	err := r.db.QueryRow(`
 		SELECT
-			ip.emailinvitado,
+			COALESCE(ip.emailinvitado, ''),
 			p.nombreproyecto,
 			i.nombreintegrante,
 			r.nombrerol,
