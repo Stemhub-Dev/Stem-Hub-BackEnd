@@ -84,7 +84,8 @@ func (h *UsuarioHandler) Registrar(c *gin.Context) {
 
 		case errors.Is(err, service.ErrUsuarioInactivo):
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "usuario inactivo",
+				"error":  "usuario inactivo",
+				"codigo": middleware.CodigoUsuarioInactivo,
 			})
 
 		default:

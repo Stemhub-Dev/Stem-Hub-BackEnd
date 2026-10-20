@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -145,6 +146,14 @@ func TestUsuarioActivo_DadoDeBajaResponde403(t *testing.T) {
 
 	if grabador.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, quería 403", grabador.Code)
+	}
+
+	var cuerpo map[string]string
+	if err := json.Unmarshal(grabador.Body.Bytes(), &cuerpo); err != nil {
+		t.Fatalf("cuerpo no es JSON: %v", err)
+	}
+	if cuerpo["codigo"] != CodigoUsuarioInactivo {
+		t.Fatalf("codigo = %q, quería %q", cuerpo["codigo"], CodigoUsuarioInactivo)
 	}
 }
 
