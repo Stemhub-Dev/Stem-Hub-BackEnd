@@ -708,11 +708,17 @@ func emailPuedeUsarInvitacion(email string, invitacion *model.InvitacionProyecto
 // largoMaximoEmail: emailinvitado es VARCHAR(254) (RFC 5321).
 const largoMaximoEmail = 254
 
+const largoMaximoParteLocal = 64
+
 // esEmailValido acepta solo una dirección suelta ("a@b.com"): sin nombre
 // ni <> (que net/mail permite), con un punto en el dominio y que entre en
 // la columna.
 func esEmailValido(email string) bool {
 	if len(email) > largoMaximoEmail {
+		return false
+	}
+	// RFC 5321: la parte local tiene como máximo 64 bytes.
+	if arroba := strings.LastIndex(email, "@"); arroba > largoMaximoParteLocal {
 		return false
 	}
 	direccion, err := mail.ParseAddress(email)
@@ -745,7 +751,8 @@ func dominioValido(dominio string) bool {
 }
 
 // tldValido acepta un TLD de letras ASCII o uno internacionalizado en
-// Punycode (ej. xn--p1ai = .рф) que decodifique a solo letras.
+// Punycode (ej. xn--p1ai = .рф) que decodifique a letras y marcas
+// combinantes (ej. xn--h2brj9c = .भारत, con la vocal ा).
 func tldValido(tld string) bool {
 	texto := tld
 	if strings.HasPrefix(strings.ToLower(tld), "xn--") {
@@ -763,7 +770,7 @@ func tldValido(tld string) bool {
 		return true
 	}
 	for _, c := range texto {
-		if !unicode.IsLetter(c) {
+		if !unicode.IsLetter(c) && !unicode.IsMark(c) {
 			return false
 		}
 	}

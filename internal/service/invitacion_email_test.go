@@ -16,13 +16,17 @@ func TestEsEmailValido(t *testing.T) {
 
 	validos := []string{
 		"ana@test.local", "a.b+c@sub.ejemplo.com", "x@ejemplo-uno.com.ar", "a1@b2.io",
-		// TLD internacionalizado en Punycode (.рф).
-		"ana@example.xn--p1ai",
+		// TLD internacionalizados en Punycode (.рф y .भारत, con marca combinante).
+		"ana@example.xn--p1ai", "ana@example.xn--h2brj9c",
+		// Parte local de 64 bytes justo.
+		strings.Repeat("a", 64) + "@example.com",
 	}
 	invalidos := []string{
 		"", "ana", "ana@", "@ejemplo.com", "a@b", "Ana <ana@test.local>",
 		"persona@-ejemplo.com", "persona@ejemplo-.com", "persona@ejemplo_.com",
 		"persona@ejemplo..com", "persona@ejemplo.c0m", "persona@.ejemplo.com", largo,
+		// Parte local de 65 bytes.
+		strings.Repeat("a", 65) + "@example.com",
 		// Punycode mal formado o que no decodifica a letras.
 		"ana@example.xn--", "ana@example.xn--zz-", "ana@example.xn--123",
 	}
