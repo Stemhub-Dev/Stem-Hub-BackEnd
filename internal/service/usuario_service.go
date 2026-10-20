@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"strings"
 	"unicode/utf8"
 
@@ -15,6 +16,7 @@ var (
 	ErrUsuarioInactivo             = errors.New("usuario inactivo")
 	ErrNombreIntegranteObligatorio = errors.New("el nombre del integrante es obligatorio")
 	ErrNombreIntegranteLargo       = errors.New("el nombre del integrante es demasiado largo")
+	ErrEmailYaRegistrado           = errors.New("el email ya está registrado con otra cuenta")
 )
 
 // LargoMaximoNombreIntegrante limita el nombre visible del integrante (alta y
@@ -28,6 +30,7 @@ type UsuarioService interface {
 	RegistrarUsuario(
 		idAutenticacion string,
 		email string,
+		emailVerificado bool,
 		nombre string,
 		descripcion *string,
 	) (*model.Usuario, *model.Integrante, bool, error)
@@ -62,6 +65,7 @@ func (s *usuarioService) ObtenerUsuarioActivoPorIDAutenticacion(idAutenticacion 
 func (s *usuarioService) RegistrarUsuario(
 	idAutenticacion string,
 	email string,
+	emailVerificado bool,
 	nombre string,
 	descripcion *string,
 ) (*model.Usuario, *model.Integrante, bool, error) {
@@ -87,6 +91,21 @@ func (s *usuarioService) RegistrarUsuario(
 		nombre,
 		descripcion,
 	)
+
+	// Con el email verificado es la misma persona con una identidad nueva
+	// de Supabase: recupera su cuenta (y su estado, así una baja sigue
+	// vigente). Sin verificar, cualquiera podría quedarse con una cuenta
+	// ajena registrándose con ese email.
+	if errors.Is(err, repository.ErrEmailConOtraIdentidad) {
+		if !emailVerificado {
+			return nil, nil, false, ErrEmailYaRegistrado
+		}
+
+		usuario, integrante, err = s.repository.ReasignarIdentidad(email, idAutenticacion)
+		if err == nil {
+			log.Printf("RegistrarUsuario: la cuenta %d pasó a la identidad %s", usuario.CodigoUsuario, idAutenticacion)
+		}
+	}
 
 	if err != nil {
 		return nil, nil, false, err

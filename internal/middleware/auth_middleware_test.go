@@ -32,7 +32,7 @@ func (s usuarioServiceDePrueba) ObtenerUsuarioActivoPorIDAutenticacion(string) (
 	return s.usuario, s.err
 }
 
-func (s usuarioServiceDePrueba) RegistrarUsuario(string, string, string, *string) (*model.Usuario, *model.Integrante, bool, error) {
+func (s usuarioServiceDePrueba) RegistrarUsuario(string, string, bool, string, *string) (*model.Usuario, *model.Integrante, bool, error) {
 	return nil, nil, false, nil
 }
 
