@@ -23,10 +23,6 @@ const (
 	CodigoUsuarioInactivo = "usuario_inactivo"
 )
 
-// Acompaña al 403 de una cuenta dada de baja: el frontend lo distingue de un
-// 403 por falta de permisos para mostrar la pantalla de cuenta dada de baja.
-const CodigoUsuarioInactivo = "usuario_inactivo"
-
 type SupabaseClaims struct {
 	Email        string           `json:"email"`
 	Role         string           `json:"role"`
