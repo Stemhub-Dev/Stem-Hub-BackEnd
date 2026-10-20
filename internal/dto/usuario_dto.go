@@ -1,7 +1,7 @@
 package dto
 
 type RegistrarUsuarioRequest struct {
-	Nombre      string  `json:"nombre" binding:"required"`
+	Nombre      string  `json:"nombre"`
 	Descripcion *string `json:"descripcion"`
 }
 
