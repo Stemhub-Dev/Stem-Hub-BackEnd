@@ -1145,3 +1145,95 @@ func (h *CancionHandler) DarDeBaja(
 		)
 	}
 }
+
+// responderErrorVersion mapea los errores comunes a editar y dar de baja una
+// versión. Devuelve true si ya respondió.
+func responderErrorVersion(c *gin.Context, err error, accion string) bool {
+
+	switch {
+
+	case err == nil:
+		return false
+
+	case errors.Is(err, service.ErrCancionProyectoNoEncontrado):
+		c.JSON(http.StatusNotFound, gin.H{"error": "El proyecto no existe"})
+
+	case errors.Is(err, service.ErrVersionCancionNoEncontrada):
+		c.JSON(http.StatusNotFound, gin.H{"error": "La canción no existe en el proyecto"})
+
+	case errors.Is(err, service.ErrVersionNoEncontrada):
+		c.JSON(http.StatusNotFound, gin.H{"error": "La versión no existe"})
+
+	case errors.Is(err, service.ErrCancionPerfilRequerido):
+		c.JSON(http.StatusForbidden, gin.H{"error": "Perfil de StemHub requerido"})
+
+	case errors.Is(err, service.ErrVersionSinPermisoModificar):
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tenés permiso para modificar versiones"})
+
+	case errors.Is(err, service.ErrVersionSinPermisoBaja):
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tenés permiso para dar de baja versiones en este proyecto"})
+
+	case errors.Is(err, service.ErrVersionUnica):
+		c.JSON(http.StatusConflict, gin.H{"error": "Una canción necesita al menos una versión"})
+
+	default:
+		log.Println("Error al "+accion+" versión:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al " + accion + " la versión"})
+	}
+
+	return true
+}
+
+// EditarVersion: PATCH /proyectos/:proyectoId/canciones/:cancionId/versiones/:versionId.
+func (h *CancionHandler) EditarVersion(c *gin.Context) {
+
+	ruta, ok := leerRutaStem(c, false)
+
+	if !ok {
+		return
+	}
+
+	var request dto.EditarVersionRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Solicitud inválida"})
+		return
+	}
+
+	respuesta, err := h.service.EditarVersion(
+		ruta.codigoUsuario,
+		ruta.codigoProyecto,
+		ruta.codigoCancion,
+		ruta.codigoVersion,
+		request,
+	)
+
+	if responderErrorVersion(c, err, "modificar") {
+		return
+	}
+
+	c.JSON(http.StatusOK, respuesta)
+}
+
+// DarDeBajaVersion: DELETE /proyectos/:proyectoId/canciones/:cancionId/versiones/:versionId.
+func (h *CancionHandler) DarDeBajaVersion(c *gin.Context) {
+
+	ruta, ok := leerRutaStem(c, false)
+
+	if !ok {
+		return
+	}
+
+	respuesta, err := h.service.DarDeBajaVersion(
+		ruta.codigoUsuario,
+		ruta.codigoProyecto,
+		ruta.codigoCancion,
+		ruta.codigoVersion,
+	)
+
+	if responderErrorVersion(c, err, "dar de baja") {
+		return
+	}
+
+	c.JSON(http.StatusOK, respuesta)
+}

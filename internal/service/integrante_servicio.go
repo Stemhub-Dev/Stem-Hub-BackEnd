@@ -205,6 +205,17 @@ func (s *integranteService) EditarPerfil(
 		return nil, nil, ErrPerfilNombreLargo
 	}
 
+	// Igual que el nombre, sin espacios al inicio ni al final; una
+	// descripción que queda vacía se guarda como NULL ("Sin descripción").
+	if descripcion != nil {
+		limpia := strings.TrimSpace(*descripcion)
+		if limpia == "" {
+			descripcion = nil
+		} else {
+			descripcion = &limpia
+		}
+	}
+
 	integrante, err := s.buscarPerfilActivo(codigoUsuario)
 
 	if err != nil {

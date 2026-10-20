@@ -122,6 +122,7 @@ func (h *IntegranteHandler) ObtenerPerfil(c *gin.Context) {
 		c.JSON(
 			http.StatusOK,
 			dto.ObtenerPerfilResponse{
+				CodigoUsuario:          usuario.CodigoUsuario,
 				CodigoIntegrante:       integrante.CodIntegrante,
 				Email:                  usuario.Email,
 				Nombre:                 integrante.NombreIntegrante,

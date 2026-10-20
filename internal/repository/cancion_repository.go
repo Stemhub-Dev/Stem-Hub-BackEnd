@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,7 +10,28 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
+// ErrVersionUnicaActiva: no se puede dar de baja la única versión activa de
+// una canción.
+var ErrVersionUnicaActiva = errors.New("la canción tiene una sola versión")
+
 type CancionRepository interface {
+	// ActualizarNotasVersion cambia solo las notas de una versión activa.
+	// sql.ErrNoRows si la versión no existe o no es de esa canción.
+	ActualizarNotasVersion(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+		notas *string,
+	) error
+
+	// DarDeBajaVersion hace la baja lógica de una versión activa y devuelve
+	// su número. Bloquea la canción (igual que IniciarCreacionVersion) para
+	// que dos bajas en paralelo no la dejen sin versiones:
+	// ErrVersionUnicaActiva si es la última que queda.
+	DarDeBajaVersion(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+	) (int, error)
+
 	ExisteNombreEnProyecto(
 		codigoProyecto int64,
 		nombre string,
@@ -264,7 +286,6 @@ func (r *cancionRepository) IniciarCreacionVersion(
 		SELECT COALESCE(MAX(numeroversion), 0) + 1
 		FROM cancionversion
 		WHERE codigocancion = $1
-		  AND fechahorabajaversion IS NULL
 	`,
 		codigoCancion,
 	).Scan(&siguienteVersion)
@@ -899,4 +920,123 @@ func (r *cancionRepository) DarDeBaja(
 	}
 
 	return nil
+}
+
+func (r *cancionRepository) ActualizarNotasVersion(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+	notas *string,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE cancionversion
+		SET notasversion = $3
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+		notas,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *cancionRepository) DarDeBajaVersion(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+) (int, error) {
+
+	tx, err := r.db.Begin()
+
+	if err != nil {
+		return 0, err
+	}
+
+	defer tx.Rollback()
+
+	var bloqueada int64
+
+	err = tx.QueryRow(`
+		SELECT codigocancion
+		FROM cancion
+		WHERE codigocancion = $1
+		  AND fechahorabajacancion IS NULL
+		FOR UPDATE
+	`,
+		codigoCancion,
+	).Scan(&bloqueada)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var numeroVersion int
+
+	err = tx.QueryRow(`
+		SELECT numeroversion
+		FROM cancionversion
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+	).Scan(&numeroVersion)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var activas int
+
+	err = tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM cancionversion
+		WHERE codigocancion = $1
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancion,
+	).Scan(&activas)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if activas <= 1 {
+		return 0, ErrVersionUnicaActiva
+	}
+
+	_, err = tx.Exec(`
+		UPDATE cancionversion
+		SET fechahorabajaversion = CURRENT_TIMESTAMP
+		WHERE codigocancionversion = $1
+	`,
+		codigoCancionVersion,
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return numeroVersion, nil
 }
