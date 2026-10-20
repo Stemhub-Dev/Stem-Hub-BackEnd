@@ -576,10 +576,11 @@ func TestInvitaciones_MismaCuentaDosInvitacionesEnParalelo(t *testing.T) {
 		close(largada)
 		wg.Wait()
 
-		perdedora := -1
+		perdedora, ganadoras := -1, 0
 		for i, r := range respuestas {
 			switch r.code {
 			case http.StatusOK:
+				ganadoras++
 			case http.StatusConflict:
 				if r.body["error"] != "Ya sos integrante de este proyecto" {
 					t.Fatalf("intento %d: 409 con %v", intento, r.body)
@@ -589,8 +590,9 @@ func TestInvitaciones_MismaCuentaDosInvitacionesEnParalelo(t *testing.T) {
 				t.Fatalf("intento %d: status %d (%v)", intento, r.code, r.body)
 			}
 		}
-		if perdedora == -1 {
-			t.Fatalf("intento %d: las dos aceptaciones respondieron 200", intento)
+		if ganadoras != 1 || perdedora == -1 {
+			t.Fatalf("intento %d: quería un 200 y un 409, fue %d y %d",
+				intento, respuestas[0].code, respuestas[1].code)
 		}
 
 		// La que perdió no quedó consumida.
