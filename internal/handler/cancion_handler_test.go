@@ -140,6 +140,39 @@ func TestListarMisCanciones_PasaBusquedaFiltrosYPaginacion(t *testing.T) {
 	}
 }
 
+func TestListarMisCanciones_FiltroComentariosPendientes(t *testing.T) {
+	casos := map[string]bool{
+		"/canciones?pendientes=true":  true,
+		"/canciones?pendientes=1":     true,
+		"/canciones?pendientes=false": false,
+		"/canciones":                  false,
+	}
+
+	for url, esperado := range casos {
+		t.Run(url, func(t *testing.T) {
+			servicio := &cancionServiceFalso{respuesta: respuestaVacia()}
+
+			grabador := ejecutarListarMisCanciones(
+				t,
+				servicio,
+				&model.Usuario{CodigoUsuario: 7},
+				url,
+			)
+
+			if grabador.Code != http.StatusOK {
+				t.Fatalf("status = %d, se esperaba 200", grabador.Code)
+			}
+			if servicio.filtro.SoloConComentariosPendientes != esperado {
+				t.Fatalf(
+					"SoloConComentariosPendientes = %v, se esperaba %v",
+					servicio.filtro.SoloConComentariosPendientes,
+					esperado,
+				)
+			}
+		})
+	}
+}
+
 func TestListarMisCanciones_OrdenesAdmitidos(t *testing.T) {
 	for _, orden := range []string{
 		dto.OrdenMisCancionesReciente,
@@ -181,6 +214,8 @@ func TestListarMisCanciones_ParametrosInvalidosResponden400(t *testing.T) {
 		"/canciones?proyectoId=-3",
 		"/canciones?proyectoId=abc",
 		"/canciones?proyectoId=9&proyectoId=abc",
+		"/canciones?pendientes=abc",
+		"/canciones?pendientes=",
 	}
 
 	for _, url := range casos {

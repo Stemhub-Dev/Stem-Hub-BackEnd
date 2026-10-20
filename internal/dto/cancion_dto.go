@@ -83,6 +83,15 @@ type MiCancionListadoResponse struct {
 	NombreProyecto string `json:"nombreProyecto"`
 
 	VersionActual *VersionActualCancionResponse `json:"versionActual"`
+
+	// Actividad de la versión actual, para que Mis Canciones muestre qué se
+	// movió sin abrir cada canción. Todo queda en nil/0 si la canción no
+	// tiene versiones; el autor también es nil en las versiones subidas antes
+	// de que se guardara, y la etapa mientras el alta de versión no la pida.
+	FechaVersionActual    *time.Time            `json:"fechaVersionActual"`
+	AutorVersionActual    *AutorVersionResponse `json:"autorVersionActual"`
+	EtapaVersionActual    *string               `json:"etapaVersionActual"`
+	ComentariosPendientes int                   `json:"comentariosPendientes"`
 }
 
 // Valores admitidos por el parámetro sort de GET /canciones. El repositorio
@@ -98,11 +107,14 @@ const (
 // orden y paginación de GET /canciones. Pagina y TamanoPagina ya vienen
 // validados (>= 1) y Orden es uno de los OrdenMisCanciones*.
 type ListarMisCancionesFiltro struct {
-	Busqueda     string
-	Proyectos    []int64
-	Orden        string
-	Pagina       int
-	TamanoPagina int
+	Busqueda  string
+	Proyectos []int64
+	// SoloConComentariosPendientes deja las canciones cuya versión actual
+	// tiene al menos un comentario en estado Pendiente.
+	SoloConComentariosPendientes bool
+	Orden                        string
+	Pagina                       int
+	TamanoPagina                 int
 }
 
 type MisCancionesPaginadasResponse struct {

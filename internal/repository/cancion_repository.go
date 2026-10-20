@@ -633,10 +633,12 @@ func (r *cancionRepository) ListarVersiones(
 // TestConsultasMisCancionesCompartenFiltro lo verifica.
 //
 // En ambas, $1 es el integrante, $2 el patrón de búsqueda ya escapado
-// (cadena vacía = sin filtro por nombre) y $3 los proyectos por los que se
-// filtra (arreglo vacío o NULL = todos los del integrante).
+// (cadena vacía = sin filtro por nombre), $3 los proyectos por los que se
+// filtra (arreglo vacío o NULL = todos los del integrante) y $4 si solo van
+// las canciones con comentarios pendientes en su versión actual (los de sus
+// stems incluidos: también pertenecen a la versión).
 //
-// El orden también viaja como parámetro ($4 en el listado) y se resuelve con
+// El orden también viaja como parámetro ($5 en el listado) y se resuelve con
 // CASE, en lugar de armar el ORDER BY concatenando texto.
 
 const consultaContarMisCanciones = `
@@ -658,6 +660,25 @@ const consultaContarMisCanciones = `
 			COALESCE(array_length($3::bigint[], 1), 0) = 0
 			OR c.codigoproyecto = ANY($3::bigint[])
 		  )
+		  AND (
+			NOT $4::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM comentario cop
+				INNER JOIN estadocomentario ecp
+					ON ecp.codestadocom = cop.codestadocom
+				WHERE cop.codigocancionversion = (
+					SELECT cvp.codigocancionversion
+					FROM cancionversion cvp
+					WHERE cvp.codigocancion = c.codigocancion
+					  AND cvp.fechahorabajaversion IS NULL
+					ORDER BY cvp.numeroversion DESC
+					LIMIT 1
+				)
+				  AND cop.fechahorabajacomentario IS NULL
+				  AND LOWER(ecp.nombreestadocom) = 'pendiente'
+			)
+		  )
 `
 
 const consultaListarMisCanciones = `
@@ -669,7 +690,20 @@ const consultaListarMisCanciones = `
 			cv.codigocancionversion,
 			cv.numeroversion,
 			cv.urlarchivocancionver,
-			cv.formatoarchivocancionver
+			cv.formatoarchivocancionver,
+			cv.fechahoraaltaversion,
+			autor.codintegrante,
+			autor.nombreintegrante,
+			etapa.nombreetapaversion,
+			(
+				SELECT COUNT(*)
+				FROM comentario co
+				INNER JOIN estadocomentario ec
+					ON ec.codestadocom = co.codestadocom
+				WHERE co.codigocancionversion = cv.codigocancionversion
+				  AND co.fechahorabajacomentario IS NULL
+				  AND LOWER(ec.nombreestadocom) = 'pendiente'
+			)
 		FROM integranteproyecto ip
 		INNER JOIN proyecto p
 			ON p.codigoproyecto = ip.codigoproyecto
@@ -681,13 +715,19 @@ const consultaListarMisCanciones = `
 				cvv.numeroversion,
 				cvv.urlarchivocancionver,
 				cvv.formatoarchivocancionver,
-				cvv.fechahoraaltaversion
+				cvv.fechahoraaltaversion,
+				cvv.codintegrantealtaversion,
+				cvv.codetapaversion
 			FROM cancionversion cvv
 			WHERE cvv.codigocancion = c.codigocancion
 			  AND cvv.fechahorabajaversion IS NULL
 			ORDER BY cvv.numeroversion DESC
 			LIMIT 1
 		) cv ON TRUE
+		LEFT JOIN integrante autor
+			ON autor.codintegrante = cv.codintegrantealtaversion
+		LEFT JOIN etapaversionado etapa
+			ON etapa.codetapaversion = cv.codetapaversion
 		WHERE ip.codintegrante = $1
 		  AND ip.fechahorabajaintegranteproy IS NULL
 		  AND p.fechahorabajaproyecto IS NULL
@@ -700,12 +740,31 @@ const consultaListarMisCanciones = `
 			COALESCE(array_length($3::bigint[], 1), 0) = 0
 			OR c.codigoproyecto = ANY($3::bigint[])
 		  )
+		  AND (
+			NOT $4::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM comentario cop
+				INNER JOIN estadocomentario ecp
+					ON ecp.codestadocom = cop.codestadocom
+				WHERE cop.codigocancionversion = (
+					SELECT cvp.codigocancionversion
+					FROM cancionversion cvp
+					WHERE cvp.codigocancion = c.codigocancion
+					  AND cvp.fechahorabajaversion IS NULL
+					ORDER BY cvp.numeroversion DESC
+					LIMIT 1
+				)
+				  AND cop.fechahorabajacomentario IS NULL
+				  AND LOWER(ecp.nombreestadocom) = 'pendiente'
+			)
+		  )
 		ORDER BY
-			CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
-			CASE WHEN $4::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
-			CASE WHEN $4::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
+			CASE WHEN $5::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
+			CASE WHEN $5::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
+			CASE WHEN $5::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
 			c.codigocancion DESC
-		LIMIT $5 OFFSET $6
+		LIMIT $6 OFFSET $7
 `
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
@@ -730,6 +789,7 @@ func (r *cancionRepository) ContarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
+		filtro.SoloConComentariosPendientes,
 	).Scan(&total)
 
 	if err != nil {
@@ -755,6 +815,7 @@ func (r *cancionRepository) ListarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
+		filtro.SoloConComentariosPendientes,
 		filtro.Orden,
 		filtro.TamanoPagina,
 		desplazamiento,
@@ -779,6 +840,10 @@ func (r *cancionRepository) ListarPorIntegrante(
 		var numeroVersion sql.NullInt64
 		var urlArchivo sql.NullString
 		var formatoArchivo sql.NullString
+		var fechaVersion sql.NullTime
+		var codigoAutor sql.NullInt64
+		var nombreAutor sql.NullString
+		var etapa sql.NullString
 
 		err := rows.Scan(
 			&cancion.CodigoCancion,
@@ -789,6 +854,11 @@ func (r *cancionRepository) ListarPorIntegrante(
 			&numeroVersion,
 			&urlArchivo,
 			&formatoArchivo,
+			&fechaVersion,
+			&codigoAutor,
+			&nombreAutor,
+			&etapa,
+			&cancion.ComentariosPendientes,
 		)
 
 		if err != nil {
@@ -815,6 +885,21 @@ func (r *cancionRepository) ListarPorIntegrante(
 			}
 
 			cancion.VersionActual = &version
+		}
+
+		if fechaVersion.Valid {
+			cancion.FechaVersionActual = &fechaVersion.Time
+		}
+
+		if codigoAutor.Valid {
+			cancion.AutorVersionActual = &dto.AutorVersionResponse{
+				CodigoIntegrante: codigoAutor.Int64,
+				Nombre:           nombreAutor.String,
+			}
+		}
+
+		if etapa.Valid {
+			cancion.EtapaVersionActual = &etapa.String
 		}
 
 		canciones = append(

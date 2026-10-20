@@ -904,8 +904,8 @@ var ordenesMisCanciones = map[string]bool{
 }
 
 // parsearFiltroMisCanciones arma el filtro de GET /canciones a partir de
-// q, proyectoId, sort, page y pageSize. Devuelve un mensaje de error si
-// algún valor es inválido.
+// q, proyectoId, pendientes, sort, page y pageSize. Devuelve un mensaje de
+// error si algún valor es inválido.
 func parsearFiltroMisCanciones(
 	c *gin.Context,
 ) (dto.ListarMisCancionesFiltro, string) {
@@ -914,6 +914,20 @@ func parsearFiltroMisCanciones(
 
 	if mensajeError != "" {
 		return dto.ListarMisCancionesFiltro{}, mensajeError
+	}
+
+	soloConPendientes := false
+
+	if valor, existe := c.GetQuery("pendientes"); existe {
+
+		parsed, err := strconv.ParseBool(valor)
+
+		if err != nil {
+			return dto.ListarMisCancionesFiltro{},
+				"pendientes debe ser true o false"
+		}
+
+		soloConPendientes = parsed
 	}
 
 	orden := strings.TrimSpace(c.Query("sort"))
@@ -934,11 +948,12 @@ func parsearFiltroMisCanciones(
 	}
 
 	return dto.ListarMisCancionesFiltro{
-		Busqueda:     strings.TrimSpace(c.Query("q")),
-		Proyectos:    proyectos,
-		Orden:        orden,
-		Pagina:       pagina,
-		TamanoPagina: tamanoPagina,
+		Busqueda:                     strings.TrimSpace(c.Query("q")),
+		Proyectos:                    proyectos,
+		SoloConComentariosPendientes: soloConPendientes,
+		Orden:                        orden,
+		Pagina:                       pagina,
+		TamanoPagina:                 tamanoPagina,
 	}, ""
 }
 
