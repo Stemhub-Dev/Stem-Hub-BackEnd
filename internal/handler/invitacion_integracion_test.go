@@ -301,7 +301,8 @@ func TestInvitaciones_Validaciones(t *testing.T) {
 	e := prepararEscenarioInvitaciones(t)
 	ruta := e.rutaInvitaciones()
 
-	for _, email := range []string{"", "no-es-email", "a@b", "Ana <ana@test.local>"} {
+	largo := strings.Repeat("a", 64) + "@" + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 63)
+	for _, email := range []string{"", "no-es-email", "a@b", "Ana <ana@test.local>", largo} {
 		r := e.pedir(t, &e.propietario, http.MethodPost, ruta, map[string]any{"email": email, "codRol": rolMusico})
 		esperar(t, r, http.StatusBadRequest, "El email es inválido")
 	}
@@ -475,6 +476,13 @@ func TestInvitaciones_Enlace(t *testing.T) {
 	// No aparece en la bandeja de nadie: no tiene email.
 	if mias := e.pedir(t, &e.otro, http.MethodGet, "/invitaciones", nil); len(mias.list) != 0 {
 		t.Fatalf("mis invitaciones = %v", mias.list)
+	}
+
+	// Rechazar un enlace no lo invalida para el resto.
+	esperar(t, e.pedir(t, &e.integrante, http.MethodPost, "/invitaciones/"+token+"/rechazar", nil),
+		http.StatusNoContent, "")
+	if d := e.pedir(t, nil, http.MethodGet, "/invitaciones/"+token, nil); d.body["cancelada"] != false {
+		t.Fatalf("el enlace quedó cancelado al rechazarlo: %v", d.body)
 	}
 
 	// Quien ya está en el proyecto no lo consume.

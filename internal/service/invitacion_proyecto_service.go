@@ -647,6 +647,12 @@ func (s *invitacionProyectoService) Rechazar(
 		return err
 	}
 
+	// Un enlace es compartido: que alguien lo rechace no lo invalida para
+	// el resto (cancelarlo es del propietario).
+	if invitacion.EmailInvitado == "" {
+		return nil
+	}
+
 	if !emailPuedeUsarInvitacion(usuario.Email, invitacion) {
 		return ErrInvitacionEmailNoCoincide
 	}
@@ -693,9 +699,16 @@ func emailPuedeUsarInvitacion(email string, invitacion *model.InvitacionProyecto
 		strings.EqualFold(email, invitacion.EmailInvitado)
 }
 
+// largoMaximoEmail: emailinvitado es VARCHAR(254) (RFC 5321).
+const largoMaximoEmail = 254
+
 // esEmailValido acepta solo una dirección suelta ("a@b.com"): sin nombre
-// ni <> (que net/mail permite) y con un punto en el dominio.
+// ni <> (que net/mail permite), con un punto en el dominio y que entre en
+// la columna.
 func esEmailValido(email string) bool {
+	if len(email) > largoMaximoEmail {
+		return false
+	}
 	direccion, err := mail.ParseAddress(email)
 	if err != nil || direccion.Address != email {
 		return false
