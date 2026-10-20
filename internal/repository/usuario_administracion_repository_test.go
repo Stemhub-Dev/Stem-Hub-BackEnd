@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -166,5 +167,88 @@ func TestNombresDeRol_ExistenEnLaBase(t *testing.T) {
 		if cantidad != 1 {
 			t.Errorf("rol %q: %d filas activas en la tabla rol, quería 1", nombre, cantidad)
 		}
+	}
+}
+
+// Dos administradores se sacan el rol / se dan de baja a la vez: con el
+// advisory lock se serializan y queda uno. Para que el cruce sea seguro, el
+// test toma el mismo lock desde otra conexión, espera que las dos
+// operaciones queden bloqueadas en él y recién ahí lo suelta. Si el código
+// no tomara el lock, no quedarían esperando y el test falla.
+func TestAdministracion_CambiosEnParaleloDejanUnAdministrador(t *testing.T) {
+	db := conectarBaseAdministracion(t)
+	repo := NewUsuarioAdministracionRepository(db)
+
+	if contarAdministradoresActivos(t, db) > 0 {
+		t.Skip("la base ya tiene administradores activos: no se puede armar el caso de los dos últimos")
+	}
+
+	a := nuevoAdministrador(t, db, "admin-paralelo-a")
+	b := nuevoAdministrador(t, db, "admin-paralelo-b")
+
+	ctx := context.Background()
+	bloqueo, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bloqueo.Close()
+	if _, err := bloqueo.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, lockCambiosAdministradores); err != nil {
+		t.Fatal(err)
+	}
+	soltado := false
+	soltar := func() {
+		if !soltado {
+			soltado = true
+			_, _ = bloqueo.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, lockCambiosAdministradores)
+		}
+	}
+	defer soltar()
+
+	errores := make(chan error, 2)
+	go func() {
+		_, err := repo.ActualizarAdministracion(a, true, false)
+		errores <- err
+	}()
+	go func() {
+		_, err := repo.CambiarEstado(b, false)
+		errores <- err
+	}()
+
+	// Las dos tienen que quedar esperando el lock.
+	limite := time.Now().Add(5 * time.Second)
+	for {
+		var esperando int
+		if err := bloqueo.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM pg_locks
+			WHERE locktype = 'advisory' AND NOT granted AND objid = $1
+		`, lockCambiosAdministradores).Scan(&esperando); err != nil {
+			t.Fatal(err)
+		}
+		if esperando == 2 {
+			break
+		}
+		if time.Now().After(limite) {
+			t.Fatalf("%d operaciones esperando el lock de administradores, quería 2", esperando)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	soltar()
+
+	ok, sinAdmins := 0, 0
+	for i := 0; i < 2; i++ {
+		switch err := <-errores; {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrSinAdministradoresActivos):
+			sinAdmins++
+		default:
+			t.Fatalf("error inesperado: %v", err)
+		}
+	}
+	if ok != 1 || sinAdmins != 1 {
+		t.Fatalf("ok = %d, sin admins = %d; quería uno de cada uno", ok, sinAdmins)
+	}
+	if n := contarAdministradoresActivos(t, db); n != 1 {
+		t.Fatalf("quedaron %d administradores activos, quería 1", n)
 	}
 }
