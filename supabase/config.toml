@@ -164,6 +164,11 @@ additional_redirect_urls = [
   "http://127.0.0.1:5173",
   "http://127.0.0.1:5173/auth/callback",
   "http://localhost:5173/auth/callback",
+  # Verificación de email (HU-ACA-F02) y restablecer contraseña (HU-ACA-F07).
+  "http://127.0.0.1:5173/auth/verificacion",
+  "http://localhost:5173/auth/verificacion",
+  "http://127.0.0.1:5173/restablecer-contrasena",
+  "http://localhost:5173/restablecer-contrasena",
 ]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
@@ -227,11 +232,13 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# HU-ACA-F02: el registro con email y contraseña exige confirmar el email.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
-max_frequency = "1s"
+# HU-ACA-F03 / F06: el front también deshabilita el reenvío 60 s.
+max_frequency = "60s"
 # Number of characters used in the email OTP.
 otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
@@ -257,6 +264,18 @@ otp_expiry = 3600
 # pass = "env(GMAIL_SMTP_APP_PASSWORD)"
 # admin_email = "no-reply@stemhub.app"
 # sender_name = "StemHub"
+
+# Templates en español. En Supabase Cloud se cargan desde el dashboard
+# (Authentication > Emails), copiando estos archivos.
+[auth.email.template.confirmation]
+subject = "Confirmá tu email de StemHub"
+content_path = "./supabase/templates/confirmacion.html"
+
+# HU-ACA-F06: si la cuenta ingresa con Google (user_metadata.iss), el mail
+# lo indica.
+[auth.email.template.recovery]
+subject = "Restablecer tu contraseña de StemHub"
+content_path = "./supabase/templates/recuperacion.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
