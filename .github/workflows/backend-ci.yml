@@ -55,7 +55,9 @@ jobs: #crea temporalemte una "computadora de github (ubuntu)"
           done
 
       - name: Ejecutar tests
-        run: go test ./... -coverprofile=coverage.out
+        # -coverpkg: los tests de integración del handler también ejercitan
+        # el service y el repositorio; sin esto esa cobertura no se cuenta.
+        run: go test ./... -coverpkg=./... -coverprofile=coverage.out
 
       - name: Compilar backend
         run: go build ./...

@@ -203,11 +203,11 @@ func TestCantidadDeFilas(t *testing.T) {
 
 func TestSanitizarNombre(t *testing.T) {
 	casos := map[string]string{
-		"  Maqueta Solista  ":   "maqueta-solista",
-		"Canción / Ñandú (v2)":  "cancion-nandu-v2",
-		"Estado de canciones":   "estado-de-canciones",
-		"!!!":                   "reporte",
-		"--Álbum__Único--":      "album-unico",
+		"  Maqueta Solista  ":  "maqueta-solista",
+		"Canción / Ñandú (v2)": "cancion-nandu-v2",
+		"Estado de canciones":  "estado-de-canciones",
+		"!!!":                  "reporte",
+		"--Álbum__Único--":     "album-unico",
 	}
 
 	for entrada, esperado := range casos {

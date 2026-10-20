@@ -9,9 +9,12 @@ import (
 )
 
 var (
-	ErrUsuarioAdministracionNoEncontrado = errors.New("usuario no encontrado")
-	ErrDatosAdministracionRequeridos     = errors.New("los campos esAdministradorSistema y activo son requeridos")
-	ErrEstadoUsuarioRequerido            = errors.New("el campo activo es requerido")
+	ErrUsuarioAdministracionNoEncontrado  = errors.New("usuario no encontrado")
+	ErrDatosAdministracionRequeridos      = errors.New("los campos esAdministradorSistema y activo son requeridos")
+	ErrEstadoUsuarioRequerido             = errors.New("el campo activo es requerido")
+	ErrAutoBajaNoPermitida                = errors.New("No podés darte de baja a vos mismo.")
+	ErrAutoQuitarAdministradorNoPermitido = errors.New("No podés quitarte el rol Administrador.")
+	ErrUltimoAdministradorSistema         = errors.New("Tiene que quedar al menos un Administrador activo.")
 )
 
 type UsuarioAdministracionService interface {
@@ -19,8 +22,10 @@ type UsuarioAdministracionService interface {
 	ObtenerPorID(codigoUsuario int64) (*dto.UsuarioAdministracionResponse, error)
 	ObtenerRolesSistema(codigoUsuario int64) (*dto.UsuarioRolesResponse, error)
 	ObtenerProyectosPorUsuario(codigoUsuario int64) (*dto.UsuarioProyectosResponse, error)
-	ActualizarAdministracion(codigoUsuario int64, request dto.ActualizarAdministracionUsuarioRequest) (*dto.ActualizarAdministracionUsuarioResponse, error)
-	CambiarEstado(codigoUsuario int64, request dto.CambiarEstadoUsuarioRequest) (*dto.CambiarEstadoUsuarioResponse, error)
+	// codigoUsuarioActor es el administrador que hace el cambio: no puede
+	// quitarse a sí mismo el acceso de administrador.
+	ActualizarAdministracion(codigoUsuarioActor int64, codigoUsuario int64, request dto.ActualizarAdministracionUsuarioRequest) (*dto.ActualizarAdministracionUsuarioResponse, error)
+	CambiarEstado(codigoUsuarioActor int64, codigoUsuario int64, request dto.CambiarEstadoUsuarioRequest) (*dto.CambiarEstadoUsuarioResponse, error)
 }
 
 type usuarioAdministracionService struct {
@@ -88,12 +93,22 @@ func (s *usuarioAdministracionService) ObtenerProyectosPorUsuario(
 }
 
 func (s *usuarioAdministracionService) ActualizarAdministracion(
+	codigoUsuarioActor int64,
 	codigoUsuario int64,
 	request dto.ActualizarAdministracionUsuarioRequest,
 ) (*dto.ActualizarAdministracionUsuarioResponse, error) {
 
 	if request.EsAdministradorSistema == nil || request.Activo == nil {
 		return nil, ErrDatosAdministracionRequeridos
+	}
+
+	if codigoUsuarioActor == codigoUsuario {
+		if !*request.Activo {
+			return nil, ErrAutoBajaNoPermitida
+		}
+		if !*request.EsAdministradorSistema {
+			return nil, ErrAutoQuitarAdministradorNoPermitido
+		}
 	}
 
 	response, err := s.repository.ActualizarAdministracion(
@@ -106,6 +121,9 @@ func (s *usuarioAdministracionService) ActualizarAdministracion(
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUsuarioAdministracionNoEncontrado
 		}
+		if errors.Is(err, repository.ErrSinAdministradoresActivos) {
+			return nil, ErrUltimoAdministradorSistema
+		}
 
 		return nil, err
 	}
@@ -114,12 +132,17 @@ func (s *usuarioAdministracionService) ActualizarAdministracion(
 }
 
 func (s *usuarioAdministracionService) CambiarEstado(
+	codigoUsuarioActor int64,
 	codigoUsuario int64,
 	request dto.CambiarEstadoUsuarioRequest,
 ) (*dto.CambiarEstadoUsuarioResponse, error) {
 
 	if request.Activo == nil {
 		return nil, ErrEstadoUsuarioRequerido
+	}
+
+	if codigoUsuarioActor == codigoUsuario && !*request.Activo {
+		return nil, ErrAutoBajaNoPermitida
 	}
 
 	response, err := s.repository.CambiarEstado(
@@ -130,6 +153,9 @@ func (s *usuarioAdministracionService) CambiarEstado(
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUsuarioAdministracionNoEncontrado
+		}
+		if errors.Is(err, repository.ErrSinAdministradoresActivos) {
+			return nil, ErrUltimoAdministradorSistema
 		}
 
 		return nil, err
