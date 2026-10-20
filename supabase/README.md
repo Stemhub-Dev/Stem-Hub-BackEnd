@@ -101,11 +101,22 @@ curl -X POST http://127.0.0.1:54321/auth/v1/signup \
   -d '{"email":"dev@stemhub.local","password":"Password123!"}'
 ```
 
-Con `enable_confirmations = false` (ya configurado en `config.toml`) el
-usuario queda confirmado sin pasar por el mailer. La respuesta incluye
-`access_token`: usarlo como `Authorization: Bearer <token>` contra la API
-del Backend. También se puede crear un usuario a mano desde **Studio**
-(http://127.0.0.1:54323 → Authentication → Add user).
+Con `enable_confirmations = true` (ver "Verificación de email" más abajo)
+el usuario queda sin confirmar y la respuesta no trae sesión. Para
+confirmarlo, abrir el mail en Mailpit (http://127.0.0.1:54324) y seguir el
+link "Confirmar email". Después, iniciar sesión para obtener el token:
+
+```bash
+curl -X POST "http://127.0.0.1:54321/auth/v1/token?grant_type=password" \
+  -H "Content-Type: application/json" \
+  -H "apikey: $(npx supabase status -o env | grep ANON_KEY | cut -d= -f2- | tr -d '\"')" \
+  -d '{"email":"dev@stemhub.local","password":"Password123!"}'
+```
+
+La respuesta incluye `access_token`: usarlo como
+`Authorization: Bearer <token>` contra la API del Backend. También se puede
+crear un usuario ya confirmado desde **Studio** (http://127.0.0.1:54323 →
+Authentication → Add user, con "Auto Confirm User").
 
 ## Comandos útiles
 
