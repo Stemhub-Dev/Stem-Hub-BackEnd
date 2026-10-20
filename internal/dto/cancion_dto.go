@@ -18,6 +18,24 @@ type CrearVersionCancionResponse struct {
 	Notas                *string `json:"notas"`
 }
 
+// EditarVersionRequest: PATCH .../versiones/:versionId (HU-ABM-03-02). Solo
+// las notas: la pista no se cambia (para otra pista se crea otra versión).
+// Notas vacías o solo espacios borran las notas.
+type EditarVersionRequest struct {
+	Notas *string `json:"notas" binding:"required"`
+}
+
+type EditarVersionResponse struct {
+	CodigoCancionVersion int64   `json:"codigoCancionVersion"`
+	Notas                *string `json:"notas"`
+}
+
+// BajaVersionResponse: DELETE .../versiones/:versionId (HU-ABM-03-03).
+type BajaVersionResponse struct {
+	CodigoCancionVersion int64 `json:"codigoCancionVersion"`
+	NumeroVersion        int   `json:"numeroVersion"`
+}
+
 type VersionActualCancionResponse struct {
 	CodigoCancionVersion int64   `json:"codigoCancionVersion"`
 	NumeroVersion        int     `json:"numeroVersion"`

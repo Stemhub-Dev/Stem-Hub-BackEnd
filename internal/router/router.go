@@ -214,6 +214,16 @@ func NewRouter(db *sql.DB,
 		cancionHandler.CrearVersion,
 	)
 
+	proyectos.PATCH(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId",
+		cancionHandler.EditarVersion,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId",
+		cancionHandler.DarDeBajaVersion,
+	)
+
 	proyectos.DELETE(
 		"/:proyectoId",
 		proyectoHandler.DarDeBaja,
