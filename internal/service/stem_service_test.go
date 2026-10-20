@@ -55,9 +55,11 @@ func (c *cancionExistenciaFalsa) ExisteVersionActivaEnCancion(int64, int64) (boo
 type stemRepositoryFalso struct {
 	repository.StemRepository
 
-	stems      map[int64]model.Stem
-	categorias []model.CategoriaStem
-	errCrear   error
+	stems map[int64]model.Stem
+	// Versiones con las que se buscó cada stem.
+	versionesBuscadas []int64
+	categorias        []model.CategoriaStem
+	errCrear          error
 
 	creado       *repository.ArchivoStemGuardado
 	nuevaCatPide *string
@@ -93,9 +95,11 @@ func (r *stemRepositoryFalso) ExisteNombreEnVersion(_ int64, nombre string, excl
 	return false, nil
 }
 
-func (r *stemRepositoryFalso) BuscarPorCodigo(_ int64, cod int64) (*model.Stem, error) {
+// Como el repositorio real, solo encuentra el stem dentro de su versión.
+func (r *stemRepositoryFalso) BuscarPorCodigo(version int64, cod int64) (*model.Stem, error) {
+	r.versionesBuscadas = append(r.versionesBuscadas, version)
 	s, ok := r.stems[cod]
-	if !ok {
+	if !ok || s.CodigoCancionVersion != version {
 		return nil, sql.ErrNoRows
 	}
 	return &s, nil
@@ -103,7 +107,7 @@ func (r *stemRepositoryFalso) BuscarPorCodigo(_ int64, cod int64) (*model.Stem, 
 
 func (r *stemRepositoryFalso) Crear(
 	_ int64,
-	_ int64,
+	codigoCancionVersion int64,
 	nombre string,
 	codCategoria int64,
 	nuevaCategoria *string,
@@ -115,12 +119,13 @@ func (r *stemRepositoryFalso) Crear(
 	r.creado = &archivo
 	r.nuevaCatPide = nuevaCategoria
 	r.stems[99] = model.Stem{
-		CodStem:            99,
-		NombreStem:         nombre,
-		CodCategoriaStem:   codCategoria,
-		URLArchivoStem:     archivo.URL,
-		FormatoArchivoStem: archivo.Formato,
-		NombreArchivoStem:  archivo.NombreOriginal,
+		CodStem:              99,
+		CodigoCancionVersion: codigoCancionVersion,
+		NombreStem:           nombre,
+		CodCategoriaStem:     codCategoria,
+		URLArchivoStem:       archivo.URL,
+		FormatoArchivoStem:   archivo.Formato,
+		NombreArchivoStem:    archivo.NombreOriginal,
 	}
 	return 99, nil
 }
@@ -185,14 +190,17 @@ func nuevoEscenarioStems() *escenarioStems {
 		stems: &stemRepositoryFalso{
 			stems: map[int64]model.Stem{
 				10: {
-					CodStem:            10,
-					NombreStem:         "Bajo",
-					CodCategoriaStem:   2,
-					URLArchivoStem:     "viejo.wav",
-					FormatoArchivoStem: "wav",
-					NombreArchivoStem:  "bass.wav",
-					GeneradoConIA:      true,
+					CodStem:              10,
+					CodigoCancionVersion: 9,
+					NombreStem:           "Bajo",
+					CodCategoriaStem:     2,
+					URLArchivoStem:       "viejo.wav",
+					FormatoArchivoStem:   "wav",
+					NombreArchivoStem:    "bass.wav",
+					GeneradoConIA:        true,
 				},
+				// De otra versión de la misma canción.
+				11: {CodStem: 11, CodigoCancionVersion: 77, NombreStem: "Voz", FormatoArchivoStem: "wav"},
 			},
 			categorias: []model.CategoriaStem{
 				{CodCategoriaStem: 2, NombreCategoriaStem: "Bajo"},
@@ -548,8 +556,12 @@ func TestObtenerURLAudioStem_Restricciones(t *testing.T) {
 	t.Run("stem que no es de la versión", func(t *testing.T) {
 		e := nuevoEscenarioStems()
 
-		if _, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 999); !errors.Is(err, ErrStemNoEncontrado) {
+		// El stem 11 existe, pero es de la versión 77.
+		if _, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 11); !errors.Is(err, ErrStemNoEncontrado) {
 			t.Fatalf("err = %v, quería ErrStemNoEncontrado", err)
+		}
+		if len(e.stems.versionesBuscadas) == 0 || e.stems.versionesBuscadas[0] != 9 {
+			t.Fatalf("versión buscada = %v, quería 9", e.stems.versionesBuscadas)
 		}
 	})
 }

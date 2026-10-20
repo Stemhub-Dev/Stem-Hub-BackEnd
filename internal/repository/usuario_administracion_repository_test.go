@@ -73,23 +73,27 @@ func nuevoAdministrador(t *testing.T, db *sql.DB, nombre string) int64 {
 	return codigoUsuario
 }
 
+// Cuenta los administradores activos con una consulta propia: si usara la
+// verificación que se está probando, un guard roto podría saltear su propio
+// test.
 func contarAdministradoresActivos(t *testing.T, db *sql.DB) int {
 	t.Helper()
 
-	tx, err := db.Begin()
+	var cantidad int
+	err := db.QueryRow(`
+		SELECT COUNT(DISTINCT u.codigousuario)
+		FROM usuario u
+		JOIN usuariorol ur ON ur.codigousuario = u.codigousuario
+		  AND ur.fechahorabajausuariorol IS NULL
+		JOIN rol r ON r.codrol = ur.codrol AND r.fechahorabajarol IS NULL
+		WHERE u.fechahorabajausuario IS NULL
+		  AND r.ambitorol = 'SISTEMA'
+		  AND LOWER(r.nombrerol) = LOWER($1)
+	`, model.NombreRolAdministradorSistema).Scan(&cantidad)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Reusa la verificación real: con un admin "previo" falso, falla solo
-	// si hay cero.
-	if err := verificarQuedaAdministrador(tx, true); errors.Is(err, ErrSinAdministradoresActivos) {
-		return 0
-	} else if err != nil {
-		t.Fatal(err)
-	}
-	return 1
+	return cantidad
 }
 
 func TestAdministracion_QuitarRolYBajaConOtroAdministrador(t *testing.T) {
