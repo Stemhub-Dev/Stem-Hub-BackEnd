@@ -125,3 +125,23 @@ SUPABASE_JWKS_BASE_URL=
 
 y no correr `supabase start`. El middleware no requiere ningún otro
 cambio.
+
+## Verificación de email y recuperación de contraseña
+
+`config.toml` exige confirmar el email al registrarse con contraseña
+(`enable_confirmations`, HU-ACA-F02), limita los mails a uno cada 60 s
+(`max_frequency`) y usa los templates en español de `templates/`. Los links
+de los mails vuelven al front en `/auth/verificacion` y
+`/restablecer-contrasena`, que tienen que estar en `additional_redirect_urls`.
+
+En local los mails llegan a Mailpit (http://127.0.0.1:54324). Después de
+cambiar `config.toml` hay que reiniciar: `npx supabase stop && npx supabase start`.
+
+En Supabase Cloud (producción) esto se configura en el dashboard:
+
+- Authentication → Sign In / Providers → Email: activar **Confirm email**.
+- Authentication → URL Configuration → Redirect URLs: agregar
+  `<origen del front>/auth/verificacion` y `<origen del front>/restablecer-contrasena`.
+- Authentication → Emails → Templates: copiar "Confirm signup" de
+  `templates/confirmacion.html` y "Reset password" de `templates/recuperacion.html`
+  (con sus asuntos de `config.toml`).

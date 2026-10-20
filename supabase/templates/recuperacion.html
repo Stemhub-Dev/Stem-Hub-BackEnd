@@ -1,0 +1,9 @@
+<h2>Restablecer tu contraseña</h2>
+{{ if .Data.iss }}
+<p>Tu cuenta de StemHub ingresa con Google: no necesitás contraseña. En la pantalla de inicio de sesión usá el botón <strong>Google</strong>.</p>
+<p>Si igual querés definir una contraseña, podés hacerlo desde este link:</p>
+{{ else }}
+<p>Pediste restablecer la contraseña de tu cuenta de StemHub. Definí una nueva desde este link:</p>
+{{ end }}
+<p><a href="{{ .ConfirmationURL }}">Restablecer contraseña</a></p>
+<p>Si no lo pediste, ignorá este mensaje: tu contraseña no cambia.</p>
