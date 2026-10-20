@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -66,5 +67,41 @@ func TestRegistrar_EsIdempotente(t *testing.T) {
 	}
 	if integranteOtraVez.NombreIntegrante != "Ana" {
 		t.Fatalf("nombre = %q, el registro existente no debería cambiar", integranteOtraVez.NombreIntegrante)
+	}
+}
+
+func TestRegistrar_EmailConOtraIdentidadYReasignacion(t *testing.T) {
+	db := conectarBaseUsuarios(t)
+	repo := NewUsuarioRepository(db)
+
+	sufijo := time.Now().UnixNano()
+	idOriginal := fmt.Sprintf("00000000-0000-0000-0001-%012d", sufijo%1_000_000_000_000)
+	idNuevo := fmt.Sprintf("00000000-0000-0000-0002-%012d", sufijo%1_000_000_000_000)
+	email := fmt.Sprintf("reasignar-%d@test.local", sufijo)
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM integrante WHERE codigousuario IN (SELECT codigousuario FROM usuario WHERE email = $1)`, email)
+		_, _ = db.Exec(`DELETE FROM usuario WHERE email = $1`, email)
+	})
+
+	usuario, integrante, _, err := repo.Registrar(idOriginal, email, "Ana", nil)
+	if err != nil {
+		t.Fatalf("primer registro: %v", err)
+	}
+
+	if _, _, _, err = repo.Registrar(idNuevo, email, "Ana", nil); !errors.Is(err, ErrEmailConOtraIdentidad) {
+		t.Fatalf("esperaba ErrEmailConOtraIdentidad, obtuve %v", err)
+	}
+
+	reasignado, integranteReasignado, err := repo.ReasignarIdentidad(email, idNuevo)
+	if err != nil {
+		t.Fatalf("reasignar: %v", err)
+	}
+	if reasignado.CodigoUsuario != usuario.CodigoUsuario || integranteReasignado.CodIntegrante != integrante.CodIntegrante {
+		t.Fatal("la reasignación tiene que conservar la misma cuenta")
+	}
+
+	encontrado, err := repo.BuscarPorIDAutenticacion(idNuevo)
+	if err != nil || encontrado.CodigoUsuario != usuario.CodigoUsuario {
+		t.Fatalf("la identidad nueva no encuentra la cuenta: %v", err)
 	}
 }

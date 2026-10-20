@@ -20,9 +20,10 @@ import (
 // Valida el nombre igual que el service real (el handler no debe cortar
 // antes con su propio mensaje) y devuelve lo que se le configure.
 type usuarioServiceFalso struct {
-	llamado bool
-	creado  bool
-	err     error
+	llamado         bool
+	emailVerificado bool
+	creado          bool
+	err             error
 }
 
 func (s *usuarioServiceFalso) ObtenerUsuarioActivoPorIDAutenticacion(string) (*model.Usuario, error) {
@@ -32,10 +33,12 @@ func (s *usuarioServiceFalso) ObtenerUsuarioActivoPorIDAutenticacion(string) (*m
 func (s *usuarioServiceFalso) RegistrarUsuario(
 	_ string,
 	email string,
+	emailVerificado bool,
 	nombre string,
 	descripcion *string,
 ) (*model.Usuario, *model.Integrante, bool, error) {
 	s.llamado = true
+	s.emailVerificado = emailVerificado
 	if strings.TrimSpace(nombre) == "" {
 		return nil, nil, false, service.ErrNombreIntegranteObligatorio
 	}
@@ -170,6 +173,27 @@ func TestRegistrar_UsuarioDadoDeBaja(t *testing.T) {
 	grabador := ejecutarRegistrar(t, &usuarioServiceFalso{err: service.ErrUsuarioInactivo}, `{"nombre": "Ana"}`)
 
 	esperarError(t, grabador, http.StatusForbidden, "usuario inactivo")
+}
+
+func TestRegistrar_EmailDeOtraCuentaSinVerificarRespondeConflict(t *testing.T) {
+	grabador := ejecutarRegistrar(t, &usuarioServiceFalso{err: service.ErrEmailYaRegistrado}, `{"nombre": "Ana"}`)
+
+	esperarError(t, grabador, http.StatusConflict, "Ya existe una cuenta con este email")
+}
+
+func TestRegistrar_PasaEmailVerificadoDelToken(t *testing.T) {
+	claims := &middleware.SupabaseClaims{
+		Email:            "ana@example.com",
+		UserMetadata:     middleware.MetadatosUsuario{EmailVerified: true},
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "auth-123"},
+	}
+	servicio := &usuarioServiceFalso{}
+
+	ejecutarRegistrarCon(t, servicio, claims, `{"nombre": "Ana"}`)
+
+	if !servicio.emailVerificado {
+		t.Fatal("el handler no pasó email_verified del token al service")
+	}
 }
 
 func TestRegistrar_SinIdentidadRespondeUnauthorized(t *testing.T) {

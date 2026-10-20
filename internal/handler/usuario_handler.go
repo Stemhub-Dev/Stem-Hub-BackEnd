@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -63,6 +64,7 @@ func (h *UsuarioHandler) Registrar(c *gin.Context) {
 	usuario, integrante, creado, err := h.service.RegistrarUsuario(
 		claims.Subject,
 		claims.Email,
+		claims.UserMetadata.EmailVerified,
 		request.Nombre,
 		request.Descripcion,
 	)
@@ -88,7 +90,13 @@ func (h *UsuarioHandler) Registrar(c *gin.Context) {
 				"codigo": middleware.CodigoUsuarioInactivo,
 			})
 
+		case errors.Is(err, service.ErrEmailYaRegistrado):
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error": "Ya existe una cuenta con este email. Confirmá tu email para recuperarla.",
+			})
+
 		default:
+			log.Printf("Registrar: no se pudo registrar a %s: %v", claims.Subject, err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error": "error interno del servidor",
 			})
