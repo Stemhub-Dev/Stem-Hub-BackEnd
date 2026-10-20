@@ -69,6 +69,41 @@ func (h *InvitacionProyectoHandler) Crear(c *gin.Context) {
 
 	invitacion, err := h.service.Invitar(usuario.CodigoUsuario, codigoProyecto, request)
 
+	responderCreacionInvitacion(c, invitacion, err)
+}
+
+// CrearEnlace: POST /proyectos/:proyectoId/invitaciones/enlace.
+func (h *InvitacionProyectoHandler) CrearEnlace(c *gin.Context) {
+
+	usuario, ok := usuarioAutenticado(c)
+
+	if !ok {
+		return
+	}
+
+	codigoProyecto, err := strconv.ParseInt(c.Param("proyectoId"), 10, 64)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Proyecto inválido"})
+		return
+	}
+
+	var request dto.CrearEnlaceInvitacionRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Solicitud inválida"})
+		return
+	}
+
+	invitacion, err := h.service.CrearEnlace(usuario.CodigoUsuario, codigoProyecto, request)
+
+	responderCreacionInvitacion(c, invitacion, err)
+}
+
+// responderCreacionInvitacion mapea los errores comunes a invitar por
+// email y por enlace.
+func responderCreacionInvitacion(c *gin.Context, invitacion *dto.InvitacionResponse, err error) {
+
 	switch {
 
 	case errors.Is(err, service.ErrProyectoNoEncontrado):
@@ -238,6 +273,9 @@ func responderErrorInvitacionToken(c *gin.Context, err error, accion string) boo
 
 	case errors.Is(err, service.ErrInvitacionEmailNoCoincide):
 		c.JSON(http.StatusForbidden, gin.H{"error": "El email de tu cuenta no coincide con el de la invitación"})
+
+	case errors.Is(err, service.ErrInvitacionYaEsIntegrante):
+		c.JSON(http.StatusConflict, gin.H{"error": "Ya sos integrante de este proyecto"})
 
 	default:
 		log.Println("Error al "+accion+" invitación:", err)

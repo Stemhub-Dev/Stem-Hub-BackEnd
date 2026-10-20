@@ -284,6 +284,11 @@ func NewRouter(db *sql.DB,
 		invitacionProyectoHandler.Crear,
 	)
 
+	proyectos.POST(
+		"/:proyectoId/invitaciones/enlace",
+		invitacionProyectoHandler.CrearEnlace,
+	)
+
 	proyectos.GET(
 		"/:proyectoId/invitaciones",
 		invitacionProyectoHandler.ListarPendientes,
