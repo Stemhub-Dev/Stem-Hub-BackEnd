@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -116,9 +117,8 @@ func (h *UsuarioAdministracionHandler) ObtenerProyectosPorUsuario(c *gin.Context
 }
 
 func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) {
-	actor, ok := usuarioDesdeContexto(c)
+	actor, ok := actorAutenticado(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
 		return
 	}
 
@@ -156,9 +156,7 @@ func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) 
 				"error": "usuario no encontrado",
 			})
 
-		case errors.Is(err, service.ErrAutoBajaNoPermitida),
-			errors.Is(err, service.ErrAutoQuitarAdministradorNoPermitido),
-			errors.Is(err, service.ErrUltimoAdministradorSistema):
+		case esConflictoAdministracion(err):
 			c.JSON(http.StatusConflict, gin.H{
 				"error": err.Error(),
 			})
@@ -176,9 +174,8 @@ func (h *UsuarioAdministracionHandler) ActualizarAdministracion(c *gin.Context) 
 }
 
 func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
-	actor, ok := usuarioDesdeContexto(c)
+	actor, ok := actorAutenticado(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
 		return
 	}
 
@@ -216,9 +213,7 @@ func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
 				"error": "usuario no encontrado",
 			})
 
-		case errors.Is(err, service.ErrAutoBajaNoPermitida),
-			errors.Is(err, service.ErrAutoQuitarAdministradorNoPermitido),
-			errors.Is(err, service.ErrUltimoAdministradorSistema):
+		case esConflictoAdministracion(err):
 			c.JSON(http.StatusConflict, gin.H{
 				"error": err.Error(),
 			})
@@ -233,4 +228,20 @@ func (h *UsuarioAdministracionHandler) CambiarEstado(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// actorAutenticado devuelve el usuario que hace el cambio o responde 401.
+func actorAutenticado(c *gin.Context) (*model.Usuario, bool) {
+	actor, ok := usuarioDesdeContexto(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
+	}
+	return actor, ok
+}
+
+// Cambios que dejarían al sistema sin poder administrarse (409).
+func esConflictoAdministracion(err error) bool {
+	return errors.Is(err, service.ErrAutoBajaNoPermitida) ||
+		errors.Is(err, service.ErrAutoQuitarAdministradorNoPermitido) ||
+		errors.Is(err, service.ErrUltimoAdministradorSistema)
 }

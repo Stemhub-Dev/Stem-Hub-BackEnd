@@ -618,6 +618,22 @@ func (r *usuarioAdministracionRepository) CambiarEstado(
 	}, nil
 }
 
+// Usuarios activos con el rol de sistema Administrador ($1 = nombre del
+// rol). Compartido por las dos consultas de abajo.
+const desdeAdministradoresActivos = `
+	FROM usuario u
+	JOIN usuariorol ur
+	  ON ur.codigousuario = u.codigousuario
+	 AND ur.ambitorol = 'SISTEMA'
+	 AND ur.fechahorabajausuariorol IS NULL
+	JOIN rol r
+	  ON r.codrol = ur.codrol
+	 AND r.ambitorol = ur.ambitorol
+	 AND r.fechahorabajarol IS NULL
+	WHERE u.fechahorabajausuario IS NULL
+	  AND LOWER(r.nombrerol) = LOWER($1)
+`
+
 // Toma el lock de cambios de administradores y devuelve si el usuario es,
 // antes del cambio, un administrador del sistema activo.
 func prepararCambioAdministradores(tx *sql.Tx, codigoUsuario int64) (bool, error) {
@@ -626,25 +642,10 @@ func prepararCambioAdministradores(tx *sql.Tx, codigoUsuario int64) (bool, error
 	}
 
 	var esAdministradorActivo bool
-	err := tx.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1
-			FROM usuario u
-			JOIN usuariorol ur
-			  ON ur.codigousuario = u.codigousuario
-			 AND ur.ambitorol = 'SISTEMA'
-			 AND ur.fechahorabajausuariorol IS NULL
-			JOIN rol r
-			  ON r.codrol = ur.codrol
-			 AND r.ambitorol = ur.ambitorol
-			 AND r.fechahorabajarol IS NULL
-			WHERE u.codigousuario = $1
-			  AND u.fechahorabajausuario IS NULL
-			  AND LOWER(r.nombrerol) = LOWER($2)
-		)
-	`,
-		codigoUsuario,
+	err := tx.QueryRow(
+		`SELECT EXISTS (SELECT 1 `+desdeAdministradoresActivos+` AND u.codigousuario = $2)`,
 		model.NombreRolAdministradorSistema,
+		codigoUsuario,
 	).Scan(&esAdministradorActivo)
 
 	return esAdministradorActivo, err
@@ -659,20 +660,8 @@ func verificarQuedaAdministrador(tx *sql.Tx, eraAdministradorActivo bool) error 
 	}
 
 	var cantidad int
-	err := tx.QueryRow(`
-		SELECT COUNT(DISTINCT u.codigousuario)
-		FROM usuario u
-		JOIN usuariorol ur
-		  ON ur.codigousuario = u.codigousuario
-		 AND ur.ambitorol = 'SISTEMA'
-		 AND ur.fechahorabajausuariorol IS NULL
-		JOIN rol r
-		  ON r.codrol = ur.codrol
-		 AND r.ambitorol = ur.ambitorol
-		 AND r.fechahorabajarol IS NULL
-		WHERE u.fechahorabajausuario IS NULL
-		  AND LOWER(r.nombrerol) = LOWER($1)
-	`,
+	err := tx.QueryRow(
+		`SELECT COUNT(DISTINCT u.codigousuario) `+desdeAdministradoresActivos,
 		model.NombreRolAdministradorSistema,
 	).Scan(&cantidad)
 	if err != nil {
