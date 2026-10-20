@@ -138,3 +138,29 @@ func TestAdministracion_NoDejaAlSistemaSinAdministradores(t *testing.T) {
 		t.Fatalf("después del rechazo: esAdmin = %v, err = %v; quería true", sigueAdmin, err)
 	}
 }
+
+// Los nombres de rol de model se comparan contra la tabla rol: si no
+// coinciden, las consultas no matchean nada y las protecciones quedan sin
+// efecto en silencio (pasó con "Administrador" en vez de "Administrador del
+// sistema").
+func TestNombresDeRol_ExistenEnLaBase(t *testing.T) {
+	db := conectarBaseAdministracion(t)
+
+	for _, nombre := range []string{
+		model.NombreRolAdministradorSistema,
+		model.NombreRolProductor,
+		model.NombreRolMusicoArtista,
+	} {
+		var cantidad int
+		err := db.QueryRow(
+			`SELECT COUNT(*) FROM rol WHERE LOWER(nombrerol) = LOWER($1) AND fechahorabajarol IS NULL`,
+			nombre,
+		).Scan(&cantidad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cantidad != 1 {
+			t.Errorf("rol %q: %d filas activas en la tabla rol, quería 1", nombre, cantidad)
+		}
+	}
+}

@@ -523,3 +523,33 @@ func TestObtenerURLAudioStem_NoPideGestionar(t *testing.T) {
 		t.Fatalf("url = %q", audio.URL)
 	}
 }
+
+// HU-ABM-04-04: solo un integrante del proyecto obtiene la URL del audio, y
+// solo de un stem de esa versión.
+func TestObtenerURLAudioStem_Restricciones(t *testing.T) {
+	t.Run("no integrante", func(t *testing.T) {
+		e := nuevoEscenarioStems()
+		e.proyecto.noIntegra = true
+
+		if _, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 10); !errors.Is(err, ErrStemSinAcceso) {
+			t.Fatalf("err = %v, quería ErrStemSinAcceso", err)
+		}
+	})
+
+	t.Run("versión de otra canción", func(t *testing.T) {
+		e := nuevoEscenarioStems()
+		e.cancion.versionNoExiste = true
+
+		if _, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 10); !errors.Is(err, ErrStemVersionNoEncontrada) {
+			t.Fatalf("err = %v, quería ErrStemVersionNoEncontrada", err)
+		}
+	})
+
+	t.Run("stem que no es de la versión", func(t *testing.T) {
+		e := nuevoEscenarioStems()
+
+		if _, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 999); !errors.Is(err, ErrStemNoEncontrado) {
+			t.Fatalf("err = %v, quería ErrStemNoEncontrado", err)
+		}
+	})
+}
