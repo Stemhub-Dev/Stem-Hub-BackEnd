@@ -218,7 +218,8 @@ func (s *invitacionProyectoService) Invitar(
 	emailEnviado := err == nil
 
 	if !emailEnviado {
-		log.Println("Error al enviar mail de invitación:", err)
+		// %q escapa saltos de línea: el error puede traer el email invitado.
+		log.Printf("Error al enviar mail de invitación %d: %q", invitacion.CodigoInvitacionProy, err.Error())
 	}
 
 	respuesta := s.armarRespuesta(*invitacion, nombreRol)

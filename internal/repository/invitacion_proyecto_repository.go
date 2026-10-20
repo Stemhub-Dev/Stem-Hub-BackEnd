@@ -206,6 +206,16 @@ func (r *invitacionProyectoRepository) CrearOReemplazarPendiente(
 	return &invitacion, nil
 }
 
+// Constante armada en compilación: no se concatena nada al ejecutar.
+const consultaCrearEnlace = `
+	INSERT INTO invitacionproyecto (
+		codigoproyecto, emailinvitado, codrol, ambitorol,
+		codintegranteinvito, tokeninvitacion,
+		fechahoraexpiracioninvitacion
+	)
+	VALUES ($1, NULL, $2, $3, $4, $5, $6)
+	RETURNING ` + columnasInvitacionProyecto
+
 func (r *invitacionProyectoRepository) CrearEnlace(
 	codigoProyecto int64,
 	codRol int64,
@@ -217,14 +227,7 @@ func (r *invitacionProyectoRepository) CrearEnlace(
 
 	var invitacion model.InvitacionProyecto
 
-	row := r.db.QueryRow(`
-		INSERT INTO invitacionproyecto (
-			codigoproyecto, emailinvitado, codrol, ambitorol,
-			codintegranteinvito, tokeninvitacion,
-			fechahoraexpiracioninvitacion
-		)
-		VALUES ($1, NULL, $2, $3, $4, $5, $6)
-		RETURNING `+columnasInvitacionProyecto,
+	row := r.db.QueryRow(consultaCrearEnlace,
 		codigoProyecto, codRol, ambitoRol,
 		codIntegranteInvito, token, expiracion,
 	)
