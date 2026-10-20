@@ -6,11 +6,16 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ErrInvitacionNoDisponible: al aceptar, la invitación ya no estaba
 // pendiente (otra request la aceptó o canceló antes, o venció).
 var ErrInvitacionNoDisponible = errors.New("la invitación ya no está pendiente")
+
+// ErrYaEsIntegranteDelProyecto: al aceptar, quien acepta ya quedó como
+// integrante (ej. aceptó otra invitación del mismo proyecto en paralelo).
+var ErrYaEsIntegranteDelProyecto = errors.New("ya es integrante del proyecto")
 
 type InvitacionProyectoRepository interface {
 	// CrearOReemplazarPendiente hace UPDATE si ya existe una invitación
@@ -476,6 +481,13 @@ func (r *invitacionProyectoRepository) Aceptar(
 		codRol,
 		ambitoRol,
 	)
+
+	// uqintegranteproyectoactivo: el rollback también deshace el reclamo de
+	// la invitación, que sigue pendiente.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacionUnica {
+		return ErrYaEsIntegranteDelProyecto
+	}
 
 	if err != nil {
 		return err

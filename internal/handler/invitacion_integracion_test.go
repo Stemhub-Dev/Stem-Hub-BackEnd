@@ -547,3 +547,69 @@ func TestInvitaciones_EnlaceAceptadoEnParalelo(t *testing.T) {
 		}
 	}
 }
+
+// Una cuenta acepta a la vez dos invitaciones distintas del mismo proyecto:
+// entra una vez, la otra responde 409 y sigue pendiente.
+func TestInvitaciones_MismaCuentaDosInvitacionesEnParalelo(t *testing.T) {
+	e := prepararEscenarioInvitaciones(t)
+
+	for intento := 0; intento < 5; intento++ {
+		porEmail := e.pedir(t, &e.propietario, http.MethodPost, e.rutaInvitaciones(),
+			map[string]any{"email": e.otro.email, "codRol": rolMusico})
+		esperar(t, porEmail, http.StatusCreated, "")
+		porEnlace := e.pedir(t, &e.propietario, http.MethodPost, e.rutaInvitaciones()+"/enlace",
+			map[string]any{"codRol": rolProductor})
+		esperar(t, porEnlace, http.StatusCreated, "")
+		tokens := []string{tokenDe(t, porEmail), tokenDe(t, porEnlace)}
+
+		var wg sync.WaitGroup
+		largada := make(chan struct{})
+		respuestas := make([]respuestaInvitacion, 2)
+		for i, token := range tokens {
+			wg.Add(1)
+			go func(i int, token string) {
+				defer wg.Done()
+				<-largada
+				respuestas[i] = e.pedir(t, &e.otro, http.MethodPost, "/invitaciones/"+token+"/aceptar", nil)
+			}(i, token)
+		}
+		close(largada)
+		wg.Wait()
+
+		perdedora := -1
+		for i, r := range respuestas {
+			switch r.code {
+			case http.StatusOK:
+			case http.StatusConflict:
+				if r.body["error"] != "Ya sos integrante de este proyecto" {
+					t.Fatalf("intento %d: 409 con %v", intento, r.body)
+				}
+				perdedora = i
+			default:
+				t.Fatalf("intento %d: status %d (%v)", intento, r.code, r.body)
+			}
+		}
+		if perdedora == -1 {
+			t.Fatalf("intento %d: las dos aceptaciones respondieron 200", intento)
+		}
+
+		// La que perdió no quedó consumida.
+		detalle := e.pedir(t, nil, http.MethodGet, "/invitaciones/"+tokens[perdedora], nil)
+		if detalle.body["yaAceptada"] != false {
+			t.Fatalf("intento %d: la invitación perdedora quedó aceptada: %v", intento, detalle.body)
+		}
+
+		if _, err := e.db.Exec(`
+			DELETE FROM integranteproyecto ip USING integrante i
+			WHERE ip.codintegrante = i.codintegrante AND ip.codigoproyecto = $1 AND i.codigousuario = $2
+		`, e.proyecto, e.otro.codigo); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.db.Exec(
+			`UPDATE invitacionproyecto SET fechahorabajainvitacionproy = CURRENT_TIMESTAMP
+			 WHERE codigoproyecto = $1 AND fechahoraaceptacioninvitacion IS NULL`, e.proyecto,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

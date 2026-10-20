@@ -599,6 +599,10 @@ func (s *invitacionProyectoService) Aceptar(
 		return 0, ErrInvitacionYaAceptada
 	}
 
+	if errors.Is(err, repository.ErrYaEsIntegranteDelProyecto) {
+		return 0, ErrInvitacionYaEsIntegrante
+	}
+
 	if err != nil {
 		return 0, err
 	}
