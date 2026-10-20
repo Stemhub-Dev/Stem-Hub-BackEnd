@@ -13,8 +13,8 @@ var (
 	ErrDatosAdministracionRequeridos      = errors.New("los campos esAdministradorSistema y activo son requeridos")
 	ErrEstadoUsuarioRequerido             = errors.New("el campo activo es requerido")
 	ErrAutoBajaNoPermitida                = errors.New("No podés darte de baja a vos mismo.")
-	ErrAutoQuitarAdministradorNoPermitido = errors.New("No podés quitarte el rol Administrador del sistema.")
-	ErrUltimoAdministradorSistema         = errors.New("Tiene que quedar al menos un Administrador del sistema activo.")
+	ErrAutoQuitarAdministradorNoPermitido = errors.New("No podés quitarte el rol Administrador.")
+	ErrUltimoAdministradorSistema         = errors.New("Tiene que quedar al menos un Administrador activo.")
 )
 
 type UsuarioAdministracionService interface {

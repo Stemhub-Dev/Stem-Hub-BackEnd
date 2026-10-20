@@ -36,7 +36,7 @@ func conectarBaseAdministracion(t *testing.T) *sql.DB {
 	return db
 }
 
-// Crea un usuario activo con el rol Administrador del sistema y lo borra al
+// Crea un usuario activo con el rol Administrador y lo borra al
 // terminar.
 func nuevoAdministrador(t *testing.T, db *sql.DB, nombre string) int64 {
 	t.Helper()
@@ -141,8 +141,8 @@ func TestAdministracion_NoDejaAlSistemaSinAdministradores(t *testing.T) {
 
 // Los nombres de rol de model se comparan contra la tabla rol: si no
 // coinciden, las consultas no matchean nada y las protecciones quedan sin
-// efecto en silencio (pasó con "Administrador" en vez de "Administrador del
-// sistema").
+// efecto en silencio (pasó cuando la 025 renombró el rol de sistema a
+// "Administrador" y la constante seguía con el nombre viejo).
 func TestNombresDeRol_ExistenEnLaBase(t *testing.T) {
 	db := conectarBaseAdministracion(t)
 

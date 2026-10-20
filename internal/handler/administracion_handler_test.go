@@ -65,8 +65,8 @@ func TestAdministracion_RechazosResponden409(t *testing.T) {
 		quiero string
 	}{
 		{"darse de baja", administracionRepositoryFalso{}, "/usuarios/10/estado", `{"activo": false}`, "No podés darte de baja a vos mismo."},
-		{"quitarse el rol", administracionRepositoryFalso{}, "/usuarios/10/administracion", `{"esAdministradorSistema": false, "activo": true}`, "No podés quitarte el rol Administrador del sistema."},
-		{"último admin", administracionRepositoryFalso{err: repository.ErrSinAdministradoresActivos}, "/usuarios/20/estado", `{"activo": false}`, "Tiene que quedar al menos un Administrador del sistema activo."},
+		{"quitarse el rol", administracionRepositoryFalso{}, "/usuarios/10/administracion", `{"esAdministradorSistema": false, "activo": true}`, "No podés quitarte el rol Administrador."},
+		{"último admin", administracionRepositoryFalso{err: repository.ErrSinAdministradoresActivos}, "/usuarios/20/estado", `{"activo": false}`, "Tiene que quedar al menos un Administrador activo."},
 	}
 
 	for _, caso := range casos {

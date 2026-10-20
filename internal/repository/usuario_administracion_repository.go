@@ -9,7 +9,7 @@ import (
 )
 
 // El cambio se revierte si dejaría al sistema sin ningún usuario activo con
-// el rol Administrador del sistema (nadie podría volver a administrarlo).
+// el rol Administrador (nadie podría volver a administrarlo).
 var ErrSinAdministradoresActivos = errors.New("no quedan administradores del sistema activos")
 
 // Clave del advisory lock que serializa las bajas de usuarios y de rol
@@ -478,7 +478,7 @@ func (r *usuarioAdministracionRepository) ActualizarAdministracion(
 	}
 
 	// 2. Administrar únicamente el rol global
-	//    "Administrador del sistema".
+	//    "Administrador".
 	if esAdministradorSistema {
 
 		// Si ya lo tiene activo, no vuelve a insertarlo.
