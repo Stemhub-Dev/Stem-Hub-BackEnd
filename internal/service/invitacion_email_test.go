@@ -14,11 +14,17 @@ import (
 func TestEsEmailValido(t *testing.T) {
 	largo := strings.Repeat("a", 64) + "@" + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 63)
 
-	validos := []string{"ana@test.local", "a.b+c@sub.ejemplo.com", "x@ejemplo-uno.com.ar", "a1@b2.io"}
+	validos := []string{
+		"ana@test.local", "a.b+c@sub.ejemplo.com", "x@ejemplo-uno.com.ar", "a1@b2.io",
+		// TLD internacionalizado en Punycode (.рф).
+		"ana@example.xn--p1ai",
+	}
 	invalidos := []string{
 		"", "ana", "ana@", "@ejemplo.com", "a@b", "Ana <ana@test.local>",
 		"persona@-ejemplo.com", "persona@ejemplo-.com", "persona@ejemplo_.com",
 		"persona@ejemplo..com", "persona@ejemplo.c0m", "persona@.ejemplo.com", largo,
+		// Punycode mal formado o que no decodifica a letras.
+		"ana@example.xn--", "ana@example.xn--zz-", "ana@example.xn--123",
 	}
 
 	for _, email := range validos {

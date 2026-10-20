@@ -9,11 +9,13 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mailer"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
+	"golang.org/x/net/idna"
 )
 
 var (
@@ -739,8 +741,29 @@ func dominioValido(dominio string) bool {
 			}
 		}
 	}
-	for _, c := range etiquetas[len(etiquetas)-1] {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+	return tldValido(etiquetas[len(etiquetas)-1])
+}
+
+// tldValido acepta un TLD de letras ASCII o uno internacionalizado en
+// Punycode (ej. xn--p1ai = .рф) que decodifique a solo letras.
+func tldValido(tld string) bool {
+	texto := tld
+	if strings.HasPrefix(strings.ToLower(tld), "xn--") {
+		unicodeTLD, err := idna.Lookup.ToUnicode(tld)
+		if err != nil || unicodeTLD == tld {
+			return false
+		}
+		texto = unicodeTLD
+	} else {
+		for _, c := range tld {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+				return false
+			}
+		}
+		return true
+	}
+	for _, c := range texto {
+		if !unicode.IsLetter(c) {
 			return false
 		}
 	}
