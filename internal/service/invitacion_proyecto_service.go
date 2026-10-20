@@ -594,6 +594,11 @@ func (s *invitacionProyectoService) Aceptar(
 		invitacion.AmbitoRol,
 	)
 
+	// Otra request la aceptó (o canceló) entre la validación y el UPDATE.
+	if errors.Is(err, repository.ErrInvitacionNoDisponible) {
+		return 0, ErrInvitacionYaAceptada
+	}
+
 	if err != nil {
 		return 0, err
 	}

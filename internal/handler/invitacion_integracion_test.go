@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -484,4 +485,65 @@ func TestInvitaciones_Enlace(t *testing.T) {
 	esperar(t, e.pedir(t, &e.otro, http.MethodPost, "/invitaciones/"+token+"/aceptar", nil), http.StatusOK, "")
 	esperar(t, e.pedir(t, &e.invitado, http.MethodPost, "/invitaciones/"+token+"/aceptar", nil),
 		http.StatusConflict, "La invitación ya fue aceptada")
+}
+
+// Dos cuentas abren el mismo enlace a la vez: solo una se suma.
+func TestInvitaciones_EnlaceAceptadoEnParalelo(t *testing.T) {
+	e := prepararEscenarioInvitaciones(t)
+
+	for intento := 0; intento < 5; intento++ {
+		creada := e.pedir(t, &e.propietario, http.MethodPost, e.rutaInvitaciones()+"/enlace",
+			map[string]any{"codRol": rolMusico})
+		esperar(t, creada, http.StatusCreated, "")
+		token := tokenDe(t, creada)
+
+		var wg sync.WaitGroup
+		largada := make(chan struct{})
+		codigos := make([]int, 2)
+		for i, u := range []*usuarioInvitacion{&e.invitado, &e.otro} {
+			wg.Add(1)
+			go func(i int, u *usuarioInvitacion) {
+				defer wg.Done()
+				<-largada
+				codigos[i] = e.pedir(t, u, http.MethodPost, "/invitaciones/"+token+"/aceptar", nil).code
+			}(i, u)
+		}
+		close(largada)
+		wg.Wait()
+
+		ok, conflicto := 0, 0
+		for _, c := range codigos {
+			switch c {
+			case http.StatusOK:
+				ok++
+			case http.StatusConflict:
+				conflicto++
+			}
+		}
+		if ok != 1 || conflicto != 1 {
+			t.Fatalf("intento %d: códigos %v, quería un 200 y un 409", intento, codigos)
+		}
+
+		// Sumados por enlace: todos menos propietario e integrante inicial.
+		var sumados int
+		if err := e.db.QueryRow(`
+			SELECT COUNT(*) FROM integranteproyecto
+			WHERE codigoproyecto = $1 AND espropietario = FALSE AND codrol = $2
+			  AND fechahorabajaintegranteproy IS NULL
+		`, e.proyecto, rolMusico).Scan(&sumados); err != nil {
+			t.Fatal(err)
+		}
+		if sumados != 2 {
+			t.Fatalf("intento %d: %d músicos en el proyecto, quería 2 (integrante + 1 por enlace)", intento, sumados)
+		}
+
+		// Para el próximo intento, quien entró vuelve a quedar afuera.
+		if _, err := e.db.Exec(`
+			DELETE FROM integranteproyecto ip USING integrante i
+			WHERE ip.codintegrante = i.codintegrante AND ip.codigoproyecto = $1
+			  AND i.codigousuario IN ($2, $3)
+		`, e.proyecto, e.invitado.codigo, e.otro.codigo); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

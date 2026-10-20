@@ -8,6 +8,10 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
+// ErrInvitacionNoDisponible: al aceptar, la invitación ya no estaba
+// pendiente (otra request la aceptó o canceló antes, o venció).
+var ErrInvitacionNoDisponible = errors.New("la invitación ya no está pendiente")
+
 type InvitacionProyectoRepository interface {
 	// CrearOReemplazarPendiente hace UPDATE si ya existe una invitación
 	// pendiente para (codigoProyecto, email) sin aceptar/cancelar, o
@@ -56,9 +60,10 @@ type InvitacionProyectoRepository interface {
 
 	MarcarCancelada(codigoInvitacionProy int64) error
 
-	// Aceptar es atómico: inserta en integranteproyecto y marca la
-	// invitación como aceptada en una sola transacción, para que nunca
-	// quede uno de los dos sin el otro si algo falla a mitad de camino.
+	// Aceptar es atómico: marca la invitación como aceptada (solo si sigue
+	// pendiente y vigente) e inserta en integranteproyecto en una sola
+	// transacción. Si otra request la aceptó antes devuelve
+	// ErrInvitacionNoDisponible: un enlace no se puede usar dos veces.
 	Aceptar(
 		codigoInvitacionProy int64,
 		codIntegranteAceptante int64,
@@ -423,6 +428,31 @@ func (r *invitacionProyectoRepository) Aceptar(
 
 	defer tx.Rollback()
 
+	// Primero se reclama la invitación: el UPDATE bloquea la fila, así que
+	// una aceptación concurrente espera y después ya no la ve pendiente.
+	resultado, err := tx.Exec(`
+		UPDATE invitacionproyecto
+		SET fechahoraaceptacioninvitacion = CURRENT_TIMESTAMP
+		WHERE codigoinvitacionproy = $1
+		  AND fechahoraaceptacioninvitacion IS NULL
+		  AND fechahorabajainvitacionproy IS NULL
+		  AND fechahoraexpiracioninvitacion > CURRENT_TIMESTAMP
+	`, codigoInvitacionProy)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return ErrInvitacionNoDisponible
+	}
+
 	_, err = tx.Exec(`
 		INSERT INTO integranteproyecto (
 			codintegrante,
@@ -446,16 +476,6 @@ func (r *invitacionProyectoRepository) Aceptar(
 		codRol,
 		ambitoRol,
 	)
-
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(`
-		UPDATE invitacionproyecto
-		SET fechahoraaceptacioninvitacion = CURRENT_TIMESTAMP
-		WHERE codigoinvitacionproy = $1
-	`, codigoInvitacionProy)
 
 	if err != nil {
 		return err
