@@ -634,6 +634,14 @@ const desdeAdministradoresActivos = `
 	  AND LOWER(r.nombrerol) = LOWER($1)
 `
 
+// Constantes armadas en compilación: no se concatena nada al ejecutar.
+const (
+	consultaEsAdministradorActivo = `SELECT EXISTS (SELECT 1 ` +
+		desdeAdministradoresActivos + ` AND u.codigousuario = $2)`
+	consultaCantidadAdministradoresActivos = `SELECT COUNT(DISTINCT u.codigousuario) ` +
+		desdeAdministradoresActivos
+)
+
 // Toma el lock de cambios de administradores y devuelve si el usuario es,
 // antes del cambio, un administrador del sistema activo.
 func prepararCambioAdministradores(tx *sql.Tx, codigoUsuario int64) (bool, error) {
@@ -643,7 +651,7 @@ func prepararCambioAdministradores(tx *sql.Tx, codigoUsuario int64) (bool, error
 
 	var esAdministradorActivo bool
 	err := tx.QueryRow(
-		`SELECT EXISTS (SELECT 1 `+desdeAdministradoresActivos+` AND u.codigousuario = $2)`,
+		consultaEsAdministradorActivo,
 		model.NombreRolAdministradorSistema,
 		codigoUsuario,
 	).Scan(&esAdministradorActivo)
@@ -661,7 +669,7 @@ func verificarQuedaAdministrador(tx *sql.Tx, eraAdministradorActivo bool) error 
 
 	var cantidad int
 	err := tx.QueryRow(
-		`SELECT COUNT(DISTINCT u.codigousuario) `+desdeAdministradoresActivos,
+		consultaCantidadAdministradoresActivos,
 		model.NombreRolAdministradorSistema,
 	).Scan(&cantidad)
 	if err != nil {
