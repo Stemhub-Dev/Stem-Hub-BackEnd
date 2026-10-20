@@ -594,8 +594,12 @@ func (s *invitacionProyectoService) Aceptar(
 		invitacion.AmbitoRol,
 	)
 
-	// Otra request la aceptó (o canceló) entre la validación y el UPDATE.
+	// Entre la validación y el UPDATE otra request la aceptó, o se canceló
+	// o venció: se vuelve a leer para responder el motivo real.
 	if errors.Is(err, repository.ErrInvitacionNoDisponible) {
+		if _, errEstado := s.buscarInvitacionValidaPorToken(token); errEstado != nil {
+			return 0, errEstado
+		}
 		return 0, ErrInvitacionYaAceptada
 	}
 
@@ -713,6 +717,32 @@ func esEmailValido(email string) bool {
 	if err != nil || direccion.Address != email {
 		return false
 	}
-	dominio := email[strings.LastIndex(email, "@")+1:]
-	return strings.Contains(dominio, ".")
+	return dominioValido(email[strings.LastIndex(email, "@")+1:])
+}
+
+// dominioValido aplica las reglas de nombres de host: al menos dos
+// etiquetas de 1 a 63 caracteres, solo letras, dígitos y guiones, sin guion
+// al principio ni al final, y la última solo letras.
+func dominioValido(dominio string) bool {
+	etiquetas := strings.Split(dominio, ".")
+	if len(etiquetas) < 2 {
+		return false
+	}
+	for _, etiqueta := range etiquetas {
+		if len(etiqueta) == 0 || len(etiqueta) > 63 ||
+			strings.HasPrefix(etiqueta, "-") || strings.HasSuffix(etiqueta, "-") {
+			return false
+		}
+		for _, c := range etiqueta {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	for _, c := range etiquetas[len(etiquetas)-1] {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
