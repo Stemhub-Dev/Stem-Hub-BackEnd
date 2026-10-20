@@ -17,6 +17,10 @@ import (
 const (
 	UsuarioContextKey = "usuario"
 	ClaimsContextKey  = "supabaseClaims"
+
+	// Debe coincidir con el literal que usa el frontend
+	// (stemhub-frontend/src/lib/http/interceptors.ts).
+	CodigoUsuarioInactivo = "usuario_inactivo"
 )
 
 type SupabaseClaims struct {
@@ -166,8 +170,12 @@ func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
 		}
 
 		if errors.Is(err, service.ErrUsuarioInactivo) {
+			// "codigo" le permite al frontend distinguir la cuenta dada de
+			// baja de un 403 de permisos y cerrar la sesión en vez de
+			// mostrar "Acceso denegado" dentro de la app.
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "usuario sin acceso a StemHub",
+				"error":  "usuario sin acceso a StemHub",
+				"codigo": CodigoUsuarioInactivo,
 			})
 			return
 		}
