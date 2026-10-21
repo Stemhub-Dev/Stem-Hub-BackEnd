@@ -1,17 +1,21 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
+	"github.com/google/uuid"
 )
 
 const (
@@ -94,6 +98,7 @@ type ProyectoService interface {
 	CrearProyecto(
 		codigoUsuario int64,
 		request dto.CrearProyectoRequest,
+		logo *ArchivoImagen,
 	) (*dto.CrearProyectoResponse, error)
 
 	ListarProyectos(
@@ -116,6 +121,7 @@ type ProyectoService interface {
 		codigoProyecto int64,
 		request dto.EditarProyectoRequest,
 		logo *ArchivoImagen,
+		eliminarLogo bool,
 	) (*dto.EditarProyectoResponse, error)
 
 	DarDeBaja(
@@ -164,12 +170,21 @@ func NewProyectoService(
 func (s *proyectoService) CrearProyecto(
 	codigoUsuario int64,
 	request dto.CrearProyectoRequest,
+	logo *ArchivoImagen,
 ) (*dto.CrearProyectoResponse, error) {
 
 	request.Nombre = strings.TrimSpace(request.Nombre)
 
 	if request.Nombre == "" {
 		return nil, ErrNombreProyectoObligatorio
+	}
+
+	// La portada se valida antes de tocar la base: un archivo inválido no
+	// tiene que dejar nada creado.
+	formatoLogo, err := validarLogoProyecto(logo)
+
+	if err != nil {
+		return nil, err
 	}
 
 	integrante, err :=
@@ -230,6 +245,19 @@ func (s *proyectoService) CrearProyecto(
 		return nil, ErrGenerosNoValidos
 	}
 
+	var subirLogo func(codigoProyecto int64) (string, error)
+
+	// Clave del logo ya subido, para borrarlo si el alta no se confirma.
+	var logoSubido string
+
+	if formatoLogo != "" {
+		subirLogo = func(codigoProyecto int64) (string, error) {
+			objectKey, err := s.subirLogoProyecto(codigoProyecto, logo, formatoLogo)
+			logoSubido = objectKey
+			return objectKey, err
+		}
+	}
+
 	codigoProyecto, err :=
 		s.proyectoRepository.Crear(
 			integrante.CodIntegrante,
@@ -240,9 +268,11 @@ func (s *proyectoService) CrearProyecto(
 			request.CodigosGeneros,
 			request.CodRol,
 			ambitoRol,
+			subirLogo,
 		)
 
 	if err != nil {
+		s.descartarLogoSiNoSeConfirmo(logoSubido, err)
 		return nil, err
 	}
 
@@ -586,11 +616,134 @@ func claveObjetoLogoProyecto(
 	formato string,
 ) string {
 
+	// Cada subida usa una clave nueva: así una edición nunca pisa ni borra
+	// el archivo que subió otra edición simultánea del mismo proyecto.
 	return fmt.Sprintf(
-		"proyectos/%d/logo.%s",
+		"proyectos/%d/logo-%s.%s",
 		codigoProyecto,
+		uuid.NewString(),
 		formato,
 	)
+}
+
+// descartarLogoSiNoSeConfirmo borra un logo recién subido cuyo alta o
+// modificación falló. Si el que falló fue el COMMIT, la transacción pudo
+// haberse aplicado igual y el archivo quedar en uso: ahí no se borra.
+func (s *proyectoService) descartarLogoSiNoSeConfirmo(
+	objectKey string,
+	err error,
+) {
+
+	if objectKey == "" ||
+		errors.Is(err, repository.ErrConfirmacionIncierta) {
+		return
+	}
+
+	s.eliminarArchivoLogo(objectKey)
+}
+
+// validarLogoProyecto devuelve el formato de la portada (jpg, png, webp...)
+// o "" si no se envió ninguna.
+func validarLogoProyecto(
+	logo *ArchivoImagen,
+) (string, error) {
+
+	if logo == nil ||
+		logo.Contenido == nil {
+		return "", nil
+	}
+
+	if logo.Tamano >
+		TamanoMaximoLogoProyecto {
+
+		return "", ErrProyectoLogoDemasiadoGrande
+	}
+
+	formato, err :=
+		formatoImagenDesdeNombreArchivo(
+			logo.NombreOriginal,
+		)
+
+	if err != nil {
+		return "", ErrProyectoLogoFormatoInvalido
+	}
+
+	// La extensión no alcanza: un texto renombrado a .png pasaría. Se mira
+	// el contenido y se exige que coincida con el formato de la extensión.
+	cabecera := make([]byte, 512)
+
+	leidos, err := io.ReadFull(logo.Contenido, cabecera)
+
+	if err != nil &&
+		!errors.Is(err, io.EOF) &&
+		!errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", err
+	}
+
+	cabecera = cabecera[:leidos]
+
+	if http.DetectContentType(cabecera) !=
+		formatosImagenPermitidos[formato] {
+
+		return "", ErrProyectoLogoFormatoInvalido
+	}
+
+	// Los bytes ya leídos vuelven adelante para que la subida esté completa.
+	logo.Contenido = io.MultiReader(
+		bytes.NewReader(cabecera),
+		logo.Contenido,
+	)
+
+	return formato, nil
+}
+
+func (s *proyectoService) subirLogoProyecto(
+	codigoProyecto int64,
+	logo *ArchivoImagen,
+	formato string,
+) (string, error) {
+
+	objectKey :=
+		claveObjetoLogoProyecto(
+			codigoProyecto,
+			formato,
+		)
+
+	err := s.audioStorage.Subir(
+		context.Background(),
+		objectKey,
+		logo.Contenido,
+		logo.Tamano,
+		formatosImagenPermitidos[formato],
+	)
+
+	if err != nil {
+		// El objeto pudo quedar guardado aunque se perdiera la respuesta, y
+		// la clave es nueva y todavía no está en la base: se intenta borrar.
+		s.eliminarArchivoLogo(objectKey)
+
+		return "", ErrProyectoErrorAlmacenamiento
+	}
+
+	return objectKey, nil
+}
+
+func (s *proyectoService) eliminarArchivoLogo(
+	objectKey string,
+) {
+
+	err := s.audioStorage.Eliminar(
+		context.Background(),
+		objectKey,
+	)
+
+	if err != nil {
+		log.Println(
+			"No se pudo eliminar el logo del proyecto en MinIO:",
+			objectKey,
+			err,
+		)
+	}
 }
 
 func (s *proyectoService) EditarProyecto(
@@ -598,7 +751,14 @@ func (s *proyectoService) EditarProyecto(
 	codigoProyecto int64,
 	request dto.EditarProyectoRequest,
 	logo *ArchivoImagen,
+	eliminarLogo bool,
 ) (*dto.EditarProyectoResponse, error) {
+
+	formatoLogo, err := validarLogoProyecto(logo)
+
+	if err != nil {
+		return nil, err
+	}
 
 	// 1. Verificar que el proyecto exista y esté activo.
 	existeProyecto, err :=
@@ -801,59 +961,52 @@ func (s *proyectoService) EditarProyecto(
 	logoObjectKey :=
 		proyectoActual.LogoProyecto
 
-	if logo != nil &&
-		logo.Contenido != nil {
+	cambiarLogo := false
 
-		if logo.Tamano >
-			TamanoMaximoLogoProyecto {
+	var logoSubido string
 
-			return nil,
-				ErrProyectoLogoDemasiadoGrande
-		}
+	if formatoLogo != "" {
 
-		formato, err :=
-			formatoImagenDesdeNombreArchivo(
-				logo.NombreOriginal,
-			)
-
-		if err != nil {
-			return nil,
-				ErrProyectoLogoFormatoInvalido
-		}
-
-		objectKey :=
-			claveObjetoLogoProyecto(
+		objectKey, err :=
+			s.subirLogoProyecto(
 				codigoProyecto,
-				formato,
+				logo,
+				formatoLogo,
 			)
 
-		err = s.audioStorage.Subir(
-			context.Background(),
-			objectKey,
-			logo.Contenido,
-			logo.Tamano,
-			formatosImagenPermitidos[formato],
-		)
-
 		if err != nil {
-			return nil,
-				ErrProyectoErrorAlmacenamiento
+			return nil, err
 		}
 
 		logoObjectKey = &objectKey
+		logoSubido = objectKey
+		cambiarLogo = true
+
+	} else if eliminarLogo {
+		// Un logo nuevo tiene prioridad sobre el pedido de quitarlo.
+		logoObjectKey = nil
+		cambiarLogo = true
 	}
 
 	// 5. Repository recibe finalmente todos los valores,
-	// tanto modificados como conservados.
-	err = s.proyectoRepository.Actualizar(
+	// tanto modificados como conservados. El logo solo se escribe si
+	// cambió, y el repository devuelve el que reemplazó.
+	// logoVigente puede diferir de logoObjectKey si no se tocó el logo y
+	// otra edición lo cambió mientras tanto: la respuesta firma el vigente.
+	logoVigente, logoAnterior, err := s.proyectoRepository.Actualizar(
 		codigoProyecto,
 		nombre,
 		descripcion,
+		cambiarLogo,
 		logoObjectKey,
 		codigoEstadoProyecto,
 		codigoTipoProyecto,
 		codigosGeneros,
 	)
+
+	if err != nil {
+		s.descartarLogoSiNoSeConfirmo(logoSubido, err)
+	}
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProyectoNoEncontrado
@@ -863,9 +1016,14 @@ func (s *proyectoService) EditarProyecto(
 		return nil, err
 	}
 
+	// El archivo reemplazado (o quitado) quedaría huérfano en el storage.
+	if logoAnterior != nil {
+		s.eliminarArchivoLogo(*logoAnterior)
+	}
+
 	logoUrl, err :=
 		s.resolverLogoProyectoURL(
-			logoObjectKey,
+			logoVigente,
 		)
 
 	if err != nil {
