@@ -22,6 +22,7 @@ type ProyectoRepository interface {
 		codigosGeneros []int64,
 		codRol int64,
 		ambitoRol string,
+		subirLogo func(codigoProyecto int64) (string, error),
 	) (int64, error)
 
 	ExisteProyectoActivo(
@@ -221,6 +222,7 @@ func (r *proyectoRepository) Crear(
 	codigosGeneros []int64,
 	codRol int64,
 	ambitoRol string,
+	subirLogo func(codigoProyecto int64) (string, error),
 ) (int64, error) {
 
 	tx, err := r.db.Begin()
@@ -298,6 +300,31 @@ func (r *proyectoRepository) Crear(
 
 	if err != nil {
 		return 0, err
+	}
+
+	// El logo se sube con la transacción abierta porque su clave en el
+	// storage lleva el código del proyecto: si la subida falla, el
+	// rollback evita que quede un proyecto creado sin la portada elegida.
+	if subirLogo != nil {
+
+		logoObjectKey, err := subirLogo(codigoProyecto)
+
+		if err != nil {
+			return 0, err
+		}
+
+		_, err = tx.Exec(`
+			UPDATE proyecto
+			SET logoproyecto = $1
+			WHERE codigoproyecto = $2
+		`,
+			logoObjectKey,
+			codigoProyecto,
+		)
+
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

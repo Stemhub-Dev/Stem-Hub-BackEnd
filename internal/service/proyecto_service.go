@@ -94,6 +94,7 @@ type ProyectoService interface {
 	CrearProyecto(
 		codigoUsuario int64,
 		request dto.CrearProyectoRequest,
+		logo *ArchivoImagen,
 	) (*dto.CrearProyectoResponse, error)
 
 	ListarProyectos(
@@ -116,6 +117,7 @@ type ProyectoService interface {
 		codigoProyecto int64,
 		request dto.EditarProyectoRequest,
 		logo *ArchivoImagen,
+		eliminarLogo bool,
 	) (*dto.EditarProyectoResponse, error)
 
 	DarDeBaja(
@@ -164,12 +166,21 @@ func NewProyectoService(
 func (s *proyectoService) CrearProyecto(
 	codigoUsuario int64,
 	request dto.CrearProyectoRequest,
+	logo *ArchivoImagen,
 ) (*dto.CrearProyectoResponse, error) {
 
 	request.Nombre = strings.TrimSpace(request.Nombre)
 
 	if request.Nombre == "" {
 		return nil, ErrNombreProyectoObligatorio
+	}
+
+	// La portada se valida antes de tocar la base: un archivo inválido no
+	// tiene que dejar nada creado.
+	formatoLogo, err := validarLogoProyecto(logo)
+
+	if err != nil {
+		return nil, err
 	}
 
 	integrante, err :=
@@ -230,6 +241,14 @@ func (s *proyectoService) CrearProyecto(
 		return nil, ErrGenerosNoValidos
 	}
 
+	var subirLogo func(codigoProyecto int64) (string, error)
+
+	if formatoLogo != "" {
+		subirLogo = func(codigoProyecto int64) (string, error) {
+			return s.subirLogoProyecto(codigoProyecto, logo, formatoLogo)
+		}
+	}
+
 	codigoProyecto, err :=
 		s.proyectoRepository.Crear(
 			integrante.CodIntegrante,
@@ -240,6 +259,7 @@ func (s *proyectoService) CrearProyecto(
 			request.CodigosGeneros,
 			request.CodRol,
 			ambitoRol,
+			subirLogo,
 		)
 
 	if err != nil {
@@ -593,12 +613,93 @@ func claveObjetoLogoProyecto(
 	)
 }
 
+// validarLogoProyecto devuelve el formato de la portada (jpg, png, webp...)
+// o "" si no se envió ninguna.
+func validarLogoProyecto(
+	logo *ArchivoImagen,
+) (string, error) {
+
+	if logo == nil ||
+		logo.Contenido == nil {
+		return "", nil
+	}
+
+	if logo.Tamano >
+		TamanoMaximoLogoProyecto {
+
+		return "", ErrProyectoLogoDemasiadoGrande
+	}
+
+	formato, err :=
+		formatoImagenDesdeNombreArchivo(
+			logo.NombreOriginal,
+		)
+
+	if err != nil {
+		return "", ErrProyectoLogoFormatoInvalido
+	}
+
+	return formato, nil
+}
+
+func (s *proyectoService) subirLogoProyecto(
+	codigoProyecto int64,
+	logo *ArchivoImagen,
+	formato string,
+) (string, error) {
+
+	objectKey :=
+		claveObjetoLogoProyecto(
+			codigoProyecto,
+			formato,
+		)
+
+	err := s.audioStorage.Subir(
+		context.Background(),
+		objectKey,
+		logo.Contenido,
+		logo.Tamano,
+		formatosImagenPermitidos[formato],
+	)
+
+	if err != nil {
+		return "", ErrProyectoErrorAlmacenamiento
+	}
+
+	return objectKey, nil
+}
+
+func (s *proyectoService) eliminarArchivoLogo(
+	objectKey string,
+) {
+
+	err := s.audioStorage.Eliminar(
+		context.Background(),
+		objectKey,
+	)
+
+	if err != nil {
+		log.Println(
+			"No se pudo eliminar el logo del proyecto en MinIO:",
+			objectKey,
+			err,
+		)
+	}
+}
+
 func (s *proyectoService) EditarProyecto(
 	codigoUsuario int64,
 	codigoProyecto int64,
 	request dto.EditarProyectoRequest,
 	logo *ArchivoImagen,
+	eliminarLogo bool,
 ) (*dto.EditarProyectoResponse, error) {
+
+	formatoLogo, err := validarLogoProyecto(logo)
+
+	if err != nil {
+		return nil, err
+	}
 
 	// 1. Verificar que el proyecto exista y esté activo.
 	existeProyecto, err :=
@@ -801,46 +902,27 @@ func (s *proyectoService) EditarProyecto(
 	logoObjectKey :=
 		proyectoActual.LogoProyecto
 
-	if logo != nil &&
-		logo.Contenido != nil {
+	logoAnterior :=
+		proyectoActual.LogoProyecto
 
-		if logo.Tamano >
-			TamanoMaximoLogoProyecto {
+	if formatoLogo != "" {
 
-			return nil,
-				ErrProyectoLogoDemasiadoGrande
-		}
-
-		formato, err :=
-			formatoImagenDesdeNombreArchivo(
-				logo.NombreOriginal,
-			)
-
-		if err != nil {
-			return nil,
-				ErrProyectoLogoFormatoInvalido
-		}
-
-		objectKey :=
-			claveObjetoLogoProyecto(
+		objectKey, err :=
+			s.subirLogoProyecto(
 				codigoProyecto,
-				formato,
+				logo,
+				formatoLogo,
 			)
 
-		err = s.audioStorage.Subir(
-			context.Background(),
-			objectKey,
-			logo.Contenido,
-			logo.Tamano,
-			formatosImagenPermitidos[formato],
-		)
-
 		if err != nil {
-			return nil,
-				ErrProyectoErrorAlmacenamiento
+			return nil, err
 		}
 
 		logoObjectKey = &objectKey
+
+	} else if eliminarLogo {
+		// Un logo nuevo tiene prioridad sobre el pedido de quitarlo.
+		logoObjectKey = nil
 	}
 
 	// 5. Repository recibe finalmente todos los valores,
@@ -861,6 +943,15 @@ func (s *proyectoService) EditarProyecto(
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Si se quitó el logo, o si cambió el formato (p. ej. png -> jpg) y la
+	// clave nueva es distinta, el archivo anterior quedaría huérfano.
+	if logoAnterior != nil &&
+		(logoObjectKey == nil ||
+			*logoAnterior != *logoObjectKey) {
+
+		s.eliminarArchivoLogo(*logoAnterior)
 	}
 
 	logoUrl, err :=

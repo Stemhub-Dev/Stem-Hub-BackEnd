@@ -203,3 +203,72 @@ func TestListarMisProyectos_PropagaError(t *testing.T) {
 		t.Fatalf("err = %v, se esperaba %v", err, errBase)
 	}
 }
+
+// esperarAltaProyecto encola los INSERT del alta: proyecto (código 9), un
+// género y el propietario.
+func esperarAltaProyecto(mock sqlmock.Sqlmock) {
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO proyecto`).
+		WillReturnRows(sqlmock.NewRows([]string{"codigoproyecto"}).AddRow(9))
+	mock.ExpectExec(`INSERT INTO proyectogeneromusical`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO integranteproyecto`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func crearProyectoDePrueba(
+	repo ProyectoRepository,
+	subirLogo func(codigoProyecto int64) (string, error),
+) (int64, error) {
+	return repo.Crear(42, "Rock Nacional", nil, 1, 1, []int64{3}, 2, "PROYECTO", subirLogo)
+}
+
+func TestCrearProyecto_SinPortadaNoActualizaElLogo(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+
+	esperarAltaProyecto(mock)
+	mock.ExpectCommit()
+
+	codigo, err := crearProyectoDePrueba(repo, nil)
+
+	if err != nil || codigo != 9 {
+		t.Fatalf("codigo = %d, err = %v", codigo, err)
+	}
+}
+
+func TestCrearProyecto_ConPortadaGuardaLaClaveEnLaMismaTransaccion(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+
+	esperarAltaProyecto(mock)
+	mock.ExpectExec(regexp.QuoteMeta(`SET logoproyecto = $1`)).
+		WithArgs("proyectos/9/logo.png", int64(9)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	var codigoRecibido int64
+
+	codigo, err := crearProyectoDePrueba(repo, func(codigoProyecto int64) (string, error) {
+		codigoRecibido = codigoProyecto
+		return "proyectos/9/logo.png", nil
+	})
+
+	if err != nil || codigo != 9 || codigoRecibido != 9 {
+		t.Fatalf("codigo = %d, recibido = %d, err = %v", codigo, codigoRecibido, err)
+	}
+}
+
+func TestCrearProyecto_SiFallaLaSubidaHaceRollback(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	errSubida := errors.New("minio caído")
+
+	esperarAltaProyecto(mock)
+	mock.ExpectRollback()
+
+	_, err := crearProyectoDePrueba(repo, func(int64) (string, error) {
+		return "", errSubida
+	})
+
+	if !errors.Is(err, errSubida) {
+		t.Fatalf("err = %v, se esperaba %v", err, errSubida)
+	}
+}
