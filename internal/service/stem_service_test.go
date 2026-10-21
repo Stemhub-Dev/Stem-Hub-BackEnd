@@ -107,6 +107,7 @@ func (r *stemRepositoryFalso) BuscarPorCodigo(version int64, cod int64) (*model.
 
 func (r *stemRepositoryFalso) Crear(
 	_ int64,
+	_ int64,
 	codigoCancionVersion int64,
 	nombre string,
 	codCategoria int64,

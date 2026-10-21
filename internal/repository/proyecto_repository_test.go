@@ -40,6 +40,7 @@ var columnasMisProyectos = []string{
 	"nombretipoproy",
 	"nombreestadoproy",
 	"cantidadcanciones",
+	"cancioneslistas",
 	"codrol",
 	"nombrerol",
 	"espropietario",
@@ -147,8 +148,8 @@ func TestListarMisProyectos_PaginaOrdenaYMapea(t *testing.T) {
 		WithArgs(int64(42), "rock", []int64{2}, nil, 10, 10).
 		WillReturnRows(
 			sqlmock.NewRows(columnasMisProyectos).
-				AddRow(9, "Rock Nacional", "Primer disco", logo, "Single", "En Desarrollo", 3, 1, "Productor", true, fecha).
-				AddRow(4, "Rock Alternativo", nil, nil, "Extended Play (EP)", "Sin Empezar", 0, 2, "Músico (Artista)", false, fecha),
+				AddRow(9, "Rock Nacional", "Primer disco", logo, "Single", "En Desarrollo", 3, 2, 1, "Productor", true, fecha).
+				AddRow(4, "Rock Alternativo", nil, nil, "Extended Play (EP)", "Sin Empezar", 0, 0, 2, "Músico (Artista)", false, fecha),
 		)
 
 	filtro := filtroProyectosBase()
@@ -167,7 +168,7 @@ func TestListarMisProyectos_PaginaOrdenaYMapea(t *testing.T) {
 	if primero.CodigoProyecto != 9 || primero.Nombre != "Rock Nacional" ||
 		*primero.Descripcion != "Primer disco" || *primero.Logo != logo ||
 		primero.Tipo != "Single" || primero.Estado != "En Desarrollo" ||
-		primero.CantidadCanciones != 3 || primero.CodRol != 1 ||
+		primero.CantidadCanciones != 3 || primero.CancionesListas != 2 || primero.CodRol != 1 ||
 		primero.NombreRol != "Productor" || !primero.EsPropietario ||
 		!primero.FechaUltimaModificacion.Equal(fecha) {
 		t.Fatalf("mapeo incorrecto: %+v", primero)
