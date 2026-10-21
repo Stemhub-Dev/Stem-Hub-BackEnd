@@ -49,14 +49,6 @@ var (
 		"el nombre del proyecto es obligatorio",
 	)
 
-	ErrNombreProyectoLargo = errors.New(
-		"el nombre del proyecto es demasiado largo",
-	)
-
-	ErrDescripcionProyectoLarga = errors.New(
-		"la descripción del proyecto es demasiado larga",
-	)
-
 	ErrProyectoNoEncontrado = errors.New(
 		"el proyecto no existe",
 	)
@@ -185,15 +177,6 @@ func (s *proyectoService) CrearProyecto(
 
 	if request.Nombre == "" {
 		return nil, ErrNombreProyectoObligatorio
-	}
-
-	if excedeLargo(request.Nombre, LargoMaximoNombreProyecto) {
-		return nil, ErrNombreProyectoLargo
-	}
-
-	if request.Descripcion != nil &&
-		excedeLargo(*request.Descripcion, LargoMaximoDescripcionProyecto) {
-		return nil, ErrDescripcionProyectoLarga
 	}
 
 	// La portada se valida antes de tocar la base: un archivo inválido no
@@ -865,10 +848,6 @@ func (s *proyectoService) EditarProyecto(
 		if nombre == "" {
 			return nil, ErrNombreProyectoObligatorio
 		}
-
-		if excedeLargo(nombre, LargoMaximoNombreProyecto) {
-			return nil, ErrNombreProyectoLargo
-		}
 	}
 
 	// ---------------------------------------
@@ -879,10 +858,6 @@ func (s *proyectoService) EditarProyecto(
 		proyectoActual.DescripcionProyecto
 
 	if request.Descripcion != nil {
-		if excedeLargo(*request.Descripcion, LargoMaximoDescripcionProyecto) {
-			return nil, ErrDescripcionProyectoLarga
-		}
-
 		descripcion = request.Descripcion
 	}
 

@@ -44,14 +44,6 @@ var (
 		"el nombre de la canción es obligatorio",
 	)
 
-	ErrCancionNombreLargo = errors.New(
-		"el nombre de la canción es demasiado largo",
-	)
-
-	ErrVersionNotasLargas = errors.New(
-		"las notas de la versión son demasiado largas",
-	)
-
 	ErrCancionPistaObligatoria = errors.New(
 		"la pista inicial es obligatoria",
 	)
@@ -269,10 +261,6 @@ func (s *cancionService) Crear(
 		return nil, ErrCancionNombreObligatorio
 	}
 
-	if excedeLargo(nombre, LargoMaximoNombreCancion) {
-		return nil, ErrCancionNombreLargo
-	}
-
 	if archivo.Contenido == nil {
 		return nil, ErrCancionPistaObligatoria
 	}
@@ -459,10 +447,6 @@ func (s *cancionService) CrearVersion(
 		} else {
 			notas = &notasLimpias
 		}
-	}
-
-	if notas != nil && excedeLargo(*notas, LargoMaximoNotasVersion) {
-		return nil, ErrVersionNotasLargas
 	}
 
 	tx, siguienteVersion, err :=
@@ -807,10 +791,6 @@ func (s *cancionService) Editar(
 		return nil, ErrCancionNombreObligatorio
 	}
 
-	if excedeLargo(nombre, LargoMaximoNombreCancion) {
-		return nil, ErrCancionNombreLargo
-	}
-
 	// Verificar que el proyecto siga activo.
 	existeProyecto, err :=
 		s.proyectoRepository.ExisteProyectoActivo(
@@ -1068,10 +1048,6 @@ func (s *cancionService) EditarVersion(
 		if limpias := strings.TrimSpace(*request.Notas); limpias != "" {
 			notas = &limpias
 		}
-	}
-
-	if notas != nil && excedeLargo(*notas, LargoMaximoNotasVersion) {
-		return nil, ErrVersionNotasLargas
 	}
 
 	err = s.cancionRepository.ActualizarNotasVersion(codigoCancion, codigoCancionVersion, notas)
