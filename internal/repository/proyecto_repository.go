@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -41,15 +43,18 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) ([]dto.GeneroProyectoResponse, error)
 
+	// Actualizar solo toca el logo si cambiarLogo es true, y en ese caso
+	// devuelve la clave que reemplazó (leída en la misma transacción).
 	Actualizar(
 		codigoProyecto int64,
 		nombre string,
 		descripcion *string,
+		cambiarLogo bool,
 		logoObjectKey *string,
 		codigoEstadoProyecto int64,
 		codigoTipoProyecto int64,
 		codigosGeneros []int64,
-	) error
+	) (logoAnterior *string, err error)
 
 	PuedeGestionarCanciones(
 		codigoIntegrante int64,
@@ -112,6 +117,11 @@ type ProyectoRepository interface {
 		participacion string,
 	) ([]dto.MiParticipacionProyectoResponse, error)
 }
+
+// ErrConfirmacionIncierta envuelve un fallo del COMMIT: no se sabe si la
+// transacción quedó aplicada, así que quien subió archivos para ella no
+// tiene que borrarlos (podrían estar en uso).
+var ErrConfirmacionIncierta = errors.New("no se pudo confirmar la transacción")
 
 type proyectoRepository struct {
 	db *sql.DB
@@ -328,7 +338,7 @@ func (r *proyectoRepository) Crear(
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
 	return codigoProyecto, nil
@@ -866,32 +876,53 @@ func (r *proyectoRepository) Actualizar(
 	codigoProyecto int64,
 	nombre string,
 	descripcion *string,
+	cambiarLogo bool,
 	logoObjectKey *string,
 	codigoEstadoProyecto int64,
 	codigoTipoProyecto int64,
 	codigosGeneros []int64,
-) error {
+) (*string, error) {
 
 	tx, err := r.db.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer tx.Rollback()
 
-	resultado, err := tx.Exec(`
+	// FOR UPDATE: dos ediciones simultáneas no pueden leer el mismo logo
+	// anterior, así cada una borra solo el archivo que ella reemplazó.
+	var logoAnterior *string
+
+	err = tx.QueryRow(`
+		SELECT logoproyecto
+		FROM proyecto
+		WHERE codigoproyecto = $1
+		  AND fechahorabajaproyecto IS NULL
+		FOR UPDATE
+	`,
+		codigoProyecto,
+	).Scan(&logoAnterior)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Sin cambio de logo se conserva el valor de la fila: no se reescribe
+	// el que el service leyó antes, que pudo haber cambiado desde entonces.
+	_, err = tx.Exec(`
 		UPDATE proyecto
 		SET
 			nombreproyecto = $1,
 			descripcionproyecto = $2,
-			logoproyecto = $3,
-			codestadoproy = $4,
-			codtipoproy = $5
-		WHERE codigoproyecto = $6
-		  AND fechahorabajaproyecto IS NULL
+			logoproyecto = CASE WHEN $3 THEN $4 ELSE logoproyecto END,
+			codestadoproy = $5,
+			codtipoproy = $6
+		WHERE codigoproyecto = $7
 	`,
 		nombre,
 		descripcion,
+		cambiarLogo,
 		logoObjectKey,
 		codigoEstadoProyecto,
 		codigoTipoProyecto,
@@ -899,16 +930,7 @@ func (r *proyectoRepository) Actualizar(
 	)
 
 	if err != nil {
-		return err
-	}
-
-	filas, err := resultado.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if filas == 0 {
-		return sql.ErrNoRows
+		return nil, err
 	}
 
 	// Eliminamos las relaciones actuales.
@@ -920,7 +942,7 @@ func (r *proyectoRepository) Actualizar(
 	)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Insertamos nuevamente los géneros seleccionados.
@@ -938,15 +960,19 @@ func (r *proyectoRepository) Actualizar(
 		)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return nil, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
-	return nil
+	if !cambiarLogo {
+		return nil, nil
+	}
+
+	return logoAnterior, nil
 }
 
 func (r *proyectoRepository) DarDeBaja(

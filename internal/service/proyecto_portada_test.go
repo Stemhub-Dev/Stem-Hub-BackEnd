@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -19,10 +21,14 @@ type portadaRepositoryFalso struct {
 	logoActual  *string
 	propietario bool
 
+	// Fallo después de subir el logo (UPDATE o COMMIT).
+	errTrasSubir error
+
 	crearLlamado     bool
 	creado           bool
 	logoCreado       *string
 	actualizado      bool
+	cambioLogo       bool
 	logoActualizado  *string
 	codigoProyectoID int64
 }
@@ -61,6 +67,10 @@ func (r *portadaRepositoryFalso) Crear(
 		r.logoCreado = &clave
 	}
 
+	if r.errTrasSubir != nil {
+		return 0, r.errTrasSubir
+	}
+
 	r.creado = true
 
 	return r.codigoProyectoID, nil
@@ -92,14 +102,28 @@ func (r *portadaRepositoryFalso) Actualizar(
 	_ int64,
 	_ string,
 	_ *string,
+	cambiarLogo bool,
 	logoObjectKey *string,
 	_ int64,
 	_ int64,
 	_ []int64,
-) error {
+) (*string, error) {
+	if r.errTrasSubir != nil {
+		return nil, r.errTrasSubir
+	}
+
 	r.actualizado = true
+	r.cambioLogo = cambiarLogo
+
+	if !cambiarLogo {
+		return nil, nil
+	}
+
+	anterior := r.logoActual
 	r.logoActualizado = logoObjectKey
-	return nil
+	r.logoActual = logoObjectKey
+
+	return anterior, nil
 }
 
 func nuevoServicioPortada(logoActual *string) (*portadaRepositoryFalso, *storageStemFalso, ProyectoService) {
@@ -129,6 +153,16 @@ func pedidoAltaProyecto() dto.CrearProyectoRequest {
 	}
 }
 
+// esClaveLogo verifica proyectos/{id}/logo-{uuid}.{formato}.
+func esClaveLogo(t *testing.T, clave *string, formato string) {
+	t.Helper()
+
+	patron := regexp.MustCompile(`^proyectos/9/logo-[0-9a-f-]{36}\.` + formato + `$`)
+	if clave == nil || !patron.MatchString(*clave) {
+		t.Fatalf("clave del logo = %v, se esperaba proyectos/9/logo-<uuid>.%s", clave, formato)
+	}
+}
+
 func TestCrearProyecto_ConPortadaLaSubeConLaClaveDelProyecto(t *testing.T) {
 	repo, almacenamiento, servicio := nuevoServicioPortada(nil)
 
@@ -137,11 +171,25 @@ func TestCrearProyecto_ConPortadaLaSubeConLaClaveDelProyecto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if len(almacenamiento.subidos) != 1 || almacenamiento.subidos[0] != "proyectos/9/logo.png" {
-		t.Fatalf("subidos = %v", almacenamiento.subidos)
+	esClaveLogo(t, repo.logoCreado, "png")
+	if len(almacenamiento.subidos) != 1 || almacenamiento.subidos[0] != *repo.logoCreado {
+		t.Fatalf("subidos = %v, guardado = %v", almacenamiento.subidos, *repo.logoCreado)
 	}
-	if repo.logoCreado == nil || *repo.logoCreado != "proyectos/9/logo.png" {
-		t.Fatalf("logo guardado = %v", repo.logoCreado)
+}
+
+func TestCrearProyecto_CadaSubidaUsaUnaClaveNueva(t *testing.T) {
+	primero, _, servicio := nuevoServicioPortada(nil)
+	if _, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), imagen("tapa.png", 1024)); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	segundo, _, servicio := nuevoServicioPortada(nil)
+	if _, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), imagen("tapa.png", 1024)); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	if *primero.logoCreado == *segundo.logoCreado {
+		t.Fatalf("dos subidas con la misma clave: %s", *primero.logoCreado)
 	}
 }
 
@@ -197,6 +245,33 @@ func TestCrearProyecto_FallaLaSubidaNoDejaElProyectoCreado(t *testing.T) {
 	}
 }
 
+func TestCrearProyecto_SiFallaLaBaseDespuesDeSubirBorraElLogo(t *testing.T) {
+	repo, almacenamiento, servicio := nuevoServicioPortada(nil)
+	errBase := errors.New("fallo el UPDATE del logo")
+	repo.errTrasSubir = errBase
+
+	_, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), imagen("tapa.png", 1024))
+
+	if !errors.Is(err, errBase) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(almacenamiento.eliminados) != 1 || almacenamiento.eliminados[0] != *repo.logoCreado {
+		t.Fatalf("eliminados = %v, subido = %v", almacenamiento.eliminados, *repo.logoCreado)
+	}
+}
+
+func TestCrearProyecto_SiElCommitEsInciertoNoBorraElLogo(t *testing.T) {
+	repo, almacenamiento, servicio := nuevoServicioPortada(nil)
+	repo.errTrasSubir = fmt.Errorf("%w: conexión cortada", repository.ErrConfirmacionIncierta)
+
+	if _, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), imagen("tapa.png", 1024)); err == nil {
+		t.Fatal("se esperaba error")
+	}
+	if len(almacenamiento.eliminados) != 0 {
+		t.Fatalf("con un commit incierto el logo puede estar en uso: %v", almacenamiento.eliminados)
+	}
+}
+
 func TestCrearProyecto_NombreVacioNoValidaNiSube(t *testing.T) {
 	repo, _, servicio := nuevoServicioPortada(nil)
 	pedido := pedidoAltaProyecto()
@@ -209,7 +284,7 @@ func TestCrearProyecto_NombreVacioNoValidaNiSube(t *testing.T) {
 	}
 }
 
-func TestEditarProyecto_PortadaNuevaReemplazaLaAnterior(t *testing.T) {
+func TestEditarProyecto_PortadaNuevaReemplazaYBorraLaAnterior(t *testing.T) {
 	anterior := "proyectos/9/logo.png"
 	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
 
@@ -218,30 +293,15 @@ func TestEditarProyecto_PortadaNuevaReemplazaLaAnterior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if repo.logoActualizado == nil || *repo.logoActualizado != anterior {
-		t.Fatalf("logo guardado = %v", repo.logoActualizado)
+	if !repo.cambioLogo {
+		t.Fatal("se tenía que pedir el cambio de logo")
 	}
-	// Mismo formato: la subida pisó el archivo, no hay que borrarlo.
-	if len(almacenamiento.eliminados) != 0 {
-		t.Fatalf("no se tenía que borrar nada: %v", almacenamiento.eliminados)
-	}
-	if respuesta.LogoUrl == nil || *respuesta.LogoUrl != "https://storage.test/"+anterior {
-		t.Fatalf("logoUrl = %v", respuesta.LogoUrl)
-	}
-}
-
-func TestEditarProyecto_CambioDeFormatoBorraElArchivoAnterior(t *testing.T) {
-	anterior := "proyectos/9/logo.png"
-	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
-
-	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("tapa.jpg", 1024), false); err != nil {
-		t.Fatalf("error inesperado: %v", err)
-	}
-	if repo.logoActualizado == nil || *repo.logoActualizado != "proyectos/9/logo.jpg" {
-		t.Fatalf("logo guardado = %v", repo.logoActualizado)
-	}
+	esClaveLogo(t, repo.logoActualizado, "png")
 	if len(almacenamiento.eliminados) != 1 || almacenamiento.eliminados[0] != anterior {
 		t.Fatalf("eliminados = %v", almacenamiento.eliminados)
+	}
+	if respuesta.LogoUrl == nil || *respuesta.LogoUrl != "https://storage.test/"+*repo.logoActualizado {
+		t.Fatalf("logoUrl = %v", respuesta.LogoUrl)
 	}
 }
 
@@ -254,8 +314,8 @@ func TestEditarProyecto_QuitarPortadaLimpiaLaFilaYBorraElArchivo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if !repo.actualizado || repo.logoActualizado != nil {
-		t.Fatalf("logo guardado = %v", repo.logoActualizado)
+	if !repo.cambioLogo || repo.logoActualizado != nil {
+		t.Fatalf("cambio = %v, logo guardado = %v", repo.cambioLogo, repo.logoActualizado)
 	}
 	if len(almacenamiento.eliminados) != 1 || almacenamiento.eliminados[0] != anterior {
 		t.Fatalf("eliminados = %v", almacenamiento.eliminados)
@@ -265,15 +325,22 @@ func TestEditarProyecto_QuitarPortadaLimpiaLaFilaYBorraElArchivo(t *testing.T) {
 	}
 }
 
-func TestEditarProyecto_SinPedirQuitarConservaLaPortada(t *testing.T) {
+func TestEditarProyecto_SinTocarLaPortadaNoLaReescribe(t *testing.T) {
 	anterior := "proyectos/9/logo.png"
 	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
 
-	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, nil, false); err != nil {
+	respuesta, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, nil, false)
+
+	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if repo.logoActualizado == nil || *repo.logoActualizado != anterior || len(almacenamiento.eliminados) != 0 {
-		t.Fatalf("logo = %v, eliminados = %v", repo.logoActualizado, almacenamiento.eliminados)
+	// Reescribir el logo leído antes podría pisar el de una edición
+	// simultánea: sin cambio, el repository conserva el de la fila.
+	if !repo.actualizado || repo.cambioLogo || len(almacenamiento.eliminados) != 0 {
+		t.Fatalf("cambio = %v, eliminados = %v", repo.cambioLogo, almacenamiento.eliminados)
+	}
+	if respuesta.LogoUrl == nil || *respuesta.LogoUrl != "https://storage.test/"+anterior {
+		t.Fatalf("logoUrl = %v", respuesta.LogoUrl)
 	}
 }
 
@@ -284,9 +351,7 @@ func TestEditarProyecto_PortadaNuevaTienePrioridadSobreQuitar(t *testing.T) {
 	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("tapa.webp", 1024), true); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if repo.logoActualizado == nil || *repo.logoActualizado != "proyectos/9/logo.webp" {
-		t.Fatalf("logo guardado = %v", repo.logoActualizado)
-	}
+	esClaveLogo(t, repo.logoActualizado, "webp")
 }
 
 func TestEditarProyecto_QuitarSinPortadaNoBorraNada(t *testing.T) {
@@ -297,6 +362,31 @@ func TestEditarProyecto_QuitarSinPortadaNoBorraNada(t *testing.T) {
 	}
 	if len(almacenamiento.eliminados) != 0 {
 		t.Fatalf("eliminados = %v", almacenamiento.eliminados)
+	}
+}
+
+// Dos ediciones seguidas: cada una borra solo el archivo que reemplazó, que
+// es el que le devuelve el repository, no el que leyó al empezar.
+func TestEditarProyecto_CadaEdicionBorraSoloLoQueReemplazo(t *testing.T) {
+	anterior := "proyectos/9/logo.png"
+	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
+
+	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("a.png", 1024), false); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	primera := *repo.logoActualizado
+
+	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("b.png", 1024), false); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	if len(almacenamiento.eliminados) != 2 ||
+		almacenamiento.eliminados[0] != anterior ||
+		almacenamiento.eliminados[1] != primera {
+		t.Fatalf("eliminados = %v", almacenamiento.eliminados)
+	}
+	if *repo.logoActualizado == primera {
+		t.Fatal("la segunda edición tenía que usar una clave nueva")
 	}
 }
 
@@ -326,6 +416,35 @@ func TestEditarProyecto_FallaLaSubidaConservaLaPortada(t *testing.T) {
 	}
 	if repo.actualizado || len(almacenamiento.eliminados) != 0 {
 		t.Fatal("si falla la subida no se tiene que tocar la portada actual")
+	}
+}
+
+func TestEditarProyecto_SiFallaLaBaseBorraElLogoNuevoYConservaElAnterior(t *testing.T) {
+	anterior := "proyectos/9/logo.png"
+	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
+	repo.errTrasSubir = errors.New("fallo el UPDATE")
+
+	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("tapa.jpg", 1024), false); err == nil {
+		t.Fatal("se esperaba error")
+	}
+
+	if len(almacenamiento.subidos) != 1 ||
+		len(almacenamiento.eliminados) != 1 ||
+		almacenamiento.eliminados[0] != almacenamiento.subidos[0] {
+		t.Fatalf("subidos = %v, eliminados = %v", almacenamiento.subidos, almacenamiento.eliminados)
+	}
+}
+
+func TestEditarProyecto_SiElCommitEsInciertoNoBorraNada(t *testing.T) {
+	anterior := "proyectos/9/logo.png"
+	repo, almacenamiento, servicio := nuevoServicioPortada(&anterior)
+	repo.errTrasSubir = fmt.Errorf("%w: conexión cortada", repository.ErrConfirmacionIncierta)
+
+	if _, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, imagen("tapa.jpg", 1024), false); err == nil {
+		t.Fatal("se esperaba error")
+	}
+	if len(almacenamiento.eliminados) != 0 {
+		t.Fatalf("con un commit incierto no se sabe qué logo quedó: %v", almacenamiento.eliminados)
 	}
 }
 

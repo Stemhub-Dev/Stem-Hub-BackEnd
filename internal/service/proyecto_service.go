@@ -12,6 +12,7 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
+	"github.com/google/uuid"
 )
 
 const (
@@ -243,9 +244,14 @@ func (s *proyectoService) CrearProyecto(
 
 	var subirLogo func(codigoProyecto int64) (string, error)
 
+	// Clave del logo ya subido, para borrarlo si el alta no se confirma.
+	var logoSubido string
+
 	if formatoLogo != "" {
 		subirLogo = func(codigoProyecto int64) (string, error) {
-			return s.subirLogoProyecto(codigoProyecto, logo, formatoLogo)
+			objectKey, err := s.subirLogoProyecto(codigoProyecto, logo, formatoLogo)
+			logoSubido = objectKey
+			return objectKey, err
 		}
 	}
 
@@ -263,6 +269,7 @@ func (s *proyectoService) CrearProyecto(
 		)
 
 	if err != nil {
+		s.descartarLogoSiNoSeConfirmo(logoSubido, err)
 		return nil, err
 	}
 
@@ -606,11 +613,30 @@ func claveObjetoLogoProyecto(
 	formato string,
 ) string {
 
+	// Cada subida usa una clave nueva: así una edición nunca pisa ni borra
+	// el archivo que subió otra edición simultánea del mismo proyecto.
 	return fmt.Sprintf(
-		"proyectos/%d/logo.%s",
+		"proyectos/%d/logo-%s.%s",
 		codigoProyecto,
+		uuid.NewString(),
 		formato,
 	)
+}
+
+// descartarLogoSiNoSeConfirmo borra un logo recién subido cuyo alta o
+// modificación falló. Si el que falló fue el COMMIT, la transacción pudo
+// haberse aplicado igual y el archivo quedar en uso: ahí no se borra.
+func (s *proyectoService) descartarLogoSiNoSeConfirmo(
+	objectKey string,
+	err error,
+) {
+
+	if objectKey == "" ||
+		errors.Is(err, repository.ErrConfirmacionIncierta) {
+		return
+	}
+
+	s.eliminarArchivoLogo(objectKey)
 }
 
 // validarLogoProyecto devuelve el formato de la portada (jpg, png, webp...)
@@ -902,8 +928,9 @@ func (s *proyectoService) EditarProyecto(
 	logoObjectKey :=
 		proyectoActual.LogoProyecto
 
-	logoAnterior :=
-		proyectoActual.LogoProyecto
+	cambiarLogo := false
+
+	var logoSubido string
 
 	if formatoLogo != "" {
 
@@ -919,23 +946,32 @@ func (s *proyectoService) EditarProyecto(
 		}
 
 		logoObjectKey = &objectKey
+		logoSubido = objectKey
+		cambiarLogo = true
 
 	} else if eliminarLogo {
 		// Un logo nuevo tiene prioridad sobre el pedido de quitarlo.
 		logoObjectKey = nil
+		cambiarLogo = true
 	}
 
 	// 5. Repository recibe finalmente todos los valores,
-	// tanto modificados como conservados.
-	err = s.proyectoRepository.Actualizar(
+	// tanto modificados como conservados. El logo solo se escribe si
+	// cambió, y el repository devuelve el que reemplazó.
+	logoAnterior, err := s.proyectoRepository.Actualizar(
 		codigoProyecto,
 		nombre,
 		descripcion,
+		cambiarLogo,
 		logoObjectKey,
 		codigoEstadoProyecto,
 		codigoTipoProyecto,
 		codigosGeneros,
 	)
+
+	if err != nil {
+		s.descartarLogoSiNoSeConfirmo(logoSubido, err)
+	}
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProyectoNoEncontrado
@@ -945,12 +981,8 @@ func (s *proyectoService) EditarProyecto(
 		return nil, err
 	}
 
-	// Si se quitó el logo, o si cambió el formato (p. ej. png -> jpg) y la
-	// clave nueva es distinta, el archivo anterior quedaría huérfano.
-	if logoAnterior != nil &&
-		(logoObjectKey == nil ||
-			*logoAnterior != *logoObjectKey) {
-
+	// El archivo reemplazado (o quitado) quedaría huérfano en el storage.
+	if logoAnterior != nil {
 		s.eliminarArchivoLogo(*logoAnterior)
 	}
 

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"database/sql"
 	"errors"
 	"regexp"
 	"strings"
@@ -270,5 +271,107 @@ func TestCrearProyecto_SiFallaLaSubidaHaceRollback(t *testing.T) {
 
 	if !errors.Is(err, errSubida) {
 		t.Fatalf("err = %v, se esperaba %v", err, errSubida)
+	}
+}
+
+func TestCrearProyecto_SiFallaElUpdateDelLogoHaceRollback(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	errBase := errors.New("fallo el UPDATE")
+
+	esperarAltaProyecto(mock)
+	mock.ExpectExec(regexp.QuoteMeta(`SET logoproyecto = $1`)).WillReturnError(errBase)
+	mock.ExpectRollback()
+
+	_, err := crearProyectoDePrueba(repo, func(int64) (string, error) {
+		return "proyectos/9/logo-x.png", nil
+	})
+
+	// Rollback seguro: no es un commit incierto, el service puede borrar
+	// el archivo subido.
+	if !errors.Is(err, errBase) || errors.Is(err, ErrConfirmacionIncierta) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCrearProyecto_UnFalloDelCommitEsIncierto(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	errCommit := errors.New("conexión cortada")
+
+	esperarAltaProyecto(mock)
+	mock.ExpectCommit().WillReturnError(errCommit)
+
+	_, err := crearProyectoDePrueba(repo, nil)
+
+	if !errors.Is(err, ErrConfirmacionIncierta) || !errors.Is(err, errCommit) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func esperarActualizacionProyecto(mock sqlmock.Sqlmock, logoActual *string, cambiarLogo bool, logoNuevo *string) {
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT logoproyecto\s+FROM proyecto[\s\S]+FOR UPDATE`).
+		WithArgs(int64(9)).
+		WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}).AddRow(logoActual))
+	mock.ExpectExec(regexp.QuoteMeta(`logoproyecto = CASE WHEN $3 THEN $4 ELSE logoproyecto END`)).
+		WithArgs("Rock", (*string)(nil), cambiarLogo, logoNuevo, int64(1), int64(1), int64(9)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func TestActualizarProyecto_ConLogoNuevoDevuelveElAnterior(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	actual := "proyectos/9/logo.png"
+	nuevo := "proyectos/9/logo-x.jpg"
+
+	esperarActualizacionProyecto(mock, &actual, true, &nuevo)
+	mock.ExpectCommit()
+
+	anterior, err := repo.Actualizar(9, "Rock", nil, true, &nuevo, 1, 1, []int64{3})
+
+	if err != nil || anterior == nil || *anterior != actual {
+		t.Fatalf("anterior = %v, err = %v", anterior, err)
+	}
+}
+
+func TestActualizarProyecto_SinCambiarLogoConservaElDeLaFila(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	actual := "proyectos/9/logo.png"
+
+	esperarActualizacionProyecto(mock, &actual, false, nil)
+	mock.ExpectCommit()
+
+	anterior, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+
+	if err != nil || anterior != nil {
+		t.Fatalf("sin cambio de logo no hay nada que borrar: anterior = %v, err = %v", anterior, err)
+	}
+}
+
+func TestActualizarProyecto_ProyectoInexistente(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}))
+	mock.ExpectRollback()
+
+	_, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestActualizarProyecto_UnFalloDelCommitEsIncierto(t *testing.T) {
+	repo, mock := nuevoRepositorioProyectosConMock(t)
+	actual := "proyectos/9/logo.png"
+
+	esperarActualizacionProyecto(mock, &actual, true, nil)
+	mock.ExpectCommit().WillReturnError(errors.New("conexión cortada"))
+
+	_, err := repo.Actualizar(9, "Rock", nil, true, nil, 1, 1, []int64{3})
+
+	if !errors.Is(err, ErrConfirmacionIncierta) {
+		t.Fatalf("err = %v", err)
 	}
 }
