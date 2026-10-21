@@ -15,6 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// tamanoMaximoFormularioProyecto acota el cuerpo del alta y la modificación
+// de un proyecto: la portada más 1 MiB para los demás campos y el overhead
+// del multipart.
+const tamanoMaximoFormularioProyecto = service.TamanoMaximoLogoProyecto + 1<<20
+
 type ProyectoHandler struct {
 	service service.ProyectoService
 }
@@ -53,7 +58,49 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 
 	var request dto.CrearProyectoRequest
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	var logo *service.ArchivoImagen
+
+	// Sin portada alcanza con JSON; con portada el formulario llega como
+	// multipart, con los mismos campos más el archivo "logo".
+	if strings.HasPrefix(
+		c.GetHeader("Content-Type"),
+		"multipart/form-data",
+	) {
+
+		if !parsearFormularioProyecto(c) {
+			return
+		}
+
+		var ok bool
+
+		request, ok = leerCrearProyectoForm(c)
+
+		if !ok {
+			c.JSON(
+				http.StatusBadRequest,
+				gin.H{"error": "Solicitud inválida"},
+			)
+			return
+		}
+
+		var archivoAbierto multipart.File
+		var err error
+
+		logo, archivoAbierto, err = extraerArchivoLogo(c)
+
+		if err != nil {
+			c.JSON(
+				http.StatusBadRequest,
+				gin.H{"error": "Logo inválido"},
+			)
+			return
+		}
+
+		if archivoAbierto != nil {
+			defer archivoAbierto.Close()
+		}
+
+	} else if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(
 			http.StatusBadRequest,
 			gin.H{"error": "Solicitud inválida"},
@@ -64,7 +111,12 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 	proyecto, err := h.service.CrearProyecto(
 		usuario.CodigoUsuario,
 		request,
+		logo,
 	)
+
+	if responderErrorLogoProyecto(c, err) {
+		return
+	}
 
 	switch {
 
@@ -127,6 +179,156 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 			proyecto,
 		)
 	}
+}
+
+// parsearFormularioProyecto lee el formulario con el cuerpo acotado, antes
+// de que cualquier PostForm lo parsee entero: sin el límite, un archivo
+// enorme se escribiría a disco antes de que el service lo rechace. Todo lo
+// permitido entra en memoria. Devuelve false si ya respondió con un error.
+func parsearFormularioProyecto(
+	c *gin.Context,
+) bool {
+
+	c.Request.Body = http.MaxBytesReader(
+		c.Writer,
+		c.Request.Body,
+		tamanoMaximoFormularioProyecto,
+	)
+
+	err := c.Request.ParseMultipartForm(
+		tamanoMaximoFormularioProyecto,
+	)
+
+	if errors.Is(err, http.ErrNotMultipart) {
+		err = c.Request.ParseForm()
+	}
+
+	var demasiadoGrande *http.MaxBytesError
+
+	switch {
+
+	case errors.As(err, &demasiadoGrande):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "La imagen supera el tamaño máximo permitido"},
+		)
+		return false
+
+	case err != nil:
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Solicitud inválida"},
+		)
+		return false
+	}
+
+	return true
+}
+
+// leerCrearProyectoForm arma el request de alta desde un multipart, con las
+// mismas reglas que los binding del JSON: nombre, tipo, rol y al menos un
+// género obligatorios.
+func leerCrearProyectoForm(
+	c *gin.Context,
+) (dto.CrearProyectoRequest, bool) {
+
+	var request dto.CrearProyectoRequest
+
+	request.Nombre = c.PostForm("nombre")
+
+	if valor, existe :=
+		c.GetPostForm("descripcion"); existe {
+
+		request.Descripcion = &valor
+	}
+
+	codigoTipo, err := strconv.ParseInt(
+		c.PostForm("codigoTipoProyecto"),
+		10,
+		64,
+	)
+
+	if err != nil || codigoTipo <= 0 {
+		return request, false
+	}
+
+	request.CodigoTipoProyecto = codigoTipo
+
+	codRol, err := strconv.ParseInt(
+		c.PostForm("codRol"),
+		10,
+		64,
+	)
+
+	if err != nil || codRol <= 0 {
+		return request, false
+	}
+
+	request.CodRol = codRol
+
+	for _, valor := range c.PostFormArray("codigosGeneros") {
+
+		codigoGenero, err := strconv.ParseInt(valor, 10, 64)
+
+		if err != nil || codigoGenero <= 0 {
+			return request, false
+		}
+
+		request.CodigosGeneros = append(
+			request.CodigosGeneros,
+			codigoGenero,
+		)
+	}
+
+	if strings.TrimSpace(request.Nombre) == "" ||
+		len(request.CodigosGeneros) == 0 {
+		return request, false
+	}
+
+	return request, true
+}
+
+// responderErrorLogoProyecto responde los errores de la portada, comunes al
+// alta y a la modificación. Devuelve true si respondió.
+func responderErrorLogoProyecto(
+	c *gin.Context,
+	err error,
+) bool {
+
+	switch {
+
+	case errors.Is(
+		err,
+		service.ErrProyectoLogoFormatoInvalido,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El formato de la imagen no está soportado"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoLogoDemasiadoGrande,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "La imagen supera el tamaño máximo permitido"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoErrorAlmacenamiento,
+	):
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"error": "Error al almacenar el logo del proyecto"},
+		)
+
+	default:
+		return false
+	}
+
+	return true
 }
 
 // parsearFiltroProyectos arma el filtro de GET /proyectos a partir de q,
@@ -508,6 +710,7 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 
 	var logo *service.ArchivoImagen
 	var archivoAbierto multipart.File
+	var eliminarLogo bool
 
 	contentType :=
 		c.GetHeader("Content-Type")
@@ -538,6 +741,10 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 		// =================================================
 		// 5. FORM-DATA / X-WWW-FORM-URLENCODED
 		// =================================================
+
+		if !parsearFormularioProyecto(c) {
+			return
+		}
 
 		// ------------------------------
 		// Nombre opcional
@@ -690,6 +897,10 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 		if archivoAbierto != nil {
 			defer archivoAbierto.Close()
 		}
+
+		// Quitar la portada: se ignora si también viene un logo nuevo.
+		eliminarLogo =
+			c.PostForm("eliminarLogo") == "true"
 	}
 
 	// =====================================================
@@ -702,7 +913,12 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 			codigoProyecto,
 			request,
 			logo,
+			eliminarLogo,
 		)
+
+	if responderErrorLogoProyecto(c, err) {
+		return
+	}
 
 	// =====================================================
 	// 7. MANEJO DE ERRORES
@@ -760,30 +976,6 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 
 	case errors.Is(
 		err,
-		service.ErrProyectoLogoFormatoInvalido,
-	):
-
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{
-				"error": "El formato del logo no está soportado",
-			},
-		)
-
-	case errors.Is(
-		err,
-		service.ErrProyectoLogoDemasiadoGrande,
-	):
-
-		c.JSON(
-			http.StatusBadRequest,
-			gin.H{
-				"error": "El logo supera el tamaño máximo permitido",
-			},
-		)
-
-	case errors.Is(
-		err,
 		service.ErrProyectoNoEncontrado,
 	):
 
@@ -815,18 +1007,6 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 			http.StatusForbidden,
 			gin.H{
 				"error": "No tenés acceso a este proyecto",
-			},
-		)
-
-	case errors.Is(
-		err,
-		service.ErrProyectoErrorAlmacenamiento,
-	):
-
-		c.JSON(
-			http.StatusInternalServerError,
-			gin.H{
-				"error": "Error al almacenar el logo del proyecto",
 			},
 		)
 
