@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -144,12 +146,41 @@ func nuevoServicioPortada(logoActual *string) (*portadaRepositoryFalso, *storage
 	return repo, almacenamiento, NewProyectoService(repo, integranteActivo(), almacenamiento)
 }
 
+// Firmas mínimas que http.DetectContentType reconoce para cada formato.
+var firmasImagen = map[string]string{
+	"png":  "\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 16),
+	"jpg":  "\xff\xd8\xff\xe0" + strings.Repeat("\x00", 16),
+	"webp": "RIFF\x00\x00\x00\x00WEBPVP8 " + strings.Repeat("\x00", 16),
+	"gif":  "GIF89a" + strings.Repeat("\x00", 16),
+}
+
+// imagen arma un archivo cuyo contenido corresponde a su extensión.
 func imagen(nombre string, tamano int64) *ArchivoImagen {
+	extension := strings.ToLower(nombre[strings.LastIndex(nombre, ".")+1:])
+	return archivoConContenido(nombre, firmasImagen[extension], tamano)
+}
+
+func archivoConContenido(nombre, contenido string, tamano int64) *ArchivoImagen {
 	return &ArchivoImagen{
-		Contenido:      strings.NewReader("imagen"),
+		Contenido:      strings.NewReader(contenido),
 		NombreOriginal: nombre,
 		Tamano:         tamano,
 	}
+}
+
+// storageQueGuardaYFalla simula un PUT que guarda el objeto pero cuya
+// respuesta se pierde, y registra los bytes recibidos.
+type storageQueGuardaYFalla struct {
+	storageStemFalso
+
+	contenido string
+}
+
+func (s *storageQueGuardaYFalla) Subir(ctx context.Context, key string, r io.Reader, tamano int64, tipo string) error {
+	datos, _ := io.ReadAll(r)
+	s.contenido = string(datos)
+	s.subidos = append(s.subidos, key)
+	return s.errSubir
 }
 
 func pedidoAltaProyecto() dto.CrearProyectoRequest {
@@ -250,6 +281,61 @@ func TestCrearProyecto_FallaLaSubidaNoDejaElProyectoCreado(t *testing.T) {
 	}
 	if repo.creado {
 		t.Fatal("si falla la subida el proyecto no tiene que quedar creado")
+	}
+}
+
+func TestCrearProyecto_ContenidoQueNoCoincideConLaExtension(t *testing.T) {
+	casos := map[string]*ArchivoImagen{
+		"texto renombrado a png": archivoConContenido("tapa.png", "esto no es una imagen", 1024),
+		"gif renombrado a png":   archivoConContenido("tapa.png", firmasImagen["gif"], 1024),
+		"jpg con extensión png":  archivoConContenido("tapa.png", firmasImagen["jpg"], 1024),
+		"archivo vacío":          archivoConContenido("tapa.webp", "", 0),
+	}
+
+	for nombre, archivo := range casos {
+		t.Run(nombre, func(t *testing.T) {
+			repo, almacenamiento, servicio := nuevoServicioPortada(nil)
+
+			_, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), archivo)
+
+			if !errors.Is(err, ErrProyectoLogoFormatoInvalido) {
+				t.Fatalf("err = %v", err)
+			}
+			if repo.crearLlamado || len(almacenamiento.subidos) != 0 {
+				t.Fatal("un contenido inválido no tiene que crear ni subir nada")
+			}
+		})
+	}
+}
+
+func TestCrearProyecto_SubeElArchivoCompletoDespuesDeValidarlo(t *testing.T) {
+	almacenamiento := &storageQueGuardaYFalla{}
+	repo := &portadaRepositoryFalso{propietario: true, codigoProyectoID: 9}
+	servicio := NewProyectoService(repo, integranteActivo(), almacenamiento)
+	// Más largo que los 512 bytes que se leen para validar.
+	contenido := firmasImagen["png"] + strings.Repeat("x", 2000)
+
+	if _, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), archivoConContenido("tapa.png", contenido, int64(len(contenido)))); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if almacenamiento.contenido != contenido {
+		t.Fatalf("se subieron %d bytes, se esperaban %d", len(almacenamiento.contenido), len(contenido))
+	}
+}
+
+func TestCrearProyecto_SiSePierdeLaRespuestaDelStorageBorraLoSubido(t *testing.T) {
+	almacenamiento := &storageQueGuardaYFalla{}
+	almacenamiento.errSubir = errors.New("timeout leyendo la respuesta")
+	repo := &portadaRepositoryFalso{propietario: true, codigoProyectoID: 9}
+	servicio := NewProyectoService(repo, integranteActivo(), almacenamiento)
+
+	_, err := servicio.CrearProyecto(1, pedidoAltaProyecto(), imagen("tapa.png", 1024))
+
+	if !errors.Is(err, ErrProyectoErrorAlmacenamiento) || repo.creado {
+		t.Fatalf("err = %v, creado = %v", err, repo.creado)
+	}
+	if len(almacenamiento.eliminados) != 1 || almacenamiento.eliminados[0] != almacenamiento.subidos[0] {
+		t.Fatalf("subidos = %v, eliminados = %v", almacenamiento.subidos, almacenamiento.eliminados)
 	}
 }
 
@@ -422,8 +508,15 @@ func TestEditarProyecto_FallaLaSubidaConservaLaPortada(t *testing.T) {
 	if !errors.Is(err, ErrProyectoErrorAlmacenamiento) {
 		t.Fatalf("err = %v", err)
 	}
-	if repo.actualizado || len(almacenamiento.eliminados) != 0 {
+	// Se intenta borrar solo la clave nueva (pudo quedar guardada aunque la
+	// subida fallara); la portada actual no se toca.
+	if repo.actualizado {
 		t.Fatal("si falla la subida no se tiene que tocar la portada actual")
+	}
+	for _, eliminado := range almacenamiento.eliminados {
+		if eliminado == anterior {
+			t.Fatalf("se borró la portada actual: %v", almacenamiento.eliminados)
+		}
 	}
 }
 

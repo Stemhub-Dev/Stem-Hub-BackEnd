@@ -1,11 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -665,6 +668,32 @@ func validarLogoProyecto(
 		return "", ErrProyectoLogoFormatoInvalido
 	}
 
+	// La extensión no alcanza: un texto renombrado a .png pasaría. Se mira
+	// el contenido y se exige que coincida con el formato de la extensión.
+	cabecera := make([]byte, 512)
+
+	leidos, err := io.ReadFull(logo.Contenido, cabecera)
+
+	if err != nil &&
+		!errors.Is(err, io.EOF) &&
+		!errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", err
+	}
+
+	cabecera = cabecera[:leidos]
+
+	if http.DetectContentType(cabecera) !=
+		formatosImagenPermitidos[formato] {
+
+		return "", ErrProyectoLogoFormatoInvalido
+	}
+
+	// Los bytes ya leídos vuelven adelante para que la subida esté completa.
+	logo.Contenido = io.MultiReader(
+		bytes.NewReader(cabecera),
+		logo.Contenido,
+	)
+
 	return formato, nil
 }
 
@@ -689,6 +718,10 @@ func (s *proyectoService) subirLogoProyecto(
 	)
 
 	if err != nil {
+		// El objeto pudo quedar guardado aunque se perdiera la respuesta, y
+		// la clave es nueva y todavía no está en la base: se intenta borrar.
+		s.eliminarArchivoLogo(objectKey)
+
 		return "", ErrProyectoErrorAlmacenamiento
 	}
 
