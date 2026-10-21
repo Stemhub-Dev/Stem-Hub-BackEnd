@@ -656,16 +656,19 @@ func (r *tableroRepository) ListarNovedades(
 }
 
 // La última visita se guarda en usuario.ultimologin, que existía sin que
-// nada la escribiera. El CTE lee el valor anterior: dentro de un mismo
-// statement todas las partes ven la foto previa al UPDATE.
+// nada la escribiera. El CTE lee el valor anterior y bloquea la fila
+// (FOR UPDATE): dos visitas superpuestas se serializan y la segunda lee lo que
+// escribió la primera. GREATEST evita que una request demorada, con un
+// "ahora" viejo, retroceda la marca.
 const consultaRegistrarVisita = `
 		WITH anterior AS (
 			SELECT ultimologin
 			FROM usuario
 			WHERE codigousuario = $1
+			FOR UPDATE
 		)
 		UPDATE usuario
-		SET ultimologin = $2
+		SET ultimologin = GREATEST(ultimologin, $2)
 		WHERE codigousuario = $1
 		RETURNING (SELECT ultimologin FROM anterior)
 `
