@@ -15,6 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// tamanoMaximoFormularioProyecto acota el cuerpo del alta y la modificación
+// de un proyecto: la portada más 1 MiB para los demás campos y el overhead
+// del multipart.
+const tamanoMaximoFormularioProyecto = service.TamanoMaximoLogoProyecto + 1<<20
+
 type ProyectoHandler struct {
 	service service.ProyectoService
 }
@@ -61,6 +66,10 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 		c.GetHeader("Content-Type"),
 		"multipart/form-data",
 	) {
+
+		if !parsearFormularioProyecto(c) {
+			return
+		}
 
 		var ok bool
 
@@ -170,6 +179,50 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 			proyecto,
 		)
 	}
+}
+
+// parsearFormularioProyecto lee el formulario con el cuerpo acotado, antes
+// de que cualquier PostForm lo parsee entero: sin el límite, un archivo
+// enorme se escribiría a disco antes de que el service lo rechace. Todo lo
+// permitido entra en memoria. Devuelve false si ya respondió con un error.
+func parsearFormularioProyecto(
+	c *gin.Context,
+) bool {
+
+	c.Request.Body = http.MaxBytesReader(
+		c.Writer,
+		c.Request.Body,
+		tamanoMaximoFormularioProyecto,
+	)
+
+	err := c.Request.ParseMultipartForm(
+		tamanoMaximoFormularioProyecto,
+	)
+
+	if errors.Is(err, http.ErrNotMultipart) {
+		err = c.Request.ParseForm()
+	}
+
+	var demasiadoGrande *http.MaxBytesError
+
+	switch {
+
+	case errors.As(err, &demasiadoGrande):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "La imagen supera el tamaño máximo permitido"},
+		)
+		return false
+
+	case err != nil:
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Solicitud inválida"},
+		)
+		return false
+	}
+
+	return true
 }
 
 // leerCrearProyectoForm arma el request de alta desde un multipart, con las
@@ -688,6 +741,10 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 		// =================================================
 		// 5. FORM-DATA / X-WWW-FORM-URLENCODED
 		// =================================================
+
+		if !parsearFormularioProyecto(c) {
+			return
+		}
 
 		// ------------------------------
 		// Nombre opcional

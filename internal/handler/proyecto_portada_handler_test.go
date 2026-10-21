@@ -304,3 +304,82 @@ func TestEditarProyecto_JSONNoQuitaLaPortada(t *testing.T) {
 		t.Fatalf("status = %d, eliminarLogo = %v", grabador.Code, servicio.eliminarLogo)
 	}
 }
+
+// Multipart con un logo de `tamano` bytes y los campos del alta.
+func formularioConLogoDe(t *testing.T, tamano int) (*bytes.Buffer, string) {
+	t.Helper()
+
+	cuerpo := &bytes.Buffer{}
+	escritor := multipart.NewWriter(cuerpo)
+
+	for _, campo := range camposAltaCompletos() {
+		if err := escritor.WriteField(campo.nombre, campo.valor); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parte, err := escritor.CreateFormFile("logo", "tapa.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parte.Write(bytes.Repeat([]byte{'x'}, tamano)); err != nil {
+		t.Fatal(err)
+	}
+	if err := escritor.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	return cuerpo, escritor.FormDataContentType()
+}
+
+// El cuerpo se acota antes de parsearlo: un archivo enorme no llega a
+// escribirse a disco ni al service.
+func TestPortadaProyecto_CuerpoDemasiadoGrandeResponde400SinLlamarAlService(t *testing.T) {
+	excedido := int(tamanoMaximoFormularioProyecto) + 1
+
+	for _, caso := range []struct{ metodo, url string }{
+		{http.MethodPost, "/proyectos/crear"},
+		{http.MethodPatch, "/proyectos/9"},
+	} {
+		t.Run(caso.metodo, func(t *testing.T) {
+			servicio := &portadaServiceFalso{}
+			cuerpo, contentType := formularioConLogoDe(t, excedido)
+
+			grabador := ejecutarPortada(t, servicio, caso.metodo, caso.url, cuerpo, contentType)
+
+			if grabador.Code != http.StatusBadRequest ||
+				mensajeDeError(t, grabador) != "La imagen supera el tamaño máximo permitido" {
+				t.Fatalf("status = %d, cuerpo = %s", grabador.Code, grabador.Body.String())
+			}
+			if servicio.crearLlamado || servicio.nombreLogo != "" {
+				t.Fatal("con el cuerpo excedido no se tiene que llamar al service")
+			}
+		})
+	}
+}
+
+// Una portada justo en el máximo entra: el margen cubre los demás campos.
+func TestPortadaProyecto_PortadaDeCincoMBEntra(t *testing.T) {
+	servicio := &portadaServiceFalso{}
+	cuerpo, contentType := formularioConLogoDe(t, int(service.TamanoMaximoLogoProyecto))
+
+	grabador := ejecutarPortada(t, servicio, http.MethodPost, "/proyectos/crear", cuerpo, contentType)
+
+	if grabador.Code != http.StatusCreated || servicio.nombreLogo != "tapa.png" {
+		t.Fatalf("status = %d, logo = %q", grabador.Code, servicio.nombreLogo)
+	}
+}
+
+func TestEditarProyecto_FormularioURLEncodedSigueFuncionando(t *testing.T) {
+	servicio := &portadaServiceFalso{}
+	cuerpo := strings.NewReader("nombre=Rock&codigosGeneros=3&codigosGeneros=5")
+
+	grabador := ejecutarPortada(t, servicio, http.MethodPatch, "/proyectos/9", cuerpo, "application/x-www-form-urlencoded")
+
+	if grabador.Code != http.StatusOK ||
+		servicio.pedidoEdicion.Nombre == nil ||
+		*servicio.pedidoEdicion.Nombre != "Rock" ||
+		!reflect.DeepEqual(servicio.pedidoEdicion.CodigosGeneros, []int64{3, 5}) {
+		t.Fatalf("status = %d, pedido = %+v", grabador.Code, servicio.pedidoEdicion)
+	}
+}
