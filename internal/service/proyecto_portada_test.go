@@ -24,6 +24,10 @@ type portadaRepositoryFalso struct {
 	// Fallo después de subir el logo (UPDATE o COMMIT).
 	errTrasSubir error
 
+	// Logo que otra edición guardó entre la lectura del service y la
+	// transacción de Actualizar.
+	logoCambiadoPorOtro *string
+
 	crearLlamado     bool
 	creado           bool
 	logoCreado       *string
@@ -107,23 +111,27 @@ func (r *portadaRepositoryFalso) Actualizar(
 	_ int64,
 	_ int64,
 	_ []int64,
-) (*string, error) {
+) (*string, *string, error) {
 	if r.errTrasSubir != nil {
-		return nil, r.errTrasSubir
+		return nil, nil, r.errTrasSubir
 	}
 
 	r.actualizado = true
 	r.cambioLogo = cambiarLogo
 
+	if r.logoCambiadoPorOtro != nil {
+		r.logoActual = r.logoCambiadoPorOtro
+	}
+
 	if !cambiarLogo {
-		return nil, nil
+		return r.logoActual, nil, nil
 	}
 
 	anterior := r.logoActual
 	r.logoActualizado = logoObjectKey
 	r.logoActual = logoObjectKey
 
-	return anterior, nil
+	return logoObjectKey, anterior, nil
 }
 
 func nuevoServicioPortada(logoActual *string) (*portadaRepositoryFalso, *storageStemFalso, ProyectoService) {
@@ -460,5 +468,27 @@ func TestEditarProyecto_SoloElPropietarioCambiaLaPortada(t *testing.T) {
 	}
 	if repo.actualizado || len(almacenamiento.eliminados) != 0 {
 		t.Fatal("un integrante que no es propietario no puede tocar la portada")
+	}
+}
+
+// Una edición sin cambio de portada leyó la portada A, pero antes de que
+// guarde otra edición la reemplazó por B (y borró A): la respuesta tiene que
+// firmar B, que es la que quedó en la fila.
+func TestEditarProyecto_SinTocarLaPortadaRespondeLaVigente(t *testing.T) {
+	leida := "proyectos/9/logo-a.png"
+	vigente := "proyectos/9/logo-b.png"
+	repo, almacenamiento, servicio := nuevoServicioPortada(&leida)
+	repo.logoCambiadoPorOtro = &vigente
+
+	respuesta, err := servicio.EditarProyecto(1, 9, dto.EditarProyectoRequest{}, nil, false)
+
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if respuesta.LogoUrl == nil || *respuesta.LogoUrl != "https://storage.test/"+vigente {
+		t.Fatalf("logoUrl = %v, se esperaba la portada vigente", respuesta.LogoUrl)
+	}
+	if len(almacenamiento.eliminados) != 0 {
+		t.Fatalf("sin cambio de portada no se borra nada: %v", almacenamiento.eliminados)
 	}
 }

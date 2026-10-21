@@ -312,9 +312,13 @@ func esperarActualizacionProyecto(mock sqlmock.Sqlmock, logoActual *string, camb
 	mock.ExpectQuery(`SELECT logoproyecto\s+FROM proyecto[\s\S]+FOR UPDATE`).
 		WithArgs(int64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}).AddRow(logoActual))
-	mock.ExpectExec(regexp.QuoteMeta(`logoproyecto = CASE WHEN $3 THEN $4 ELSE logoproyecto END`)).
+	vigente := logoActual
+	if cambiarLogo {
+		vigente = logoNuevo
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(`logoproyecto = CASE WHEN $3 THEN $4 ELSE logoproyecto END`)).
 		WithArgs("Rock", (*string)(nil), cambiarLogo, logoNuevo, int64(1), int64(1), int64(9)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}).AddRow(vigente))
 	mock.ExpectExec(`DELETE FROM proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
 }
@@ -327,10 +331,10 @@ func TestActualizarProyecto_ConLogoNuevoDevuelveElAnterior(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, true, &nuevo)
 	mock.ExpectCommit()
 
-	anterior, err := repo.Actualizar(9, "Rock", nil, true, &nuevo, 1, 1, []int64{3})
+	vigente, anterior, err := repo.Actualizar(9, "Rock", nil, true, &nuevo, 1, 1, []int64{3})
 
-	if err != nil || anterior == nil || *anterior != actual {
-		t.Fatalf("anterior = %v, err = %v", anterior, err)
+	if err != nil || anterior == nil || *anterior != actual || vigente == nil || *vigente != nuevo {
+		t.Fatalf("vigente = %v, anterior = %v, err = %v", vigente, anterior, err)
 	}
 }
 
@@ -341,10 +345,14 @@ func TestActualizarProyecto_SinCambiarLogoConservaElDeLaFila(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, false, nil)
 	mock.ExpectCommit()
 
-	anterior, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+	vigente, anterior, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
 
 	if err != nil || anterior != nil {
 		t.Fatalf("sin cambio de logo no hay nada que borrar: anterior = %v, err = %v", anterior, err)
+	}
+	// El vigente sale del RETURNING, no de lo que leyó el service.
+	if vigente == nil || *vigente != actual {
+		t.Fatalf("vigente = %v", vigente)
 	}
 }
 
@@ -355,7 +363,7 @@ func TestActualizarProyecto_ProyectoInexistente(t *testing.T) {
 	mock.ExpectQuery(`FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}))
 	mock.ExpectRollback()
 
-	_, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+	_, _, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
 
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("err = %v", err)
@@ -369,7 +377,7 @@ func TestActualizarProyecto_UnFalloDelCommitEsIncierto(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, true, nil)
 	mock.ExpectCommit().WillReturnError(errors.New("conexión cortada"))
 
-	_, err := repo.Actualizar(9, "Rock", nil, true, nil, 1, 1, []int64{3})
+	_, _, err := repo.Actualizar(9, "Rock", nil, true, nil, 1, 1, []int64{3})
 
 	if !errors.Is(err, ErrConfirmacionIncierta) {
 		t.Fatalf("err = %v", err)

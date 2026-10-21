@@ -958,7 +958,9 @@ func (s *proyectoService) EditarProyecto(
 	// 5. Repository recibe finalmente todos los valores,
 	// tanto modificados como conservados. El logo solo se escribe si
 	// cambió, y el repository devuelve el que reemplazó.
-	logoAnterior, err := s.proyectoRepository.Actualizar(
+	// logoVigente puede diferir de logoObjectKey si no se tocó el logo y
+	// otra edición lo cambió mientras tanto: la respuesta firma el vigente.
+	logoVigente, logoAnterior, err := s.proyectoRepository.Actualizar(
 		codigoProyecto,
 		nombre,
 		descripcion,
@@ -988,7 +990,7 @@ func (s *proyectoService) EditarProyecto(
 
 	logoUrl, err :=
 		s.resolverLogoProyectoURL(
-			logoObjectKey,
+			logoVigente,
 		)
 
 	if err != nil {

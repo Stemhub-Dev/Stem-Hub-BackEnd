@@ -43,8 +43,9 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) ([]dto.GeneroProyectoResponse, error)
 
-	// Actualizar solo toca el logo si cambiarLogo es true, y en ese caso
-	// devuelve la clave que reemplazó (leída en la misma transacción).
+	// Actualizar solo toca el logo si cambiarLogo es true. Devuelve el logo
+	// que quedó guardado y, si cambió, la clave que reemplazó (las dos
+	// leídas en la misma transacción).
 	Actualizar(
 		codigoProyecto int64,
 		nombre string,
@@ -54,7 +55,7 @@ type ProyectoRepository interface {
 		codigoEstadoProyecto int64,
 		codigoTipoProyecto int64,
 		codigosGeneros []int64,
-	) (logoAnterior *string, err error)
+	) (logoVigente *string, logoReemplazado *string, err error)
 
 	PuedeGestionarCanciones(
 		codigoIntegrante int64,
@@ -881,11 +882,11 @@ func (r *proyectoRepository) Actualizar(
 	codigoEstadoProyecto int64,
 	codigoTipoProyecto int64,
 	codigosGeneros []int64,
-) (*string, error) {
+) (*string, *string, error) {
 
 	tx, err := r.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	defer tx.Rollback()
@@ -905,12 +906,14 @@ func (r *proyectoRepository) Actualizar(
 	).Scan(&logoAnterior)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Sin cambio de logo se conserva el valor de la fila: no se reescribe
 	// el que el service leyó antes, que pudo haber cambiado desde entonces.
-	_, err = tx.Exec(`
+	var logoVigente *string
+
+	err = tx.QueryRow(`
 		UPDATE proyecto
 		SET
 			nombreproyecto = $1,
@@ -919,6 +922,7 @@ func (r *proyectoRepository) Actualizar(
 			codestadoproy = $5,
 			codtipoproy = $6
 		WHERE codigoproyecto = $7
+		RETURNING logoproyecto
 	`,
 		nombre,
 		descripcion,
@@ -927,10 +931,10 @@ func (r *proyectoRepository) Actualizar(
 		codigoEstadoProyecto,
 		codigoTipoProyecto,
 		codigoProyecto,
-	)
+	).Scan(&logoVigente)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Eliminamos las relaciones actuales.
@@ -942,7 +946,7 @@ func (r *proyectoRepository) Actualizar(
 	)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Insertamos nuevamente los géneros seleccionados.
@@ -960,19 +964,19 @@ func (r *proyectoRepository) Actualizar(
 		)
 
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
 	if !cambiarLogo {
-		return nil, nil
+		return logoVigente, nil, nil
 	}
 
-	return logoAnterior, nil
+	return logoVigente, logoAnterior, nil
 }
 
 func (r *proyectoRepository) DarDeBaja(
