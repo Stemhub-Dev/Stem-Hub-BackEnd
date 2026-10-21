@@ -115,6 +115,15 @@ func (h *CancionHandler) Crear(c *gin.Context) {
 
 	case errors.Is(
 		err,
+		service.ErrCancionNombreLargo,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El nombre de la canción puede tener hasta 80 caracteres"},
+		)
+
+	case errors.Is(
+		err,
 		service.ErrCancionNombreObligatorio,
 	):
 		c.JSON(
@@ -299,6 +308,15 @@ func (h *CancionHandler) Editar(
 
 	case errors.Is(
 		err,
+		service.ErrCancionNombreLargo,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El nombre de la canción puede tener hasta 80 caracteres"},
+		)
+
+	case errors.Is(
+		err,
 		service.ErrCancionNombreObligatorio,
 	):
 		c.JSON(
@@ -467,6 +485,15 @@ func (h *CancionHandler) CrearVersion(c *gin.Context) {
 			notas,
 		)
 	switch {
+
+	case errors.Is(
+		err,
+		service.ErrVersionNotasLargas,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "Las notas de la versión pueden tener hasta 500 caracteres"},
+		)
 
 	case errors.Is(
 		err,
@@ -1187,6 +1214,9 @@ func responderErrorVersion(c *gin.Context, err error, accion string) bool {
 
 	case errors.Is(err, service.ErrVersionSinPermisoBaja):
 		c.JSON(http.StatusForbidden, gin.H{"error": "No tenés permiso para dar de baja versiones en este proyecto"})
+
+	case errors.Is(err, service.ErrVersionNotasLargas):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Las notas de la versión pueden tener hasta 500 caracteres"})
 
 	case errors.Is(err, service.ErrVersionUnica):
 		c.JSON(http.StatusConflict, gin.H{"error": "Una canción necesita al menos una versión"})

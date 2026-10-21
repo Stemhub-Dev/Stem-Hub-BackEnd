@@ -122,6 +122,24 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 
 	case errors.Is(
 		err,
+		service.ErrNombreProyectoLargo,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El nombre del proyecto puede tener hasta 60 caracteres"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrDescripcionProyectoLarga,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "La descripción del proyecto puede tener hasta 500 caracteres"},
+		)
+
+	case errors.Is(
+		err,
 		service.ErrNombreProyectoObligatorio,
 	):
 		c.JSON(
@@ -925,6 +943,24 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 	// =====================================================
 
 	switch {
+
+	case errors.Is(
+		err,
+		service.ErrNombreProyectoLargo,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "El nombre del proyecto puede tener hasta 60 caracteres"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrDescripcionProyectoLarga,
+	):
+		c.JSON(
+			http.StatusBadRequest,
+			gin.H{"error": "La descripción del proyecto puede tener hasta 500 caracteres"},
+		)
 
 	case errors.Is(
 		err,
