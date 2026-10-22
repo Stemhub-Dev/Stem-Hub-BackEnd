@@ -237,3 +237,56 @@ func TestStemsGlobales_Pagina(t *testing.T) {
 		}
 	}
 }
+
+// Un stem borrado sigue contando al inicio del período del indicador del
+// Inicio: si existía hace 60 días y se borró hoy, la variación es -1.
+func TestEliminarStem_ConservaElHistorialParaElIndicadorDelInicio(t *testing.T) {
+	e := prepararStemsGlobales(t)
+
+	var version, codStem int64
+	if err := e.db.QueryRow(
+		`SELECT cv.codigocancionversion
+		 FROM cancionversion cv
+		 JOIN cancion c ON c.codigocancion = cv.codigocancion
+		 WHERE c.codigoproyecto = $1`, e.proyectoMio,
+	).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Exec(
+		`UPDATE cancionversion SET fechahoraaltaversion = NOW() - INTERVAL '90 days' WHERE codigocancionversion = $1`, version,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Exec(
+		`UPDATE integranteproyecto SET fechahoraaltaintegranteproy = NOW() - INTERVAL '90 days' WHERE codigoproyecto = $1`, e.proyectoMio,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.QueryRow(
+		`INSERT INTO stem (codigocancionversion, nombrestem, codcategoriastem, urlarchivostem, formatoarchivostem, nombrearchivostem, fechahoraaltastem)
+		 VALUES ($1, 'Viejo', $2, 'stems/x.wav', 'wav', 'viejo.wav', NOW() - INTERVAL '60 days')
+		 RETURNING codstem`,
+		version, e.catBajo,
+	).Scan(&codStem); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewStemRepository(e.db).Eliminar(codStem); err != nil {
+		t.Fatal(err)
+	}
+
+	ahora := time.Now()
+	inicio := ahora.AddDate(0, 0, -30)
+	conteos, err := NewTableroRepository(e.db).ObtenerConteos(
+		e.integrante, &e.proyectoMio, inicio, ahora, inicio.AddDate(0, 0, -30),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Los tres stems activos del escenario se crearon hoy.
+	if conteos.StemsActuales != 3 || conteos.StemsInicio != 1 {
+		t.Fatalf("stems actuales = %d, al inicio = %d; quería 3 y 1",
+			conteos.StemsActuales, conteos.StemsInicio)
+	}
+}
