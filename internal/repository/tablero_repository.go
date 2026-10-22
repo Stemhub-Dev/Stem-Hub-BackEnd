@@ -658,19 +658,22 @@ func (r *tableroRepository) ListarNovedades(
 // La última visita se guarda en usuario.ultimologin, que existía sin que
 // nada la escribiera. El CTE lee el valor anterior y bloquea la fila
 // (FOR UPDATE): dos visitas superpuestas se serializan y la segunda lee lo que
-// escribió la primera. GREATEST evita que una request demorada, con un
-// "ahora" viejo, retroceda la marca.
+// escribió la primera. El UPDATE lo consume con FROM para que la lectura (y
+// el bloqueo) pase antes de escribir: leído recién en el RETURNING, la fila
+// ya está modificada por el mismo comando y el CTE vuelve vacío. GREATEST
+// evita que una request demorada, con un "ahora" viejo, retroceda la marca.
 const consultaRegistrarVisita = `
 		WITH anterior AS (
-			SELECT ultimologin
+			SELECT codigousuario, ultimologin
 			FROM usuario
 			WHERE codigousuario = $1
 			FOR UPDATE
 		)
-		UPDATE usuario
-		SET ultimologin = GREATEST(ultimologin, $2)
-		WHERE codigousuario = $1
-		RETURNING (SELECT ultimologin FROM anterior)
+		UPDATE usuario u
+		SET ultimologin = GREATEST(a.ultimologin, $2)
+		FROM anterior a
+		WHERE u.codigousuario = a.codigousuario
+		RETURNING a.ultimologin
 `
 
 func (r *tableroRepository) RegistrarVisita(codigoUsuario int64, ahora time.Time) (*time.Time, error) {
