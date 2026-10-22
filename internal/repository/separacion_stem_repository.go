@@ -193,9 +193,13 @@ func (r *separacionStemRepository) Completar(
 				urlarchivostem,
 				formatoarchivostem,
 				nombrearchivostem,
-				generadoconia
+				generadoconia,
+				codintegrantealtastem
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, true)
+			VALUES (
+				$1, $2, $3, $4, $5, $6, true,
+				(SELECT codintegrante FROM separacionstem WHERE codseparacionstem = $7)
+			)
 		`,
 			codigoCancionVersion,
 			stem.Nombre,
@@ -203,6 +207,7 @@ func (r *separacionStemRepository) Completar(
 			stem.Archivo.URL,
 			stem.Archivo.Formato,
 			stem.Archivo.NombreOriginal,
+			codSeparacionStem,
 		); err != nil {
 			return err
 		}

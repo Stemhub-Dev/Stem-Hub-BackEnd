@@ -136,6 +136,7 @@ func prepararEscenarioVersiones(t *testing.T) *escenarioVersiones {
 	e.router.POST(base, h.CrearVersion)
 	e.router.PATCH(base+"/:versionId", h.EditarVersion)
 	e.router.DELETE(base+"/:versionId", h.DarDeBajaVersion)
+	e.router.GET(base+"/:versionId/audio", h.ObtenerAudioVersion)
 
 	return e
 }

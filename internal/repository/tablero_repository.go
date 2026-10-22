@@ -32,6 +32,9 @@ type TableroConteos struct {
 
 	PendientesActuales int64
 	PendientesInicio   int64
+
+	StemsActuales int64
+	StemsInicio   int64
 }
 
 // TableroEtapaConteo es la cantidad de canciones cuya versión actual está en
@@ -73,6 +76,18 @@ type TableroRepository interface {
 		codigoProyecto *int64,
 		limites []time.Time,
 	) (map[int]TableroActividadConteo, error)
+
+	// ListarNovedades devuelve las últimas limite novedades de los proyectos
+	// del integrante y cuántas hay posteriores a desde (0 si desde es nil).
+	ListarNovedades(
+		codigoIntegrante int64,
+		desde *time.Time,
+		limite int,
+	) ([]dto.TableroNovedadResponse, int64, error)
+
+	// RegistrarVisita guarda ahora como última visita del usuario y devuelve
+	// la que tenía antes (nil si nunca había entrado).
+	RegistrarVisita(codigoUsuario int64, ahora time.Time) (*time.Time, error)
 }
 
 type TableroActividadConteo struct {
@@ -150,6 +165,14 @@ const consultaConteosTablero = `
 			  ON v.codigocancionversion = co.codigocancionversion
 			JOIN estadocomentario ec
 			  ON ec.codestadocom = co.codestadocom
+		),
+		stems AS (
+			SELECT
+				s.fechahoraaltastem AS alta,
+				LEAST(s.fechahorabajastem, v.baja) AS baja
+			FROM stem s
+			JOIN versiones v
+			  ON v.codigocancionversion = s.codigocancionversion
 		)
 		SELECT
 			(SELECT COUNT(*) FROM proyectos WHERE baja IS NULL),
@@ -167,7 +190,10 @@ const consultaConteosTablero = `
 			  WHERE baja IS NULL AND alta > $5 AND alta <= $3),
 			(SELECT COUNT(*) FROM comentarios WHERE pendiente AND baja IS NULL),
 			(SELECT COUNT(*) FROM comentarios
-			  WHERE pendiente AND alta <= $3 AND (baja IS NULL OR baja > $3))
+			  WHERE pendiente AND alta <= $3 AND (baja IS NULL OR baja > $3)),
+			(SELECT COUNT(*) FROM stems WHERE baja IS NULL),
+			(SELECT COUNT(*) FROM stems
+			  WHERE alta <= $3 AND (baja IS NULL OR baja > $3))
 `
 
 func (r *tableroRepository) ObtenerConteos(
@@ -198,6 +224,8 @@ func (r *tableroRepository) ObtenerConteos(
 		&conteos.VersionesPeriodoAnterior,
 		&conteos.PendientesActuales,
 		&conteos.PendientesInicio,
+		&conteos.StemsActuales,
+		&conteos.StemsInicio,
 	)
 
 	return conteos, err
@@ -479,4 +507,186 @@ func (r *tableroRepository) ContarActividad(
 	}
 
 	return conteos, rows.Err()
+}
+
+// Novedades del Inicio: versiones, comentarios (también los de stems),
+// respuestas, stems subidos a mano y separaciones con IA terminadas, de los
+// proyectos, canciones y versiones activos donde el integrante ($1) participa
+// hoy. Se excluye lo que hizo él mismo, salvo las separaciones (son el aviso
+// de que terminó un proceso en segundo plano). Lo que no tiene autor
+// (versiones y stems anteriores a que se guardara) no aparece.
+//
+// Los stems subidos a mano se agrupan por autor, versión y día: subir cinco
+// pistas juntas es una sola novedad.
+//
+// novedadesdesde ($2) se cuenta con una ventana, que se calcula antes del
+// LIMIT ($3): el total no depende de cuántas se piden.
+const consultaNovedadesTablero = `
+		WITH versiones AS (
+			SELECT
+				cv.codigocancionversion,
+				cv.fechahoraaltaversion,
+				cv.codintegrantealtaversion,
+				c.codigocancion,
+				c.nombrecancion,
+				p.codigoproyecto,
+				p.nombreproyecto
+			FROM cancionversion cv
+			JOIN cancion c
+			  ON c.codigocancion = cv.codigocancion
+			 AND c.fechahorabajacancion IS NULL
+			JOIN proyecto p
+			  ON p.codigoproyecto = c.codigoproyecto
+			 AND p.fechahorabajaproyecto IS NULL
+			WHERE cv.fechahorabajaversion IS NULL
+			  AND EXISTS (
+					SELECT 1
+					FROM integranteproyecto ip
+					WHERE ip.codigoproyecto = p.codigoproyecto
+					  AND ip.codintegrante = $1
+					  AND ip.fechahorabajaintegranteproy IS NULL
+			  )
+		),
+		novedades AS (
+			SELECT
+				'VERSION' AS tipo,
+				v.fechahoraaltaversion AS fecha,
+				v.codintegrantealtaversion AS autor,
+				v.codigocancionversion,
+				1::bigint AS cantidad
+			FROM versiones v
+			UNION ALL
+			SELECT 'COMENTARIO', co.fechahoraaltacomentario, co.codintegrante, v.codigocancionversion, 1
+			FROM comentario co
+			JOIN versiones v
+			  ON v.codigocancionversion = co.codigocancionversion
+			WHERE co.fechahorabajacomentario IS NULL
+			UNION ALL
+			SELECT 'RESPUESTA', r.fechahoraaltarespuesta, r.codintegrante, v.codigocancionversion, 1
+			FROM comentariorespuesta r
+			JOIN comentario co
+			  ON co.codigocomentario = r.codigocomentario
+			 AND co.fechahorabajacomentario IS NULL
+			JOIN versiones v
+			  ON v.codigocancionversion = co.codigocancionversion
+			WHERE r.fechahorabajarespuesta IS NULL
+			UNION ALL
+			SELECT 'STEMS', MAX(s.fechahoraaltastem), s.codintegrantealtastem, v.codigocancionversion, COUNT(*)
+			FROM stem s
+			JOIN versiones v
+			  ON v.codigocancionversion = s.codigocancionversion
+			WHERE s.fechahorabajastem IS NULL
+			  AND NOT s.generadoconia
+			GROUP BY s.codintegrantealtastem, v.codigocancionversion, date_trunc('day', s.fechahoraaltastem)
+			UNION ALL
+			SELECT 'SEPARACION', sep.fechahorafin, sep.codintegrante, v.codigocancionversion, sep.cantidadstems
+			FROM separacionstem sep
+			JOIN versiones v
+			  ON v.codigocancionversion = sep.codigocancionversion
+			WHERE sep.estadoseparacion = 'COMPLETADA'
+			  AND sep.fechahorafin IS NOT NULL
+		)
+		SELECT
+			n.tipo,
+			n.fecha,
+			i.codintegrante,
+			i.nombreintegrante,
+			v.codigoproyecto,
+			v.nombreproyecto,
+			v.codigocancion,
+			v.nombrecancion,
+			n.cantidad,
+			COUNT(*) FILTER (WHERE n.fecha > $2::timestamptz) OVER () AS novedadesdesde
+		FROM novedades n
+		JOIN integrante i
+		  ON i.codintegrante = n.autor
+		JOIN versiones v
+		  ON v.codigocancionversion = n.codigocancionversion
+		WHERE n.autor <> $1
+		   OR n.tipo = 'SEPARACION'
+		ORDER BY n.fecha DESC, n.tipo
+		LIMIT $3
+`
+
+func (r *tableroRepository) ListarNovedades(
+	codigoIntegrante int64,
+	desde *time.Time,
+	limite int,
+) ([]dto.TableroNovedadResponse, int64, error) {
+
+	rows, err := r.db.Query(
+		consultaNovedadesTablero,
+		codigoIntegrante,
+		desde,
+		limite,
+	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	defer rows.Close()
+
+	novedades := make([]dto.TableroNovedadResponse, 0)
+	var novedadesDesde int64
+
+	for rows.Next() {
+
+		var novedad dto.TableroNovedadResponse
+
+		if err := rows.Scan(
+			&novedad.Tipo,
+			&novedad.Fecha,
+			&novedad.Autor.CodigoIntegrante,
+			&novedad.Autor.Nombre,
+			&novedad.CodigoProyecto,
+			&novedad.NombreProyecto,
+			&novedad.CodigoCancion,
+			&novedad.NombreCancion,
+			&novedad.Cantidad,
+			&novedadesDesde,
+		); err != nil {
+			return nil, 0, err
+		}
+
+		novedades = append(novedades, novedad)
+	}
+
+	return novedades, novedadesDesde, rows.Err()
+}
+
+// La última visita se guarda en usuario.ultimologin, que existía sin que
+// nada la escribiera. El CTE lee el valor anterior y bloquea la fila
+// (FOR UPDATE): dos visitas superpuestas se serializan y la segunda lee lo que
+// escribió la primera. El UPDATE lo consume con FROM para que la lectura (y
+// el bloqueo) pase antes de escribir: leído recién en el RETURNING, la fila
+// ya está modificada por el mismo comando y el CTE vuelve vacío. GREATEST
+// evita que una request demorada, con un "ahora" viejo, retroceda la marca.
+const consultaRegistrarVisita = `
+		WITH anterior AS (
+			SELECT codigousuario, ultimologin
+			FROM usuario
+			WHERE codigousuario = $1
+			FOR UPDATE
+		)
+		UPDATE usuario u
+		SET ultimologin = GREATEST(a.ultimologin, $2)
+		FROM anterior a
+		WHERE u.codigousuario = a.codigousuario
+		RETURNING a.ultimologin
+`
+
+func (r *tableroRepository) RegistrarVisita(codigoUsuario int64, ahora time.Time) (*time.Time, error) {
+
+	var anterior sql.NullTime
+
+	if err := r.db.QueryRow(consultaRegistrarVisita, codigoUsuario, ahora).Scan(&anterior); err != nil {
+		return nil, err
+	}
+
+	if !anterior.Valid {
+		return nil, nil
+	}
+
+	return &anterior.Time, nil
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
@@ -87,6 +88,58 @@ func (h *TableroHandler) ObtenerActividad(c *gin.Context) {
 	c.JSON(http.StatusOK, datos)
 }
 
+// GET /tablero/novedades?desde=<RFC 3339>&limite=
+func (h *TableroHandler) ObtenerNovedades(c *gin.Context) {
+	usuario, ok := usuarioDesdeContexto(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
+		return
+	}
+
+	var desde *time.Time
+	if texto := strings.TrimSpace(c.Query("desde")); texto != "" {
+		fecha, err := time.Parse(time.RFC3339, texto)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "desde debe ser una fecha RFC 3339"})
+			return
+		}
+		desde = &fecha
+	}
+
+	limite := service.LimiteNovedadesPorDefecto
+	if texto := strings.TrimSpace(c.Query("limite")); texto != "" {
+		valor, err := strconv.Atoi(texto)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "limite debe ser un número entero"})
+			return
+		}
+		limite = valor
+	}
+
+	novedades, err := h.service.ObtenerNovedades(usuario.CodigoUsuario, desde, limite)
+	if h.responderError(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, novedades)
+}
+
+// POST /tablero/visita
+func (h *TableroHandler) RegistrarVisita(c *gin.Context) {
+	usuario, ok := usuarioDesdeContexto(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario no autenticado"})
+		return
+	}
+
+	visita, err := h.service.RegistrarVisita(usuario.CodigoUsuario)
+	if h.responderError(c, err) {
+		return
+	}
+
+	c.JSON(http.StatusOK, visita)
+}
+
 // leerParametrosComunes obtiene el usuario autenticado y el filtro opcional
 // proyectoId. Si algo falla ya respondió y devuelve false.
 func (h *TableroHandler) leerParametrosComunes(c *gin.Context) (int64, *int64, bool) {
@@ -118,6 +171,8 @@ func (h *TableroHandler) responderError(c *gin.Context, err error) bool {
 	switch {
 	case errors.Is(err, service.ErrTableroAgrupacionInvalida):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "agrupacion debe ser semanal o mensual"})
+	case errors.Is(err, service.ErrTableroLimiteInvalido):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "limite debe estar entre 1 y 50"})
 	case errors.Is(err, service.ErrTableroProyectoNoEncontrado):
 		c.JSON(http.StatusNotFound, gin.H{"error": "El proyecto no existe"})
 	case errors.Is(err, service.ErrTableroSinAcceso):

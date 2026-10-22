@@ -29,6 +29,11 @@ type ProyectoListadoResponse struct {
 	Estado            string  `json:"estado"`
 	CantidadCanciones int     `json:"cantidadCanciones"`
 
+	// Canciones cuya versión actual está en la última etapa activa del
+	// catálogo de versionado (la de mayor orden; hoy, Mezcla). Es el
+	// progreso que muestra el Inicio.
+	CancionesListas int `json:"cancionesListas"`
+
 	CodRol        int64  `json:"codRol"`
 	NombreRol     string `json:"nombreRol"`
 	EsPropietario bool   `json:"esPropietario"`
