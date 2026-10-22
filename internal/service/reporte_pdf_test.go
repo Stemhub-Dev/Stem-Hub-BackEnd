@@ -227,3 +227,24 @@ func TestNombreArchivoReporte(t *testing.T) {
 		t.Errorf("nombreArchivoReporte() = %q, se esperaba %q", got, esperado)
 	}
 }
+
+// El PDF muestra las versiones igual que el resto de la app ("v3").
+func TestVersionATexto(t *testing.T) {
+	casos := []struct {
+		valor  interface{}
+		quiero string
+	}{
+		{int64(3), "v3"},
+		{3, "v3"},
+		{float64(3), "v3"},
+		{"3", "v3"},
+		{int64(0), sinDato},
+		{nil, sinDato},
+	}
+
+	for _, caso := range casos {
+		if got := versionATexto(caso.valor); got != caso.quiero {
+			t.Errorf("versionATexto(%#v) = %q, quería %q", caso.valor, got, caso.quiero)
+		}
+	}
+}

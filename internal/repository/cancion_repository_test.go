@@ -246,7 +246,7 @@ func TestListarPorIntegrante_PasaFiltrosOrdenYPaginacion(t *testing.T) {
 	}
 	if conVersion.VersionActual == nil ||
 		conVersion.VersionActual.NumeroVersion != 3 ||
-		conVersion.VersionActual.EtiquetaVersion != "v1.2.0" ||
+		conVersion.VersionActual.EtiquetaVersion != "v3" ||
 		*conVersion.VersionActual.FormatoArchivo != "mp3" {
 		t.Fatalf("versión actual incorrecta: %+v", conVersion.VersionActual)
 	}

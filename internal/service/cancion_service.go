@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -382,7 +381,7 @@ func (s *cancionService) Crear(
 		NombreCancion:        nombre,
 		CodigoCancionVersion: codigoVersion,
 		NumeroVersion:        1,
-		EtiquetaVersion:      "v1.0.0",
+		EtiquetaVersion:      dto.EtiquetaVersion(1),
 	}, nil
 }
 
@@ -507,15 +506,11 @@ func (s *cancionService) CrearVersion(
 		return nil, err
 	}
 
-	etiqueta := "v1." +
-		strconv.Itoa(siguienteVersion-1) +
-		".0"
-
 	return &dto.CrearVersionCancionResponse{
 		CodigoCancionVersion: codigoVersion,
 		CodigoCancion:        codigoCancion,
 		NumeroVersion:        siguienteVersion,
-		EtiquetaVersion:      etiqueta,
+		EtiquetaVersion:      dto.EtiquetaVersion(int64(siguienteVersion)),
 		Notas:                notas,
 	}, nil
 }
