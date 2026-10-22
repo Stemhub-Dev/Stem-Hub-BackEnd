@@ -58,6 +58,10 @@ func NewRouter(db *sql.DB,
 
 	router.GET("/roles", rolHandler.Listar)
 
+	// HU-SEG-B02: sin UsuarioActivo, para que también pueda cerrar sesión
+	// quien todavía no completó el registro o fue dado de baja.
+	router.POST("/auth/logout", authMiddleware.ValidarJWT, authMiddleware.CerrarSesion)
+
 	usuarios := router.Group("/usuarios")
 	usuarios.Use(authMiddleware.ValidarJWT)
 	usuarios.POST("/registrar", usuarioHandler.Registrar)

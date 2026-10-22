@@ -6,10 +6,12 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 )
@@ -21,11 +23,16 @@ const (
 	// Debe coincidir con el literal que usa el frontend
 	// (stemhub-frontend/src/lib/http/interceptors.ts).
 	CodigoUsuarioInactivo = "usuario_inactivo"
+
+	// HU-SEG-B02: una sesión sin requests durante este tiempo deja de
+	// servir, aunque el access token no haya vencido.
+	InactividadMaximaSesion = 45 * time.Minute
 )
 
 type SupabaseClaims struct {
 	Email        string           `json:"email"`
 	Role         string           `json:"role"`
+	SessionID    string           `json:"session_id"`
 	UserMetadata MetadatosUsuario `json:"user_metadata"`
 	jwt.RegisteredClaims
 }
@@ -36,8 +43,15 @@ type MetadatosUsuario struct {
 	EmailVerified bool `json:"email_verified"`
 }
 
+// RegistroSesiones lo implementa repository.SesionRepository.
+type RegistroSesiones interface {
+	RegistrarActividad(idSesion, idAutenticacion string, ahora time.Time, inactividadMaxima time.Duration) (bool, error)
+	Revocar(idSesion, idAutenticacion string, ahora time.Time) error
+}
+
 type AuthMiddleware struct {
 	usuarioService service.UsuarioService
+	sesiones       RegistroSesiones
 	keyFunc        jwt.Keyfunc
 	issuer         string
 	audience       string
@@ -45,6 +59,7 @@ type AuthMiddleware struct {
 
 func NewAuthMiddleware(
 	usuarioService service.UsuarioService,
+	sesiones RegistroSesiones,
 	supabaseURL string,
 	audience string,
 	jwksBaseURLOverride string,
@@ -83,6 +98,7 @@ func NewAuthMiddleware(
 
 	return &AuthMiddleware{
 		usuarioService: usuarioService,
+		sesiones:       sesiones,
 		keyFunc:        jwks.Keyfunc,
 		issuer:         issuer,
 		audience:       audience,
@@ -137,9 +153,65 @@ func (m *AuthMiddleware) ValidarJWT(c *gin.Context) {
 		return
 	}
 
+	// GoTrue emite siempre session_id y sub como UUID; sin ellos no se
+	// puede saber si la sesión se cerró.
+	if uuid.Validate(claims.SessionID) != nil || uuid.Validate(claims.Subject) != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "token sin sesión válida",
+		})
+		return
+	}
+
+	vigente, err := m.sesiones.RegistrarActividad(
+		claims.SessionID,
+		claims.Subject,
+		time.Now(),
+		InactividadMaximaSesion,
+	)
+
+	if err != nil {
+		log.Printf("ValidarJWT: no se pudo registrar la actividad de la sesión %s: %v", claims.SessionID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "error interno del servidor",
+		})
+		return
+	}
+
+	if !vigente {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "sesión cerrada o vencida por inactividad",
+		})
+		return
+	}
+
 	c.Set(ClaimsContextKey, claims)
 
 	c.Next()
+}
+
+// CerrarSesion revoca la sesión del token (va después de ValidarJWT). El
+// front lo llama antes de cerrar la sesión en GoTrue: GoTrue revoca el
+// refresh token, pero el access token seguiría sirviendo hasta su "exp".
+func (m *AuthMiddleware) CerrarSesion(c *gin.Context) {
+	claimsValue, _ := c.Get(ClaimsContextKey)
+	claims, ok := claimsValue.(*SupabaseClaims)
+
+	if !ok {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "identidad de autenticación no disponible",
+		})
+		return
+	}
+
+	if err := m.sesiones.Revocar(claims.SessionID, claims.Subject, time.Now()); err != nil {
+		log.Printf("CerrarSesion: no se pudo revocar la sesión %s: %v", claims.SessionID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "error interno del servidor",
+		})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
