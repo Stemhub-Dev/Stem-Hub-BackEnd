@@ -40,6 +40,8 @@ type escenarioMisCanciones struct {
 	proyectoA     int64
 	proyectoB     int64
 	proyectoAjeno int64
+
+	integranteConPerfil int64
 }
 
 func conectarBaseDePrueba(t *testing.T) *sql.DB {
@@ -74,6 +76,10 @@ func conectarBaseDePrueba(t *testing.T) *sql.DB {
 //
 // Visibles para el usuario, de la más reciente a la más vieja:
 // BALADA azul, Balada Roja, Rock 100%, Otra, mi_tema.
+//
+// Comentarios pendientes en la versión actual: Balada Roja 1 (más uno en
+// v1, otro resuelto y otro pendiente dado de baja, que no cuentan), Rock
+// 100% 2, Otra 0 (solo uno resuelto). BALADA azul tiene autor y etapa.
 func prepararEscenario(t *testing.T) escenarioMisCanciones {
 	t.Helper()
 
@@ -102,6 +108,8 @@ func prepararEscenario(t *testing.T) escenarioMisCanciones {
 				}
 			}
 		}
+		borrar(`DELETE FROM comentario WHERE codigocancionversion IN (
+			SELECT codigocancionversion FROM cancionversion WHERE codigocancion = $1)`, canciones)
 		borrar(`DELETE FROM cancionversion WHERE codigocancion = $1`, canciones)
 		borrar(`DELETE FROM cancion WHERE codigocancion = $1`, canciones)
 		borrar(`DELETE FROM integranteproyecto WHERE codigointegranteproyecto = $1`, membresias)
@@ -174,7 +182,7 @@ func prepararEscenario(t *testing.T) escenarioMisCanciones {
 		membresias = append(membresias, id)
 	}
 
-	nuevaCancion := func(codProyecto int64, nombre string, dadaDeBaja bool, haceVersiones ...time.Duration) {
+	nuevaCancion := func(codProyecto int64, nombre string, dadaDeBaja bool, haceVersiones ...time.Duration) int64 {
 		var baja *time.Time
 		if dadaDeBaja {
 			ahora := time.Now()
@@ -196,6 +204,26 @@ func prepararEscenario(t *testing.T) escenarioMisCanciones {
 			)
 			debe(err)
 		}
+		return id
+	}
+
+	// Comentario sobre la versión numeroVersion de la canción.
+	nuevoComentario := func(codCancion int64, numeroVersion int, estado string, dadoDeBaja bool) {
+		var baja *time.Time
+		if dadoDeBaja {
+			ahora := time.Now()
+			baja = &ahora
+		}
+		_, err := db.Exec(
+			`INSERT INTO comentario (codintegrante, codestadocom, codigocancionversion, descripcioncomentario, fechahorabajacomentario)
+			 SELECT $1, ec.codestadocom, cv.codigocancionversion, 'comentario de prueba', $5
+			 FROM estadocomentario ec, cancionversion cv
+			 WHERE LOWER(ec.nombreestadocom) = LOWER($2)
+			   AND cv.codigocancion = $3
+			   AND cv.numeroversion = $4`,
+			integranteYo, estado, codCancion, numeroVersion, baja,
+		)
+		debe(err)
 	}
 
 	yo := nuevoUsuario("yo")
@@ -218,23 +246,41 @@ func prepararEscenario(t *testing.T) escenarioMisCanciones {
 	nuevaMembresia(integranteOtr, proyectoAjeno, false)
 
 	dia := 24 * time.Hour
-	nuevaCancion(proyectoA, "Balada Roja", false, 3*dia, 1*dia)
-	nuevaCancion(proyectoA, "Rock 100%", false, 2*dia)
+	baladaRoja := nuevaCancion(proyectoA, "Balada Roja", false, 3*dia, 1*dia)
+	rock := nuevaCancion(proyectoA, "Rock 100%", false, 2*dia)
 	nuevaCancion(proyectoA, "mi_tema", false)
 	nuevaCancion(proyectoA, "Balada borrada", true, time.Hour)
-	nuevaCancion(proyectoB, "BALADA azul", false, 5*time.Hour)
-	nuevaCancion(proyectoB, "Otra", false, 10*dia)
+	baladaAzul := nuevaCancion(proyectoB, "BALADA azul", false, 5*time.Hour)
+	otra := nuevaCancion(proyectoB, "Otra", false, 10*dia)
 	nuevaCancion(proyectoAjeno, "Balada ajena", false, time.Hour)
 	nuevaCancion(proyectoBaja, "Balada de proyecto dado de baja", false, time.Hour)
 	nuevaCancion(proyectoAbandonado, "Balada de proyecto abandonado", false, time.Hour)
 
+	nuevoComentario(baladaRoja, 1, "Pendiente", false)
+	nuevoComentario(baladaRoja, 2, "Pendiente", false)
+	nuevoComentario(baladaRoja, 2, "Resuelto", false)
+	nuevoComentario(baladaRoja, 2, "Pendiente", true)
+	nuevoComentario(rock, 1, "Pendiente", false)
+	nuevoComentario(rock, 1, "Pendiente", false)
+	nuevoComentario(otra, 1, "Resuelto", false)
+
+	_, err := db.Exec(
+		`UPDATE cancionversion
+		 SET codintegrantealtaversion = $1,
+		     codetapaversion = (SELECT MIN(codetapaversion) FROM etapaversionado)
+		 WHERE codigocancion = $2`,
+		integranteYo, baladaAzul,
+	)
+	debe(err)
+
 	return escenarioMisCanciones{
-		db:               db,
-		usuarioConPerfil: yo,
-		usuarioSinPerfil: sinPerfil,
-		proyectoA:        proyectoA,
-		proyectoB:        proyectoB,
-		proyectoAjeno:    proyectoAjeno,
+		db:                  db,
+		usuarioConPerfil:    yo,
+		usuarioSinPerfil:    sinPerfil,
+		proyectoA:           proyectoA,
+		proyectoB:           proyectoB,
+		proyectoAjeno:       proyectoAjeno,
+		integranteConPerfil: integranteYo,
 	}
 }
 
@@ -335,6 +381,60 @@ func TestIntegracionMisCanciones(t *testing.T) {
 		if respuesta.Data[4].VersionActual != nil {
 			t.Errorf("una canción sin versiones no debe tener versión actual")
 		}
+	})
+
+	t.Run("actividad de la versión actual", func(t *testing.T) {
+		status, respuesta := e.pedir(t, yo, "/canciones")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, se esperaba 200", status)
+		}
+
+		pendientes := map[string]int{}
+		for _, cancion := range respuesta.Data {
+			pendientes[cancion.Nombre] = cancion.ComentariosPendientes
+		}
+		esperados := map[string]int{
+			"BALADA azul": 0, "Balada Roja": 1, "Rock 100%": 2, "Otra": 0, "mi_tema": 0,
+		}
+		if !reflect.DeepEqual(pendientes, esperados) {
+			t.Errorf("comentariosPendientes = %v, se esperaba %v", pendientes, esperados)
+		}
+
+		azul := respuesta.Data[0]
+		if azul.FechaVersionActual == nil {
+			t.Errorf("falta la fecha de la versión actual: %+v", azul)
+		}
+		if azul.AutorVersionActual == nil ||
+			azul.AutorVersionActual.CodigoIntegrante != e.integranteConPerfil ||
+			azul.AutorVersionActual.Nombre == "" {
+			t.Errorf("autor mal mapeado: %+v", azul.AutorVersionActual)
+		}
+		if azul.EtapaVersionActual == nil || *azul.EtapaVersionActual == "" {
+			t.Errorf("etapa mal mapeada: %+v", azul.EtapaVersionActual)
+		}
+
+		roja := respuesta.Data[1]
+		if roja.AutorVersionActual != nil || roja.EtapaVersionActual != nil {
+			t.Errorf("sin autor ni etapa guardados deben llegar en null: %+v", roja)
+		}
+
+		sinVersion := respuesta.Data[4]
+		if sinVersion.FechaVersionActual != nil || sinVersion.AutorVersionActual != nil {
+			t.Errorf("una canción sin versiones no tiene actividad: %+v", sinVersion)
+		}
+	})
+
+	t.Run("solo con comentarios pendientes en la versión actual", func(t *testing.T) {
+		status, respuesta := e.pedir(t, yo, "/canciones?pendientes=true")
+		verificar(t, status, respuesta, []string{"Balada Roja", "Rock 100%"}, 2, 1, 1)
+	})
+
+	t.Run("pendientes combinado con búsqueda y paginación", func(t *testing.T) {
+		status, respuesta := e.pedir(t, yo, "/canciones?pendientes=true&q=rock")
+		verificar(t, status, respuesta, []string{"Rock 100%"}, 1, 1, 1)
+
+		status, respuesta = e.pedir(t, yo, "/canciones?pendientes=true&page=2&pageSize=1")
+		verificar(t, status, respuesta, []string{"Rock 100%"}, 2, 2, 2)
 	})
 
 	t.Run("búsqueda parcial sin distinguir mayúsculas", func(t *testing.T) {

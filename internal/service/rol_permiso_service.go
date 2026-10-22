@@ -3,8 +3,10 @@ package service
 import (
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
@@ -126,7 +128,7 @@ func (s *rolPermisoService) ActualizarPermisosRol(
 
 	// Protección especial:
 	// Administrador debe conservar GESTIONAR_ROLES.
-	if rol.NombreRol == "Administrador" &&
+	if strings.EqualFold(rol.NombreRol, model.NombreRolAdministradorSistema) &&
 		rol.AmbitoRol == "SISTEMA" {
 
 		var codigoGestionarRoles int64

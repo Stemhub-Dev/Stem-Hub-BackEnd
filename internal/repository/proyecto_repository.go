@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -22,6 +24,7 @@ type ProyectoRepository interface {
 		codigosGeneros []int64,
 		codRol int64,
 		ambitoRol string,
+		subirLogo func(codigoProyecto int64) (string, error),
 	) (int64, error)
 
 	ExisteProyectoActivo(
@@ -40,15 +43,24 @@ type ProyectoRepository interface {
 		codigoProyecto int64,
 	) ([]dto.GeneroProyectoResponse, error)
 
+	// Actualizar solo toca el logo si cambiarLogo es true. Devuelve el logo
+	// que quedó guardado y, si cambió, la clave que reemplazó (las dos
+	// leídas en la misma transacción).
 	Actualizar(
 		codigoProyecto int64,
 		nombre string,
 		descripcion *string,
+		cambiarLogo bool,
 		logoObjectKey *string,
 		codigoEstadoProyecto int64,
 		codigoTipoProyecto int64,
 		codigosGeneros []int64,
-	) error
+	) (logoVigente *string, logoReemplazado *string, err error)
+
+	PuedeGestionarCanciones(
+		codigoIntegrante int64,
+		codigoProyecto int64,
+	) (bool, error)
 
 	PuedeRealizarEnProyecto(
 		codigoIntegrante int64,
@@ -112,6 +124,11 @@ type ProyectoRepository interface {
 	) ([]string, error)
 }
 
+// ErrConfirmacionIncierta envuelve un fallo del COMMIT: no se sabe si la
+// transacción quedó aplicada, así que quien subió archivos para ella no
+// tiene que borrarlos (podrían estar en uso).
+var ErrConfirmacionIncierta = errors.New("no se pudo confirmar la transacción")
+
 type proyectoRepository struct {
 	db *sql.DB
 }
@@ -120,6 +137,40 @@ func NewProyectoRepository(db *sql.DB) ProyectoRepository {
 	return &proyectoRepository{
 		db: db,
 	}
+}
+
+func (r *proyectoRepository) PuedeGestionarCanciones(
+	codigoIntegrante int64,
+	codigoProyecto int64,
+) (bool, error) {
+
+	var puede bool
+
+	err := r.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM integranteproyecto ip
+			WHERE ip.codintegrante = $1
+			  AND ip.codigoproyecto = $2
+			  AND ip.fechahorabajaintegranteproy IS NULL
+			  AND EXISTS (
+					SELECT 1
+					FROM rolpermiso rp
+					JOIN permiso p
+					  ON p.codigopermiso = rp.codigopermiso
+					WHERE rp.codrol = ip.codrol
+					  AND rp.ambitorolpermiso = ip.ambitorol
+					  AND rp.fechahorabajarolpermiso IS NULL
+					  AND p.fechahorabajapermiso IS NULL
+					  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
+			  )
+		)
+	`,
+		codigoIntegrante,
+		codigoProyecto,
+	).Scan(&puede)
+
+	return puede, err
 }
 
 func (r *proyectoRepository) ExisteTipoProyectoActivo(
@@ -221,6 +272,7 @@ func (r *proyectoRepository) Crear(
 	codigosGeneros []int64,
 	codRol int64,
 	ambitoRol string,
+	subirLogo func(codigoProyecto int64) (string, error),
 ) (int64, error) {
 
 	tx, err := r.db.Begin()
@@ -300,8 +352,33 @@ func (r *proyectoRepository) Crear(
 		return 0, err
 	}
 
+	// El logo se sube con la transacción abierta porque su clave en el
+	// storage lleva el código del proyecto: si la subida falla, el
+	// rollback evita que quede un proyecto creado sin la portada elegida.
+	if subirLogo != nil {
+
+		logoObjectKey, err := subirLogo(codigoProyecto)
+
+		if err != nil {
+			return 0, err
+		}
+
+		_, err = tx.Exec(`
+			UPDATE proyecto
+			SET logoproyecto = $1
+			WHERE codigoproyecto = $2
+		`,
+			logoObjectKey,
+			codigoProyecto,
+		)
+
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
 	return codigoProyecto, nil
@@ -466,6 +543,11 @@ const consultaContarMisProyectos = `
 // lo más reciente entre su alta (la del primer integrante, que es quien lo
 // creó) y la última versión activa de alguna de sus canciones activas.
 // GREATEST ignora el NULL de un proyecto sin versiones.
+//
+// Una canción está "lista" si su versión actual (la de mayor numeroversion
+// sin baja) está en la última etapa activa del catálogo. Sin etapas, la
+// subconsulta de la etapa da NULL y no cuenta ninguna.
+
 const consultaListarMisProyectos = `
 	SELECT
 		p.codigoproyecto,
@@ -480,6 +562,28 @@ const consultaListarMisProyectos = `
 			WHERE c.codigoproyecto = p.codigoproyecto
 			  AND c.fechahorabajacancion IS NULL
 		) AS cantidadcanciones,
+		(
+			SELECT COUNT(*)
+			FROM cancion c
+			CROSS JOIN LATERAL (
+				SELECT cv.codetapaversion
+				FROM cancionversion cv
+				WHERE cv.codigocancion = c.codigocancion
+				  AND cv.fechahorabajaversion IS NULL
+				ORDER BY cv.numeroversion DESC
+				LIMIT 1
+			) actual
+			WHERE c.codigoproyecto = p.codigoproyecto
+			  AND c.fechahorabajacancion IS NULL
+			  AND actual.codetapaversion = (
+				SELECT e.codetapaversion
+				FROM etapaversionado e
+				WHERE e.fechahorabajaetapaversion IS NULL
+				ORDER BY e.ordenetapaversion DESC,
+					e.codetapaversion DESC
+				LIMIT 1
+			  )
+		) AS cancioneslistas,
 		ip.codrol,
 		r.nombrerol,
 		ip.espropietario,
@@ -625,6 +729,7 @@ func (r *proyectoRepository) ListarPorIntegrante(
 			&proyecto.Tipo,
 			&proyecto.Estado,
 			&proyecto.CantidadCanciones,
+			&proyecto.CancionesListas,
 			&proyecto.CodRol,
 			&proyecto.NombreRol,
 			&proyecto.EsPropietario,
@@ -842,49 +947,64 @@ func (r *proyectoRepository) Actualizar(
 	codigoProyecto int64,
 	nombre string,
 	descripcion *string,
+	cambiarLogo bool,
 	logoObjectKey *string,
 	codigoEstadoProyecto int64,
 	codigoTipoProyecto int64,
 	codigosGeneros []int64,
-) error {
+) (*string, *string, error) {
 
 	tx, err := r.db.Begin()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	defer tx.Rollback()
 
-	resultado, err := tx.Exec(`
+	// FOR UPDATE: dos ediciones simultáneas no pueden leer el mismo logo
+	// anterior, así cada una borra solo el archivo que ella reemplazó.
+	var logoAnterior *string
+
+	err = tx.QueryRow(`
+		SELECT logoproyecto
+		FROM proyecto
+		WHERE codigoproyecto = $1
+		  AND fechahorabajaproyecto IS NULL
+		FOR UPDATE
+	`,
+		codigoProyecto,
+	).Scan(&logoAnterior)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Sin cambio de logo se conserva el valor de la fila: no se reescribe
+	// el que el service leyó antes, que pudo haber cambiado desde entonces.
+	var logoVigente *string
+
+	err = tx.QueryRow(`
 		UPDATE proyecto
 		SET
 			nombreproyecto = $1,
 			descripcionproyecto = $2,
-			logoproyecto = $3,
-			codestadoproy = $4,
-			codtipoproy = $5
-		WHERE codigoproyecto = $6
-		  AND fechahorabajaproyecto IS NULL
+			logoproyecto = CASE WHEN $3 THEN $4 ELSE logoproyecto END,
+			codestadoproy = $5,
+			codtipoproy = $6
+		WHERE codigoproyecto = $7
+		RETURNING logoproyecto
 	`,
 		nombre,
 		descripcion,
+		cambiarLogo,
 		logoObjectKey,
 		codigoEstadoProyecto,
 		codigoTipoProyecto,
 		codigoProyecto,
-	)
+	).Scan(&logoVigente)
 
 	if err != nil {
-		return err
-	}
-
-	filas, err := resultado.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if filas == 0 {
-		return sql.ErrNoRows
+		return nil, nil, err
 	}
 
 	// Eliminamos las relaciones actuales.
@@ -896,7 +1016,7 @@ func (r *proyectoRepository) Actualizar(
 	)
 
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Insertamos nuevamente los géneros seleccionados.
@@ -914,15 +1034,19 @@ func (r *proyectoRepository) Actualizar(
 		)
 
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return nil, nil, fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
-	return nil
+	if !cambiarLogo {
+		return logoVigente, nil, nil
+	}
+
+	return logoVigente, logoAnterior, nil
 }
 
 func (r *proyectoRepository) DarDeBaja(

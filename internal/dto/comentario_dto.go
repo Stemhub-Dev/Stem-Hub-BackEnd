@@ -2,8 +2,12 @@ package dto
 
 import "time"
 
+// El texto de comentarios y respuestas no lleva binding: vacío y más de 200
+// caracteres los valida el service, que recorta espacios, cuenta runas y
+// devuelve el mensaje de cada caso (con binding salía "Solicitud inválida").
+
 type CrearComentarioRequest struct {
-	Texto                string   `json:"texto" binding:"required,max=200"`
+	Texto                string   `json:"texto"`
 	TiempoInicioSegundos *float64 `json:"tiempoInicioSegundos" binding:"omitempty,min=0"`
 	TiempoFinSegundos    *float64 `json:"tiempoFinSegundos" binding:"omitempty,min=0"`
 	// Opcional: el comentario es de ese stem de la versión. Sin él, es de
@@ -45,7 +49,7 @@ type ComentarioListadoResponse struct {
 }
 
 type CrearRespuestaComentarioRequest struct {
-	Texto string `json:"texto" binding:"required,max=200"`
+	Texto string `json:"texto"`
 }
 
 type RespuestaComentarioResponse struct {
@@ -57,7 +61,7 @@ type RespuestaComentarioResponse struct {
 }
 
 type ModificarComentarioRequest struct {
-	Texto string `json:"texto" binding:"required,max=200"`
+	Texto string `json:"texto"`
 }
 
 type ModificarComentarioResponse struct {

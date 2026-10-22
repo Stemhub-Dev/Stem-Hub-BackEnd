@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,7 +10,28 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
+// ErrVersionUnicaActiva: no se puede dar de baja la única versión activa de
+// una canción.
+var ErrVersionUnicaActiva = errors.New("la canción tiene una sola versión")
+
 type CancionRepository interface {
+	// ActualizarNotasVersion cambia solo las notas de una versión activa.
+	// sql.ErrNoRows si la versión no existe o no es de esa canción.
+	ActualizarNotasVersion(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+		notas *string,
+	) error
+
+	// DarDeBajaVersion hace la baja lógica de una versión activa y devuelve
+	// su número. Bloquea la canción (igual que IniciarCreacionVersion) para
+	// que dos bajas en paralelo no la dejen sin versiones:
+	// ErrVersionUnicaActiva si es la última que queda.
+	DarDeBajaVersion(
+		codigoCancion int64,
+		codigoCancionVersion int64,
+	) (int, error)
+
 	ExisteNombreEnProyecto(
 		codigoProyecto int64,
 		nombre string,
@@ -264,7 +286,6 @@ func (r *cancionRepository) IniciarCreacionVersion(
 		SELECT COALESCE(MAX(numeroversion), 0) + 1
 		FROM cancionversion
 		WHERE codigocancion = $1
-		  AND fechahorabajaversion IS NULL
 	`,
 		codigoCancion,
 	).Scan(&siguienteVersion)
@@ -611,13 +632,17 @@ func (r *cancionRepository) ListarVersiones(
 // totalItems tiene que reflejar el mismo subconjunto que se pagina;
 // TestConsultasMisCancionesCompartenFiltro lo verifica.
 //
-// En ambas, $1 es el integrante, $2 el patrón de búsqueda ya escapado
-// (cadena vacía = sin filtro por nombre) y $3 los proyectos por los que se
-// filtra (arreglo vacío o NULL = todos los del integrante).
+// En ambas:
+// $1 = integrante
+// $2 = patrón de búsqueda
+// $3 = proyectos
+// $4 = permiso requerido para ver canciones
+// $5 = solo canciones con comentarios pendientes
 //
-// El orden también viaja como parámetro ($4 en el listado) y se resuelve con
-// CASE, en lugar de armar el ORDER BY concatenando texto.
-
+// En el listado:
+// $6 = orden
+// $7 = tamaño de página
+// $8 = desplazamiento.
 const consultaContarMisCanciones = `
 	SELECT COUNT(*)
 	FROM integranteproyecto ip
@@ -651,6 +676,26 @@ const consultaContarMisCanciones = `
 		COALESCE(array_length($3::bigint[], 1), 0) = 0
 		OR c.codigoproyecto = ANY($3::bigint[])
 	  )
+
+	  AND (
+		NOT $5::boolean
+		OR EXISTS (
+			SELECT 1
+			FROM comentario cop
+			INNER JOIN estadocomentario ecp
+				ON ecp.codestadocom = cop.codestadocom
+			WHERE cop.codigocancionversion = (
+				SELECT cvp.codigocancionversion
+				FROM cancionversion cvp
+				WHERE cvp.codigocancion = c.codigocancion
+				  AND cvp.fechahorabajaversion IS NULL
+				ORDER BY cvp.numeroversion DESC
+				LIMIT 1
+			)
+			  AND cop.fechahorabajacomentario IS NULL
+			  AND LOWER(ecp.nombreestadocom) = 'pendiente'
+		)
+	  )
 `
 
 const consultaListarMisCanciones = `
@@ -662,29 +707,44 @@ const consultaListarMisCanciones = `
 		cv.codigocancionversion,
 		cv.numeroversion,
 		cv.urlarchivocancionver,
-		cv.formatoarchivocancionver
+		cv.formatoarchivocancionver,
+		cv.fechahoraaltaversion,
+		autor.codintegrante,
+		autor.nombreintegrante,
+		etapa.nombreetapaversion,
+		(
+			SELECT COUNT(*)
+			FROM comentario co
+			INNER JOIN estadocomentario ec
+				ON ec.codestadocom = co.codestadocom
+			WHERE co.codigocancionversion = cv.codigocancionversion
+			  AND co.fechahorabajacomentario IS NULL
+			  AND LOWER(ec.nombreestadocom) = 'pendiente'
+		)
 	FROM integranteproyecto ip
-
 	INNER JOIN proyecto p
 		ON p.codigoproyecto = ip.codigoproyecto
-
 	INNER JOIN cancion c
 		ON c.codigoproyecto = p.codigoproyecto
-
 	LEFT JOIN LATERAL (
 		SELECT
 			cvv.codigocancionversion,
 			cvv.numeroversion,
 			cvv.urlarchivocancionver,
 			cvv.formatoarchivocancionver,
-			cvv.fechahoraaltaversion
+			cvv.fechahoraaltaversion,
+			cvv.codintegrantealtaversion,
+			cvv.codetapaversion
 		FROM cancionversion cvv
 		WHERE cvv.codigocancion = c.codigocancion
 		  AND cvv.fechahorabajaversion IS NULL
 		ORDER BY cvv.numeroversion DESC
 		LIMIT 1
 	) cv ON TRUE
-
+	LEFT JOIN integrante autor
+		ON autor.codintegrante = cv.codintegrantealtaversion
+	LEFT JOIN etapaversionado etapa
+		ON etapa.codetapaversion = cv.codetapaversion
 	WHERE ip.codintegrante = $1
 	  AND ip.fechahorabajaintegranteproy IS NULL
 	  AND p.fechahorabajaproyecto IS NULL
@@ -712,25 +772,33 @@ const consultaListarMisCanciones = `
 		OR c.codigoproyecto = ANY($3::bigint[])
 	  )
 
+	  AND (
+		NOT $5::boolean
+		OR EXISTS (
+			SELECT 1
+			FROM comentario cop
+			INNER JOIN estadocomentario ecp
+				ON ecp.codestadocom = cop.codestadocom
+			WHERE cop.codigocancionversion = (
+				SELECT cvp.codigocancionversion
+				FROM cancionversion cvp
+				WHERE cvp.codigocancion = c.codigocancion
+				  AND cvp.fechahorabajaversion IS NULL
+				ORDER BY cvp.numeroversion DESC
+				LIMIT 1
+			)
+			  AND cop.fechahorabajacomentario IS NULL
+			  AND LOWER(ecp.nombreestadocom) = 'pendiente'
+		)
+	  )
+
 	ORDER BY
-		CASE
-			WHEN $5::text = 'nombreAsc'
-			THEN lower(c.nombrecancion)
-		END ASC,
-
-		CASE
-			WHEN $5::text = 'nombreDesc'
-			THEN lower(c.nombrecancion)
-		END DESC,
-
-		CASE
-			WHEN $5::text = 'reciente'
-			THEN cv.fechahoraaltaversion
-		END DESC NULLS LAST,
-
+		CASE WHEN $6::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
+		CASE WHEN $6::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
+		CASE WHEN $6::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
 		c.codigocancion DESC
 
-	LIMIT $6 OFFSET $7
+	LIMIT $7 OFFSET $8
 `
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
@@ -756,6 +824,7 @@ func (r *cancionRepository) ContarPorIntegrante(
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
 		model.PermisoVerCancion,
+		filtro.SoloConComentariosPendientes,
 	).Scan(&total)
 
 	if err != nil {
@@ -782,6 +851,7 @@ func (r *cancionRepository) ListarPorIntegrante(
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
 		model.PermisoVerCancion,
+		filtro.SoloConComentariosPendientes,
 		filtro.Orden,
 		filtro.TamanoPagina,
 		desplazamiento,
@@ -806,6 +876,10 @@ func (r *cancionRepository) ListarPorIntegrante(
 		var numeroVersion sql.NullInt64
 		var urlArchivo sql.NullString
 		var formatoArchivo sql.NullString
+		var fechaVersion sql.NullTime
+		var codigoAutor sql.NullInt64
+		var nombreAutor sql.NullString
+		var etapa sql.NullString
 
 		err := rows.Scan(
 			&cancion.CodigoCancion,
@@ -816,6 +890,11 @@ func (r *cancionRepository) ListarPorIntegrante(
 			&numeroVersion,
 			&urlArchivo,
 			&formatoArchivo,
+			&fechaVersion,
+			&codigoAutor,
+			&nombreAutor,
+			&etapa,
+			&cancion.ComentariosPendientes,
 		)
 
 		if err != nil {
@@ -842,6 +921,21 @@ func (r *cancionRepository) ListarPorIntegrante(
 			}
 
 			cancion.VersionActual = &version
+		}
+
+		if fechaVersion.Valid {
+			cancion.FechaVersionActual = &fechaVersion.Time
+		}
+
+		if codigoAutor.Valid {
+			cancion.AutorVersionActual = &dto.AutorVersionResponse{
+				CodigoIntegrante: codigoAutor.Int64,
+				Nombre:           nombreAutor.String,
+			}
+		}
+
+		if etapa.Valid {
+			cancion.EtapaVersionActual = &etapa.String
 		}
 
 		canciones = append(
@@ -947,4 +1041,123 @@ func (r *cancionRepository) DarDeBaja(
 	}
 
 	return nil
+}
+
+func (r *cancionRepository) ActualizarNotasVersion(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+	notas *string,
+) error {
+
+	resultado, err := r.db.Exec(`
+		UPDATE cancionversion
+		SET notasversion = $3
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+		notas,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *cancionRepository) DarDeBajaVersion(
+	codigoCancion int64,
+	codigoCancionVersion int64,
+) (int, error) {
+
+	tx, err := r.db.Begin()
+
+	if err != nil {
+		return 0, err
+	}
+
+	defer tx.Rollback()
+
+	var bloqueada int64
+
+	err = tx.QueryRow(`
+		SELECT codigocancion
+		FROM cancion
+		WHERE codigocancion = $1
+		  AND fechahorabajacancion IS NULL
+		FOR UPDATE
+	`,
+		codigoCancion,
+	).Scan(&bloqueada)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var numeroVersion int
+
+	err = tx.QueryRow(`
+		SELECT numeroversion
+		FROM cancionversion
+		WHERE codigocancionversion = $1
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancionVersion,
+		codigoCancion,
+	).Scan(&numeroVersion)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var activas int
+
+	err = tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM cancionversion
+		WHERE codigocancion = $1
+		  AND fechahorabajaversion IS NULL
+	`,
+		codigoCancion,
+	).Scan(&activas)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if activas <= 1 {
+		return 0, ErrVersionUnicaActiva
+	}
+
+	_, err = tx.Exec(`
+		UPDATE cancionversion
+		SET fechahorabajaversion = CURRENT_TIMESTAMP
+		WHERE codigocancionversion = $1
+	`,
+		codigoCancionVersion,
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return numeroVersion, nil
 }

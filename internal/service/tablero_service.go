@@ -26,12 +26,18 @@ const (
 
 	// Etiqueta para las canciones cuya versión actual no tiene etapa.
 	EtapaSinAsignar = "Sin etapa"
+
+	// Novedades del Inicio: las 3 del bloque "Mientras no estabas" y hasta
+	// 50 en "Ver todo".
+	LimiteNovedadesPorDefecto = 10
+	LimiteNovedadesMaximo     = 50
 )
 
 var (
 	ErrTableroProyectoNoEncontrado = errors.New("el proyecto no existe")
 	ErrTableroSinAcceso            = errors.New("el usuario no participa del proyecto")
 	ErrTableroAgrupacionInvalida   = errors.New("la agrupación debe ser semanal o mensual")
+	ErrTableroLimiteInvalido       = errors.New("el límite de novedades está fuera de rango")
 )
 
 type TableroService interface {
@@ -39,6 +45,8 @@ type TableroService interface {
 	ObtenerVersionesPorProyecto(codigoUsuario int64, codigoProyecto *int64) ([]dto.TableroVersionesPorProyectoResponse, error)
 	ObtenerCancionesPorEtapa(codigoUsuario int64, codigoProyecto *int64) ([]dto.TableroCancionesPorEtapaResponse, error)
 	ObtenerActividad(codigoUsuario int64, codigoProyecto *int64, agrupacion string) ([]dto.TableroActividadResponse, error)
+	ObtenerNovedades(codigoUsuario int64, desde *time.Time, limite int) (*dto.TableroNovedadesResponse, error)
+	RegistrarVisita(codigoUsuario int64) (*dto.TableroVisitaResponse, error)
 }
 
 type tableroService struct {
@@ -170,6 +178,10 @@ func calcularIndicadores(c repository.TableroConteos) *dto.TableroIndicadoresRes
 		PromedioVersionesPorCancion: dto.IndicadorDecimalResponse{
 			Valor:     promedioActual,
 			Variacion: redondear2(promedioActual - promedioInicio),
+		},
+		TotalStems: dto.IndicadorEnteroResponse{
+			Valor:     c.StemsActuales,
+			Variacion: c.StemsActuales - c.StemsInicio,
 		},
 	}
 }
@@ -359,4 +371,48 @@ func armarActividad(
 	}
 
 	return resultado
+}
+
+// ObtenerNovedades arma el bloque "Mientras no estabas" del Inicio. Un
+// usuario sin perfil no participa de ningún proyecto: no tiene novedades.
+func (s *tableroService) ObtenerNovedades(
+	codigoUsuario int64,
+	desde *time.Time,
+	limite int,
+) (*dto.TableroNovedadesResponse, error) {
+
+	if limite < 1 || limite > LimiteNovedadesMaximo {
+		return nil, ErrTableroLimiteInvalido
+	}
+
+	codigoIntegrante, err := s.resolverIntegrante(codigoUsuario, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if codigoIntegrante == 0 {
+		return &dto.TableroNovedadesResponse{Items: []dto.TableroNovedadResponse{}}, nil
+	}
+
+	items, novedadesDesde, err := s.tableroRepository.ListarNovedades(codigoIntegrante, desde, limite)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.TableroNovedadesResponse{
+		Items:          items,
+		NovedadesDesde: novedadesDesde,
+	}, nil
+}
+
+// RegistrarVisita marca ahora como última visita y devuelve la anterior. El
+// frontend la llama una vez por sesión y cuenta las novedades desde ahí.
+func (s *tableroService) RegistrarVisita(codigoUsuario int64) (*dto.TableroVisitaResponse, error) {
+
+	anterior, err := s.tableroRepository.RegistrarVisita(codigoUsuario, s.ahora())
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.TableroVisitaResponse{VisitaAnterior: anterior}, nil
 }

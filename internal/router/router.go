@@ -214,6 +214,16 @@ func NewRouter(db *sql.DB,
 		cancionHandler.CrearVersion,
 	)
 
+	proyectos.PATCH(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId",
+		cancionHandler.EditarVersion,
+	)
+
+	proyectos.DELETE(
+		"/:proyectoId/canciones/:cancionId/versiones/:versionId",
+		cancionHandler.DarDeBajaVersion,
+	)
+
 	proyectos.DELETE(
 		"/:proyectoId",
 		proyectoHandler.DarDeBaja,
@@ -282,6 +292,11 @@ func NewRouter(db *sql.DB,
 	proyectos.POST(
 		"/:proyectoId/invitaciones",
 		invitacionProyectoHandler.Crear,
+	)
+
+	proyectos.POST(
+		"/:proyectoId/invitaciones/enlace",
+		invitacionProyectoHandler.CrearEnlace,
 	)
 
 	proyectos.GET(
@@ -396,6 +411,9 @@ func NewRouter(db *sql.DB,
 	tablero.GET("/graficos/versiones-por-proyecto", tableroHandler.ObtenerVersionesPorProyecto)
 	tablero.GET("/graficos/canciones-por-etapa", tableroHandler.ObtenerCancionesPorEtapa)
 	tablero.GET("/graficos/actividad", tableroHandler.ObtenerActividad)
+	// Inicio: novedades de los demás integrantes y registro de la visita.
+	tablero.GET("/novedades", tableroHandler.ObtenerNovedades)
+	tablero.POST("/visita", tableroHandler.RegistrarVisita)
 
 	router.GET(
 		"/canciones",

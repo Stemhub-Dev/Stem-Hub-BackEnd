@@ -101,11 +101,22 @@ curl -X POST http://127.0.0.1:54321/auth/v1/signup \
   -d '{"email":"dev@stemhub.local","password":"Password123!"}'
 ```
 
-Con `enable_confirmations = false` (ya configurado en `config.toml`) el
-usuario queda confirmado sin pasar por el mailer. La respuesta incluye
-`access_token`: usarlo como `Authorization: Bearer <token>` contra la API
-del Backend. También se puede crear un usuario a mano desde **Studio**
-(http://127.0.0.1:54323 → Authentication → Add user).
+Con `enable_confirmations = true` (ver "Verificación de email" más abajo)
+el usuario queda sin confirmar y la respuesta no trae sesión. Para
+confirmarlo, abrir el mail en Mailpit (http://127.0.0.1:54324) y seguir el
+link "Confirmar email". Después, iniciar sesión para obtener el token:
+
+```bash
+curl -X POST "http://127.0.0.1:54321/auth/v1/token?grant_type=password" \
+  -H "Content-Type: application/json" \
+  -H "apikey: $(npx supabase status -o env | grep ANON_KEY | cut -d= -f2- | tr -d '\"')" \
+  -d '{"email":"dev@stemhub.local","password":"Password123!"}'
+```
+
+La respuesta incluye `access_token`: usarlo como
+`Authorization: Bearer <token>` contra la API del Backend. También se puede
+crear un usuario ya confirmado desde **Studio** (http://127.0.0.1:54323 →
+Authentication → Add user, con "Auto Confirm User").
 
 ## Comandos útiles
 
@@ -125,3 +136,23 @@ SUPABASE_JWKS_BASE_URL=
 
 y no correr `supabase start`. El middleware no requiere ningún otro
 cambio.
+
+## Verificación de email y recuperación de contraseña
+
+`config.toml` exige confirmar el email al registrarse con contraseña
+(`enable_confirmations`, HU-ACA-F02), limita los mails a uno cada 60 s
+(`max_frequency`) y usa los templates en español de `templates/`. Los links
+de los mails vuelven al front en `/auth/verificacion` y
+`/restablecer-contrasena`, que tienen que estar en `additional_redirect_urls`.
+
+En local los mails llegan a Mailpit (http://127.0.0.1:54324). Después de
+cambiar `config.toml` hay que reiniciar: `npx supabase stop && npx supabase start`.
+
+En Supabase Cloud (producción) esto se configura en el dashboard:
+
+- Authentication → Sign In / Providers → Email: activar **Confirm email**.
+- Authentication → URL Configuration → Redirect URLs: agregar
+  `<origen del front>/auth/verificacion` y `<origen del front>/restablecer-contrasena`.
+- Authentication → Emails → Templates: copiar "Confirm signup" de
+  `templates/confirmacion.html` y "Reset password" de `templates/recuperacion.html`
+  (con sus asuntos de `config.toml`).

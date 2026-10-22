@@ -45,6 +45,14 @@ var (
 		"el nombre de la canción es obligatorio",
 	)
 
+	ErrCancionNombreLargo = errors.New(
+		"el nombre de la canción es demasiado largo",
+	)
+
+	ErrVersionNotasLargas = errors.New(
+		"las notas de la versión son demasiado largas",
+	)
+
 	ErrCancionPistaObligatoria = errors.New(
 		"la pista inicial es obligatoria",
 	)
@@ -57,20 +65,12 @@ var (
 		"ya existe una canción con ese nombre en el proyecto",
 	)
 
-	ErrCancionPerfilRequerido = errors.New(
-		"el usuario no posee perfil",
-	)
-
 	ErrCancionFormatoInvalido = errors.New(
 		"el formato del archivo de audio no está soportado",
 	)
 
 	ErrCancionArchivoDemasiadoGrande = errors.New(
 		"el archivo de audio supera el tamaño máximo permitido",
-	)
-
-	ErrCancionErrorAlmacenamiento = errors.New(
-		"error al almacenar el archivo de audio",
 	)
 
 	ErrVersionPistaObligatoria = errors.New(
@@ -99,6 +99,30 @@ var (
 
 	ErrVersionSinPermiso = errors.New(
 		"el usuario no posee el permiso requerido sobre versiones en este proyecto",
+	)
+
+	ErrVersionNoEncontrada = errors.New(
+		"la versión no existe",
+	)
+
+	ErrVersionSinPermisoModificar = errors.New(
+		"el usuario no puede modificar versiones en este proyecto",
+	)
+
+	ErrVersionSinPermisoBaja = errors.New(
+		"el usuario no puede dar de baja versiones en este proyecto",
+	)
+
+	ErrVersionUnica = errors.New(
+		"una canción necesita al menos una versión",
+	)
+
+	ErrCancionPerfilRequerido = errors.New(
+		"el usuario no posee perfil",
+	)
+
+	ErrCancionErrorAlmacenamiento = errors.New(
+		"error al almacenar el archivo de audio",
 	)
 )
 
@@ -182,6 +206,23 @@ type CancionService interface {
 		codigoProyecto int64,
 		codigoCancion int64,
 	) error
+
+	// EditarVersion cambia las notas de una versión (HU-ABM-03-02).
+	EditarVersion(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoCancionVersion int64,
+		request dto.EditarVersionRequest,
+	) (*dto.EditarVersionResponse, error)
+
+	// DarDeBajaVersion hace la baja lógica de una versión (HU-ABM-03-03).
+	DarDeBajaVersion(
+		codigoUsuario int64,
+		codigoProyecto int64,
+		codigoCancion int64,
+		codigoCancionVersion int64,
+	) (*dto.BajaVersionResponse, error)
 }
 
 type cancionService struct {
@@ -227,6 +268,10 @@ func (s *cancionService) Crear(
 
 	if nombre == "" {
 		return nil, ErrCancionNombreObligatorio
+	}
+
+	if excedeLargo(nombre, LargoMaximoNombreCancion) {
+		return nil, ErrCancionNombreLargo
 	}
 
 	if archivo.Contenido == nil {
@@ -416,6 +461,10 @@ func (s *cancionService) CrearVersion(
 		} else {
 			notas = &notasLimpias
 		}
+	}
+
+	if notas != nil && excedeLargo(*notas, LargoMaximoNotasVersion) {
+		return nil, ErrVersionNotasLargas
 	}
 
 	tx, siguienteVersion, err :=
@@ -805,6 +854,10 @@ func (s *cancionService) Editar(
 		return nil, ErrCancionNombreObligatorio
 	}
 
+	if excedeLargo(nombre, LargoMaximoNombreCancion) {
+		return nil, ErrCancionNombreLargo
+	}
+
 	// Verificar que el proyecto siga activo.
 	existeProyecto, err :=
 		s.proyectoRepository.ExisteProyectoActivo(
@@ -984,4 +1037,138 @@ func (s *cancionService) DarDeBaja(
 	}
 
 	return nil
+}
+
+// puedeGestionarVersiones valida lo común a editar y dar de baja una
+// versión: proyecto y canción activos, perfil y permiso GESTIONAR_VERSIONES.
+// Devuelve false (sin error) si falta solo el permiso, para que cada caller
+// responda su propio mensaje.
+func (s *cancionService) puedeGestionarVersiones(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+) (bool, error) {
+
+	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
+
+	if err != nil {
+		return false, err
+	}
+
+	if !existeProyecto {
+		return false, ErrCancionProyectoNoEncontrado
+	}
+
+	existeCancion, err := s.cancionRepository.ExisteCancionActivaEnProyecto(
+		codigoProyecto,
+		codigoCancion,
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	if !existeCancion {
+		return false, ErrVersionCancionNoEncontrada
+	}
+
+	integrante, err := s.integranteRepository.BuscarPorCodigoUsuario(codigoUsuario)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrCancionPerfilRequerido
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return s.proyectoRepository.PuedeRealizarEnProyecto(
+		integrante.CodIntegrante,
+		codigoProyecto,
+		"GESTIONAR_VERSIONES",
+	)
+}
+
+func (s *cancionService) EditarVersion(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoCancionVersion int64,
+	request dto.EditarVersionRequest,
+) (*dto.EditarVersionResponse, error) {
+
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puede {
+		return nil, ErrVersionSinPermisoModificar
+	}
+
+	// Igual que al crear la versión: sin texto no hay notas.
+	var notas *string
+
+	if request.Notas != nil {
+		if limpias := strings.TrimSpace(*request.Notas); limpias != "" {
+			notas = &limpias
+		}
+	}
+
+	if notas != nil && excedeLargo(*notas, LargoMaximoNotasVersion) {
+		return nil, ErrVersionNotasLargas
+	}
+
+	err = s.cancionRepository.ActualizarNotasVersion(codigoCancion, codigoCancionVersion, notas)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrVersionNoEncontrada
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.EditarVersionResponse{
+		CodigoCancionVersion: codigoCancionVersion,
+		Notas:                notas,
+	}, nil
+}
+
+func (s *cancionService) DarDeBajaVersion(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancion int64,
+	codigoCancionVersion int64,
+) (*dto.BajaVersionResponse, error) {
+
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puede {
+		return nil, ErrVersionSinPermisoBaja
+	}
+
+	numeroVersion, err := s.cancionRepository.DarDeBajaVersion(codigoCancion, codigoCancionVersion)
+
+	if errors.Is(err, repository.ErrVersionUnicaActiva) {
+		return nil, ErrVersionUnica
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrVersionNoEncontrada
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.BajaVersionResponse{
+		CodigoCancionVersion: codigoCancionVersion,
+		NumeroVersion:        numeroVersion,
+	}, nil
 }

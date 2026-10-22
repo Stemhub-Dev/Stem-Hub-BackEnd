@@ -68,8 +68,10 @@ type StemRepository interface {
 	) (bool, error)
 
 	// Crea el stem y, si nuevaCategoria no es nil, la categoría del proyecto
-	// en la misma transacción (codCategoriaStem se ignora en ese caso).
+	// en la misma transacción (codCategoriaStem se ignora en ese caso). El
+	// autor del alta es el integrante de codigoUsuario.
 	Crear(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		codigoCancionVersion int64,
 		nombre string,
@@ -473,6 +475,7 @@ func (r *stemRepository) ExisteNombreEnVersion(
 }
 
 func (r *stemRepository) Crear(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancionVersion int64,
 	nombre string,
@@ -504,9 +507,13 @@ func (r *stemRepository) Crear(
 			codcategoriastem,
 			urlarchivostem,
 			formatoarchivostem,
-			nombrearchivostem
+			nombrearchivostem,
+			codintegrantealtastem
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES (
+			$1, $2, $3, $4, $5, $6,
+			(SELECT codintegrante FROM integrante WHERE codigousuario = $7)
+		)
 		RETURNING codstem
 	`,
 		codigoCancionVersion,
@@ -515,6 +522,7 @@ func (r *stemRepository) Crear(
 		archivo.URL,
 		archivo.Formato,
 		archivo.NombreOriginal,
+		codigoUsuario,
 	).Scan(&codStem); err != nil {
 		return 0, err
 	}
@@ -623,16 +631,19 @@ func (r *stemRepository) Eliminar(
 
 	defer tx.Rollback()
 
-	// Las FK son RESTRICT: primero las respuestas, después los comentarios
-	// y recién ahí el stem. Incluye los comentarios ya dados de baja, que
-	// también referencian al stem.
+	// Se borran las respuestas y los comentarios del stem (incluidos los ya
+	// dados de baja). El stem queda con baja lógica: el indicador de stems
+	// del Inicio necesita saber que existía al comienzo del período.
 	sentencias := []string{
 		`DELETE FROM comentariorespuesta
 		 WHERE codigocomentario IN (
 			SELECT codigocomentario FROM comentario WHERE codstem = $1
 		 )`,
 		`DELETE FROM comentario WHERE codstem = $1`,
-		`DELETE FROM stem WHERE codstem = $1`,
+		`UPDATE stem
+		 SET fechahorabajastem = CURRENT_TIMESTAMP
+		 WHERE codstem = $1
+		   AND fechahorabajastem IS NULL`,
 	}
 
 	for _, sentencia := range sentencias {

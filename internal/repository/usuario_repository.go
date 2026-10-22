@@ -4,8 +4,17 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
+
+// El email ya pertenece a una cuenta con otro idautenticacion: pasa cuando
+// la persona vuelve con otra identidad de Supabase (usuario borrado y vuelto
+// a crear en Auth).
+var ErrEmailConOtraIdentidad = errors.New("el email ya está registrado con otra identidad")
+
+const restriccionEmailUsuario = "usuario_email_key"
 
 type UsuarioRepository interface {
 	BuscarPorIDAutenticacion(idAutenticacion string) (*model.Usuario, error)
@@ -16,6 +25,7 @@ type UsuarioRepository interface {
 		nombre string,
 		descripcion *string,
 	) (*model.Usuario, *model.Integrante, bool, error)
+	ReasignarIdentidad(email string, idAutenticacion string) (*model.Usuario, *model.Integrante, error)
 }
 
 type usuarioRepository struct {
@@ -154,6 +164,13 @@ func (r *usuarioRepository) Registrar(
 		&usuario.FechaHoraBajaUsuario,
 	)
 
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) &&
+		pgErr.Code == codigoViolacionUnica &&
+		pgErr.ConstraintName == restriccionEmailUsuario {
+		return nil, nil, false, ErrEmailConOtraIdentidad
+	}
+
 	if errors.Is(err, sql.ErrNoRows) {
 		usuarioExistente, errBusqueda := r.BuscarPorIDAutenticacion(idAutenticacion)
 		if errBusqueda != nil {
@@ -208,4 +225,45 @@ func (r *usuarioRepository) Registrar(
 	}
 
 	return &usuario, &integrante, true, nil
+}
+
+// Pasa la cuenta con ese email a la identidad nueva, conservando integrante,
+// proyectos y estado. Solo para emails verificados: lo decide el service.
+func (r *usuarioRepository) ReasignarIdentidad(
+	email string,
+	idAutenticacion string,
+) (*model.Usuario, *model.Integrante, error) {
+
+	var usuario model.Usuario
+
+	err := r.db.QueryRow(`
+		UPDATE usuario
+		SET idautenticacion = $2
+		WHERE LOWER(email) = LOWER($1)
+		RETURNING
+			codigousuario,
+			idautenticacion,
+			email,
+			ultimologin,
+			fechahorabajausuario
+	`,
+		email,
+		idAutenticacion,
+	).Scan(
+		&usuario.CodigoUsuario,
+		&usuario.IDAutenticacion,
+		&usuario.Email,
+		&usuario.UltimoLogin,
+		&usuario.FechaHoraBajaUsuario,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	integrante, err := r.buscarIntegrantePorCodigoUsuario(usuario.CodigoUsuario)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &usuario, integrante, nil
 }

@@ -17,12 +17,23 @@ import (
 const (
 	UsuarioContextKey = "usuario"
 	ClaimsContextKey  = "supabaseClaims"
+
+	// Debe coincidir con el literal que usa el frontend
+	// (stemhub-frontend/src/lib/http/interceptors.ts).
+	CodigoUsuarioInactivo = "usuario_inactivo"
 )
 
 type SupabaseClaims struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Email        string           `json:"email"`
+	Role         string           `json:"role"`
+	UserMetadata MetadatosUsuario `json:"user_metadata"`
 	jwt.RegisteredClaims
+}
+
+// GoTrue marca email_verified al confirmar el email y en los proveedores
+// OAuth que lo verifican (Google).
+type MetadatosUsuario struct {
+	EmailVerified bool `json:"email_verified"`
 }
 
 type AuthMiddleware struct {
@@ -166,8 +177,12 @@ func (m *AuthMiddleware) UsuarioActivo(c *gin.Context) {
 		}
 
 		if errors.Is(err, service.ErrUsuarioInactivo) {
+			// "codigo" le permite al frontend distinguir la cuenta dada de
+			// baja de un 403 de permisos y cerrar la sesión en vez de
+			// mostrar "Acceso denegado" dentro de la app.
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "usuario sin acceso a StemHub",
+				"error":  "usuario sin acceso a StemHub",
+				"codigo": CodigoUsuarioInactivo,
 			})
 			return
 		}

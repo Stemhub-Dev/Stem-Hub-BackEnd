@@ -6,7 +6,16 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// ErrInvitacionNoDisponible: al aceptar, la invitación ya no estaba
+// pendiente (otra request la aceptó o canceló antes, o venció).
+var ErrInvitacionNoDisponible = errors.New("la invitación ya no está pendiente")
+
+// ErrYaEsIntegranteDelProyecto: al aceptar, quien acepta ya quedó como
+// integrante (ej. aceptó otra invitación del mismo proyecto en paralelo).
+var ErrYaEsIntegranteDelProyecto = errors.New("ya es integrante del proyecto")
 
 type InvitacionProyectoRepository interface {
 	// CrearOReemplazarPendiente hace UPDATE si ya existe una invitación
@@ -16,6 +25,17 @@ type InvitacionProyectoRepository interface {
 	CrearOReemplazarPendiente(
 		codigoProyecto int64,
 		emailInvitado string,
+		codRol int64,
+		ambitoRol string,
+		codIntegranteInvito int64,
+		token string,
+		expiracion time.Time,
+	) (*model.InvitacionProyecto, error)
+
+	// CrearEnlace inserta una invitación sin email (por enlace copiable):
+	// la acepta el primer usuario que abre el enlace.
+	CrearEnlace(
+		codigoProyecto int64,
 		codRol int64,
 		ambitoRol string,
 		codIntegranteInvito int64,
@@ -45,9 +65,10 @@ type InvitacionProyectoRepository interface {
 
 	MarcarCancelada(codigoInvitacionProy int64) error
 
-	// Aceptar es atómico: inserta en integranteproyecto y marca la
-	// invitación como aceptada en una sola transacción, para que nunca
-	// quede uno de los dos sin el otro si algo falla a mitad de camino.
+	// Aceptar es atómico: marca la invitación como aceptada (solo si sigue
+	// pendiente y vigente) e inserta en integranteproyecto en una sola
+	// transacción. Si otra request la aceptó antes devuelve
+	// ErrInvitacionNoDisponible: un enlace no se puede usar dos veces.
 	Aceptar(
 		codigoInvitacionProy int64,
 		codIntegranteAceptante int64,
@@ -67,8 +88,9 @@ func NewInvitacionProyectoRepository(db *sql.DB) InvitacionProyectoRepository {
 	}
 }
 
+// emailinvitado es NULL en las invitaciones por enlace: se leen como "".
 const columnasInvitacionProyecto = `
-	codigoinvitacionproy, codigoproyecto, emailinvitado, codrol,
+	codigoinvitacionproy, codigoproyecto, COALESCE(emailinvitado, ''), codrol,
 	ambitorol, codintegranteinvito, tokeninvitacion,
 	fechahoraaltainvitacionproy, fechahoraexpiracioninvitacion,
 	fechahoraaceptacioninvitacion, fechahorabajainvitacionproy
@@ -184,6 +206,39 @@ func (r *invitacionProyectoRepository) CrearOReemplazarPendiente(
 	return &invitacion, nil
 }
 
+// Constante armada en compilación: no se concatena nada al ejecutar.
+const consultaCrearEnlace = `
+	INSERT INTO invitacionproyecto (
+		codigoproyecto, emailinvitado, codrol, ambitorol,
+		codintegranteinvito, tokeninvitacion,
+		fechahoraexpiracioninvitacion
+	)
+	VALUES ($1, NULL, $2, $3, $4, $5, $6)
+	RETURNING ` + columnasInvitacionProyecto
+
+func (r *invitacionProyectoRepository) CrearEnlace(
+	codigoProyecto int64,
+	codRol int64,
+	ambitoRol string,
+	codIntegranteInvito int64,
+	token string,
+	expiracion time.Time,
+) (*model.InvitacionProyecto, error) {
+
+	var invitacion model.InvitacionProyecto
+
+	row := r.db.QueryRow(consultaCrearEnlace,
+		codigoProyecto, codRol, ambitoRol,
+		codIntegranteInvito, token, expiracion,
+	)
+
+	if err := escanearInvitacion(row, &invitacion); err != nil {
+		return nil, err
+	}
+
+	return &invitacion, nil
+}
+
 func (r *invitacionProyectoRepository) BuscarPorToken(
 	token string,
 ) (*model.InvitacionProyecto, error) {
@@ -211,7 +266,7 @@ func (r *invitacionProyectoRepository) BuscarDetallePorToken(
 
 	err := r.db.QueryRow(`
 		SELECT
-			ip.emailinvitado,
+			COALESCE(ip.emailinvitado, ''),
 			p.nombreproyecto,
 			i.nombreintegrante,
 			r.nombrerol,
@@ -381,6 +436,31 @@ func (r *invitacionProyectoRepository) Aceptar(
 
 	defer tx.Rollback()
 
+	// Primero se reclama la invitación: el UPDATE bloquea la fila, así que
+	// una aceptación concurrente espera y después ya no la ve pendiente.
+	resultado, err := tx.Exec(`
+		UPDATE invitacionproyecto
+		SET fechahoraaceptacioninvitacion = CURRENT_TIMESTAMP
+		WHERE codigoinvitacionproy = $1
+		  AND fechahoraaceptacioninvitacion IS NULL
+		  AND fechahorabajainvitacionproy IS NULL
+		  AND fechahoraexpiracioninvitacion > CURRENT_TIMESTAMP
+	`, codigoInvitacionProy)
+
+	if err != nil {
+		return err
+	}
+
+	filas, err := resultado.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if filas == 0 {
+		return ErrInvitacionNoDisponible
+	}
+
 	_, err = tx.Exec(`
 		INSERT INTO integranteproyecto (
 			codintegrante,
@@ -405,15 +485,12 @@ func (r *invitacionProyectoRepository) Aceptar(
 		ambitoRol,
 	)
 
-	if err != nil {
-		return err
+	// uqintegranteproyectoactivo: el rollback también deshace el reclamo de
+	// la invitación, que sigue pendiente.
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == codigoViolacionUnica {
+		return ErrYaEsIntegranteDelProyecto
 	}
-
-	_, err = tx.Exec(`
-		UPDATE invitacionproyecto
-		SET fechahoraaceptacioninvitacion = CURRENT_TIMESTAMP
-		WHERE codigoinvitacionproy = $1
-	`, codigoInvitacionProy)
 
 	if err != nil {
 		return err

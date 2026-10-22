@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	largoMaximoNombreStem        = 150
+	permisoGestionarStems        = "GESTIONAR_STEMS"
+	largoMaximoNombreStem        = 60
 	largoMaximoNombreCategoria   = 100
 	largoMaximoNombreArchivoStem = 255
 )
@@ -47,6 +48,7 @@ var (
 	ErrStemFormatoInvalido        = errors.New("el formato del stem no está soportado")
 	ErrStemArchivoDemasiadoGrande = errors.New("el stem supera el tamaño máximo permitido")
 	ErrStemPerfilRequerido        = errors.New("el usuario no posee un perfil de integrante")
+	ErrStemErrorAlmacenamiento    = errors.New("error al almacenar el archivo del stem")
 )
 
 // CrearStemRequest: la categoría es una existente (CodCategoriaStem) o una
@@ -306,7 +308,7 @@ func validarAccesoProyectoStem(
 		)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrCancionPerfilRequerido
+		return nil, ErrStemPerfilRequerido
 	}
 
 	if err != nil {
@@ -497,7 +499,7 @@ func (s *stemService) subirArchivo(
 		archivo.Tamano,
 		formatosAudioPermitidos[formato],
 	); err != nil {
-		return nil, ErrCancionErrorAlmacenamiento
+		return nil, ErrStemErrorAlmacenamiento
 	}
 
 	return &repository.ArchivoStemGuardado{
@@ -645,6 +647,7 @@ func (s *stemService) Crear(
 	}
 
 	codStem, err := s.stemRepository.Crear(
+		codigoUsuario,
 		codigoProyecto,
 		codigoVersion,
 		nombre,
