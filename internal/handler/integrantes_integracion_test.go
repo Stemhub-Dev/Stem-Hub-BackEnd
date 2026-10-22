@@ -104,11 +104,21 @@ func TestIntegrantes_CambiarRolNoTocaLaMarcaDePropietario(t *testing.T) {
 		e.rutaIntegrantes(e.integranteMusico)+"/rol", map[string]any{"codRol": rolProductor})
 	esperarStatus(t, code, body, http.StatusOK, "")
 
-	_, integrantes := e.listarIntegrantes(t, e.productor)
+	code, integrantes := e.listarIntegrantes(t, e.productor)
+	if code != http.StatusOK {
+		t.Fatalf("listar después del cambio: status = %d", code)
+	}
+	encontrado := false
 	for _, i := range integrantes {
-		if i.CodigoIntegrante == e.integranteMusico && (i.CodRol != rolProductor || i.EsPropietario) {
-			t.Fatalf("después del cambio: %+v", i)
+		if i.CodigoIntegrante == e.integranteMusico {
+			encontrado = true
+			if i.CodRol != rolProductor || i.EsPropietario {
+				t.Fatalf("después del cambio: %+v", i)
+			}
 		}
+	}
+	if !encontrado {
+		t.Fatalf("el integrante ya no está en el proyecto: %+v", integrantes)
 	}
 }
 

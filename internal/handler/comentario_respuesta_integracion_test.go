@@ -95,7 +95,9 @@ func TestRespuestas_Errores(t *testing.T) {
 		status  int
 		mensaje string
 	}{
-		{"vacía", e.productor, e.rutaComentario("respuestas"), "   ", http.StatusBadRequest,
+		{"vacía", e.productor, e.rutaComentario("respuestas"), "", http.StatusBadRequest,
+			"La respuesta no puede estar vacía"},
+		{"solo espacios", e.productor, e.rutaComentario("respuestas"), "   ", http.StatusBadRequest,
 			"La respuesta no puede estar vacía"},
 		{"más de 200 caracteres", e.productor, e.rutaComentario("respuestas"), strings.Repeat("ñ", 201),
 			http.StatusBadRequest, "La respuesta no puede superar los 200 caracteres"},

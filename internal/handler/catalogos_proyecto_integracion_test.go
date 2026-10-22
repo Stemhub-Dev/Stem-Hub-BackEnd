@@ -123,13 +123,18 @@ func (e escenarioCatalogos) listar(t *testing.T, ruta string) []valorCatalogo {
 	return valores
 }
 
-func contiene(valores []valorCatalogo, id int64) bool {
+func buscar(valores []valorCatalogo, id int64) (valorCatalogo, bool) {
 	for _, v := range valores {
 		if v.ID == id {
-			return true
+			return v, true
 		}
 	}
-	return false
+	return valorCatalogo{}, false
+}
+
+func contiene(valores []valorCatalogo, id int64) bool {
+	_, ok := buscar(valores, id)
+	return ok
 }
 
 func TestCatalogosProyecto_AltaEdicionYEstado(t *testing.T) {
@@ -154,6 +159,9 @@ func TestCatalogosProyecto_AltaEdicionYEstado(t *testing.T) {
 				map[string]any{"nombre": renombrado})
 			if code != http.StatusOK {
 				t.Fatalf("editar: %d %s", code, body)
+			}
+			if guardado, ok := buscar(e.listar(t, c.ruta), creado.ID); !ok || guardado.Nombre != renombrado {
+				t.Fatalf("después de editar: %+v (encontrado = %v), quería el nombre %q", guardado, ok, renombrado)
 			}
 
 			code, body = e.pedir(t, e.admin, http.MethodPatch, fmt.Sprintf("%s/%d", c.ruta, creado.ID),
