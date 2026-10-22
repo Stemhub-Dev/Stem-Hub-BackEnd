@@ -566,3 +566,32 @@ func TestObtenerURLAudioStem_Restricciones(t *testing.T) {
 		}
 	})
 }
+
+// Otra alta en paralelo ganó la carrera: el índice único la frena y se
+// responde el mismo duplicado que el chequeo previo (409), sin dejar el
+// archivo subido huérfano.
+func TestCrearStem_DuplicadoDetectadoPorLaBaseEsNombreDuplicado(t *testing.T) {
+	casos := map[error]error{
+		repository.ErrNombreStemDuplicado:    ErrStemNombreDuplicado,
+		repository.ErrCategoriaStemDuplicada: ErrStemCategoriaDuplicada,
+	}
+
+	for errRepo, quiero := range casos {
+		t.Run(quiero.Error(), func(t *testing.T) {
+			e := nuevoEscenarioStems()
+			e.stems.errCrear = errRepo
+
+			_, err := e.servicio.Crear(1, 7, 8, 9,
+				CrearStemRequest{Nombre: "Contrabajo", CodCategoriaStem: codigo(3)},
+				archivoDePrueba("contrabajo.wav", 100),
+			)
+
+			if !errors.Is(err, quiero) {
+				t.Fatalf("err = %v, quería %v", err, quiero)
+			}
+			if len(e.storage.eliminados) != 1 || e.storage.eliminados[0] != e.storage.subidos[0] {
+				t.Fatalf("eliminados = %v, subidos = %v", e.storage.eliminados, e.storage.subidos)
+			}
+		})
+	}
+}

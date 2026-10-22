@@ -2,6 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -440,7 +443,46 @@ func (r *stemRepository) ExisteNombreEnVersion(
 	return existe, err
 }
 
+// Las altas y ediciones en paralelo (p. ej. un doble clic en "Agregar
+// stem") pasan las dos el chequeo de ExisteNombreEnVersion y la segunda
+// choca con el índice único: se informa como duplicado (409) y no como un
+// error interno.
+var (
+	ErrNombreStemDuplicado    = errors.New("ya existe un stem con ese nombre en la versión")
+	ErrCategoriaStemDuplicada = errors.New("ya existe una categoría con ese nombre en el proyecto")
+)
+
+func errorDeUnicidadStem(err error) error {
+	var pgErr *pgconn.PgError
+
+	if !errors.As(err, &pgErr) || pgErr.Code != codigoViolacionUnica {
+		return err
+	}
+
+	switch pgErr.ConstraintName {
+	case "uqstemnombreversion":
+		return ErrNombreStemDuplicado
+	case "uqcategoriastemnombre":
+		return ErrCategoriaStemDuplicada
+	}
+
+	return err
+}
+
 func (r *stemRepository) Crear(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codigoCancionVersion int64,
+	nombre string,
+	codCategoriaStem int64,
+	nuevaCategoria *string,
+	archivo ArchivoStemGuardado,
+) (int64, error) {
+	codStem, err := r.crear(codigoUsuario, codigoProyecto, codigoCancionVersion, nombre, codCategoriaStem, nuevaCategoria, archivo)
+	return codStem, errorDeUnicidadStem(err)
+}
+
+func (r *stemRepository) crear(
 	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancionVersion int64,
@@ -524,6 +566,14 @@ func insertarCategoriaProyecto(
 }
 
 func (r *stemRepository) Actualizar(
+	codigoProyecto int64,
+	codStem int64,
+	cambios CambiosStem,
+) error {
+	return errorDeUnicidadStem(r.actualizar(codigoProyecto, codStem, cambios))
+}
+
+func (r *stemRepository) actualizar(
 	codigoProyecto int64,
 	codStem int64,
 	cambios CambiosStem,

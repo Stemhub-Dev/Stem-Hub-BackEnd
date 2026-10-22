@@ -647,7 +647,7 @@ func (s *stemService) Crear(
 
 	if err != nil {
 		s.eliminarArchivo(guardado.URL)
-		return nil, err
+		return nil, errorDeStemRepositorio(err)
 	}
 
 	stem, err := s.stemRepository.BuscarPorCodigo(codigoVersion, codStem)
@@ -659,6 +659,18 @@ func (s *stemService) Crear(
 	respuesta := stemAResponse(*stem)
 
 	return &respuesta, nil
+}
+
+// Duplicados que el repositorio detecta por el índice único (otra request
+// en paralelo ganó la carrera): mismo error que el chequeo previo.
+func errorDeStemRepositorio(err error) error {
+	switch {
+	case errors.Is(err, repository.ErrNombreStemDuplicado):
+		return ErrStemNombreDuplicado
+	case errors.Is(err, repository.ErrCategoriaStemDuplicada):
+		return ErrStemCategoriaDuplicada
+	}
+	return err
 }
 
 func (s *stemService) buscarStem(codigoVersion, codStem int64) (*model.Stem, error) {
@@ -774,7 +786,7 @@ func (s *stemService) Editar(
 		if guardado != nil {
 			s.eliminarArchivo(guardado.URL)
 		}
-		return nil, err
+		return nil, errorDeStemRepositorio(err)
 	}
 
 	// Borrado real también al reemplazar: el archivo anterior no se conserva.
