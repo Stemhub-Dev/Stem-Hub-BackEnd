@@ -401,43 +401,40 @@ func describirVersion(reporte *dto.ReporteRespuesta) string {
 	if codigo == nil {
 		return "todas"
 	}
-	if numero := buscarEnFilas(reporte.Datos, "codigo_version", *codigo, "numero_version"); numero != "" {
-		return versionATexto(numero)
+	if numero, ok := buscarValorEnFilas(reporte.Datos, "codigo_version", *codigo, "numero_version"); ok {
+		if etiqueta := versionATexto(numero); etiqueta != sinDato {
+			return etiqueta
+		}
 	}
 	return "#" + strconv.FormatInt(*codigo, 10)
 }
 
 func buscarEnFilas(datos []map[string]interface{}, claveCodigo string, codigo int64, claveValor string) string {
+	if valor, ok := buscarValorEnFilas(datos, claveCodigo, codigo, claveValor); ok {
+		return valorATexto(valor)
+	}
+	return ""
+}
+
+func buscarValorEnFilas(datos []map[string]interface{}, claveCodigo string, codigo int64, claveValor string) (interface{}, bool) {
 	for _, fila := range datos {
 		valor, ok := fila[claveCodigo]
 		if !ok {
 			continue
 		}
 		if numero, ok := valor.(int64); ok && numero == codigo {
-			return valorATexto(fila[claveValor])
+			return fila[claveValor], true
 		}
 	}
-	return ""
+	return nil, false
 }
 
 // versionATexto muestra un número de versión como en el resto de la app
-// ("v3"). ultima_version es 0 en una canción sin versiones.
+// ("v3"). Las filas vienen de rows.Scan en int64; ultima_version es 0 en una
+// canción sin versiones.
 func versionATexto(valor interface{}) string {
-	var numero int64
-	switch dato := valor.(type) {
-	case int64:
-		numero = dato
-	case int:
-		numero = int64(dato)
-	case float64:
-		numero = int64(dato)
-	case string:
-		n, err := strconv.ParseInt(dato, 10, 64)
-		if err != nil {
-			return valorATexto(valor)
-		}
-		numero = n
-	default:
+	numero, ok := valor.(int64)
+	if !ok {
 		return valorATexto(valor)
 	}
 	if numero <= 0 {

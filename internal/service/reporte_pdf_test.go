@@ -122,6 +122,15 @@ func TestDescribirFiltros(t *testing.T) {
 			esperado: []string{"Desde: 01/01/2026", "Hasta: sin límite", "Canción: Balada", "Versión: v3"},
 		},
 		{
+			nombre:     "historial con la versión en las filas pero sin número",
+			tipo:       ReporteHistorial,
+			parametros: dto.GenerarReporteRequest{CodigoVersion: punteroInt64(9)},
+			datos: []map[string]interface{}{
+				{"codigo_cancion": int64(5), "cancion": "Balada", "codigo_version": int64(9), "numero_version": nil},
+			},
+			esperado: []string{"Desde: sin límite", "Hasta: sin límite", "Canción: todas", "Versión: #9"},
+		},
+		{
 			nombre:     "historial con códigos que no aparecen en las filas",
 			tipo:       ReporteHistorial,
 			parametros: dto.GenerarReporteRequest{FechaHasta: &desde, CodigoCancion: punteroInt64(5), CodigoVersion: punteroInt64(9)},
@@ -235,9 +244,6 @@ func TestVersionATexto(t *testing.T) {
 		quiero string
 	}{
 		{int64(3), "v3"},
-		{3, "v3"},
-		{float64(3), "v3"},
-		{"3", "v3"},
 		{int64(0), sinDato},
 		{nil, sinDato},
 	}
