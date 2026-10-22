@@ -347,6 +347,12 @@ func (s *cancionService) Crear(
 			nombre,
 		)
 
+	// La otra alta con el mismo nombre ganó la carrera (ver
+	// bloquearNombreCancion).
+	if errors.Is(err, repository.ErrNombreCancionDuplicado) {
+		return nil, ErrCancionNombreDuplicado
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -898,6 +904,10 @@ func (s *cancionService) Editar(
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCancionNoEncontrada
+	}
+
+	if errors.Is(err, repository.ErrNombreCancionDuplicado) {
+		return nil, ErrCancionNombreDuplicado
 	}
 
 	if err != nil {

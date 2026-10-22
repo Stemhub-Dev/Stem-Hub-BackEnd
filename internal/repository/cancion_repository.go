@@ -14,6 +14,14 @@ import (
 // una canción.
 var ErrVersionUnicaActiva = errors.New("la canción tiene una sola versión")
 
+// Otra canción activa del proyecto ya tiene ese nombre (comparado sin
+// mayúsculas ni espacios en los extremos).
+var ErrNombreCancionDuplicado = errors.New("ya existe una canción con ese nombre en el proyecto")
+
+// Primera clave del advisory lock de bloquearNombreCancion; la segunda es
+// el hash de proyecto y nombre.
+const lockNombreCancion int32 = 7_301_002
+
 type CancionRepository interface {
 	// ActualizarNotasVersion cambia solo las notas de una versión activa.
 	// sql.ErrNoRows si la versión no existe o no es de esa canción.
@@ -160,6 +168,19 @@ func (r *cancionRepository) IniciarCreacionCancion(
 		return nil, 0, err
 	}
 
+	// El lock queda tomado hasta que el service confirme la transacción
+	// (después de subir el audio): otra alta con el mismo nombre espera y
+	// después ve la canción ya creada.
+	if err := bloquearNombreCancion(tx, codigoProyecto, nombre); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+
+	if err := verificarNombreLibre(tx, codigoProyecto, 0, nombre); err != nil {
+		tx.Rollback()
+		return nil, 0, err
+	}
+
 	var codigoCancion int64
 
 	err = tx.QueryRow(`
@@ -180,6 +201,54 @@ func (r *cancionRepository) IniciarCreacionCancion(
 	}
 
 	return tx, codigoCancion, nil
+}
+
+// Serializa las altas y renombres que usan el mismo nombre en el mismo
+// proyecto. Sin esto, dos requests en paralelo (p. ej. un doble clic en
+// "Crear canción") pasaban las dos el chequeo de ExisteNombreEnProyecto y
+// creaban dos canciones con el mismo nombre. Se bloquea por nombre y no por
+// proyecto para no frenar las altas de otras canciones mientras se sube el
+// audio.
+func bloquearNombreCancion(tx *sql.Tx, codigoProyecto int64, nombre string) error {
+	_, err := tx.Exec(
+		`SELECT pg_advisory_xact_lock($1, hashtext($2::bigint::text || ':' || LOWER(TRIM($3))))`,
+		lockNombreCancion,
+		codigoProyecto,
+		nombre,
+	)
+	return err
+}
+
+// Igual que ExisteNombreEnProyectoExceptoCancion, pero dentro de la
+// transacción y con el lock tomado. exceptoCancion = 0 en un alta.
+func verificarNombreLibre(tx *sql.Tx, codigoProyecto, exceptoCancion int64, nombre string) error {
+
+	var existe bool
+
+	err := tx.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM cancion
+			WHERE codigoproyecto = $1
+			  AND codigocancion <> $2
+			  AND LOWER(TRIM(nombrecancion)) = LOWER(TRIM($3))
+			  AND fechahorabajacancion IS NULL
+		)
+	`,
+		codigoProyecto,
+		exceptoCancion,
+		nombre,
+	).Scan(&existe)
+
+	if err != nil {
+		return err
+	}
+
+	if existe {
+		return ErrNombreCancionDuplicado
+	}
+
+	return nil
 }
 
 func (r *cancionRepository) FinalizarCreacionVersionInicial(
@@ -947,7 +1016,23 @@ func (r *cancionRepository) ActualizarNombre(
 	nombre string,
 ) error {
 
-	resultado, err := r.db.Exec(`
+	tx, err := r.db.Begin()
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	if err := bloquearNombreCancion(tx, codigoProyecto, nombre); err != nil {
+		return err
+	}
+
+	if err := verificarNombreLibre(tx, codigoProyecto, codigoCancion, nombre); err != nil {
+		return err
+	}
+
+	resultado, err := tx.Exec(`
 		UPDATE cancion
 		SET nombrecancion = $1
 		WHERE codigocancion = $2
@@ -972,7 +1057,7 @@ func (r *cancionRepository) ActualizarNombre(
 		return sql.ErrNoRows
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (r *cancionRepository) DarDeBaja(
