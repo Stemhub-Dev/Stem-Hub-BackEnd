@@ -619,72 +619,118 @@ func (r *cancionRepository) ListarVersiones(
 // CASE, en lugar de armar el ORDER BY concatenando texto.
 
 const consultaContarMisCanciones = `
-		SELECT COUNT(*)
-		FROM integranteproyecto ip
-		INNER JOIN proyecto p
-			ON p.codigoproyecto = ip.codigoproyecto
-		INNER JOIN cancion c
-			ON c.codigoproyecto = p.codigoproyecto
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND c.fechahorabajacancion IS NULL
-		  AND (
-			$2::text = ''
-			OR c.nombrecancion ILIKE '%' || $2::text || '%'
-		  )
-		  AND (
-			COALESCE(array_length($3::bigint[], 1), 0) = 0
-			OR c.codigoproyecto = ANY($3::bigint[])
-		  )
+	SELECT COUNT(*)
+	FROM integranteproyecto ip
+	INNER JOIN proyecto p
+		ON p.codigoproyecto = ip.codigoproyecto
+	INNER JOIN cancion c
+		ON c.codigoproyecto = p.codigoproyecto
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND p.fechahorabajaproyecto IS NULL
+	  AND c.fechahorabajacancion IS NULL
+
+	  AND EXISTS (
+		SELECT 1
+		FROM rolpermiso rp
+		INNER JOIN permiso per
+			ON per.codigopermiso = rp.codigopermiso
+		WHERE rp.codrol = ip.codrol
+		  AND rp.ambitorolpermiso = ip.ambitorol
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND per.fechahorabajapermiso IS NULL
+		  AND per.clavepermiso = $4
+	  )
+
+	  AND (
+		$2::text = ''
+		OR c.nombrecancion ILIKE '%' || $2::text || '%'
+	  )
+
+	  AND (
+		COALESCE(array_length($3::bigint[], 1), 0) = 0
+		OR c.codigoproyecto = ANY($3::bigint[])
+	  )
 `
 
 const consultaListarMisCanciones = `
+	SELECT
+		c.codigocancion,
+		c.nombrecancion,
+		p.codigoproyecto,
+		p.nombreproyecto,
+		cv.codigocancionversion,
+		cv.numeroversion,
+		cv.urlarchivocancionver,
+		cv.formatoarchivocancionver
+	FROM integranteproyecto ip
+
+	INNER JOIN proyecto p
+		ON p.codigoproyecto = ip.codigoproyecto
+
+	INNER JOIN cancion c
+		ON c.codigoproyecto = p.codigoproyecto
+
+	LEFT JOIN LATERAL (
 		SELECT
-			c.codigocancion,
-			c.nombrecancion,
-			p.codigoproyecto,
-			p.nombreproyecto,
-			cv.codigocancionversion,
-			cv.numeroversion,
-			cv.urlarchivocancionver,
-			cv.formatoarchivocancionver
-		FROM integranteproyecto ip
-		INNER JOIN proyecto p
-			ON p.codigoproyecto = ip.codigoproyecto
-		INNER JOIN cancion c
-			ON c.codigoproyecto = p.codigoproyecto
-		LEFT JOIN LATERAL (
-			SELECT
-				cvv.codigocancionversion,
-				cvv.numeroversion,
-				cvv.urlarchivocancionver,
-				cvv.formatoarchivocancionver,
-				cvv.fechahoraaltaversion
-			FROM cancionversion cvv
-			WHERE cvv.codigocancion = c.codigocancion
-			  AND cvv.fechahorabajaversion IS NULL
-			ORDER BY cvv.numeroversion DESC
-			LIMIT 1
-		) cv ON TRUE
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND c.fechahorabajacancion IS NULL
-		  AND (
-			$2::text = ''
-			OR c.nombrecancion ILIKE '%' || $2::text || '%'
-		  )
-		  AND (
-			COALESCE(array_length($3::bigint[], 1), 0) = 0
-			OR c.codigoproyecto = ANY($3::bigint[])
-		  )
-		ORDER BY
-			CASE WHEN $4::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
-			CASE WHEN $4::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
-			CASE WHEN $4::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
-			c.codigocancion DESC
-		LIMIT $5 OFFSET $6
+			cvv.codigocancionversion,
+			cvv.numeroversion,
+			cvv.urlarchivocancionver,
+			cvv.formatoarchivocancionver,
+			cvv.fechahoraaltaversion
+		FROM cancionversion cvv
+		WHERE cvv.codigocancion = c.codigocancion
+		  AND cvv.fechahorabajaversion IS NULL
+		ORDER BY cvv.numeroversion DESC
+		LIMIT 1
+	) cv ON TRUE
+
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND p.fechahorabajaproyecto IS NULL
+	  AND c.fechahorabajacancion IS NULL
+
+	  AND EXISTS (
+		SELECT 1
+		FROM rolpermiso rp
+		INNER JOIN permiso per
+			ON per.codigopermiso = rp.codigopermiso
+		WHERE rp.codrol = ip.codrol
+		  AND rp.ambitorolpermiso = ip.ambitorol
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND per.fechahorabajapermiso IS NULL
+		  AND per.clavepermiso = $4
+	  )
+
+	  AND (
+		$2::text = ''
+		OR c.nombrecancion ILIKE '%' || $2::text || '%'
+	  )
+
+	  AND (
+		COALESCE(array_length($3::bigint[], 1), 0) = 0
+		OR c.codigoproyecto = ANY($3::bigint[])
+	  )
+
+	ORDER BY
+		CASE
+			WHEN $5::text = 'nombreAsc'
+			THEN lower(c.nombrecancion)
+		END ASC,
+
+		CASE
+			WHEN $5::text = 'nombreDesc'
+			THEN lower(c.nombrecancion)
+		END DESC,
+
+		CASE
+			WHEN $5::text = 'reciente'
+			THEN cv.fechahoraaltaversion
+		END DESC NULLS LAST,
+
+		c.codigocancion DESC
+
+	LIMIT $6 OFFSET $7
 `
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
@@ -709,6 +755,7 @@ func (r *cancionRepository) ContarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
+		model.PermisoVerCancion,
 	).Scan(&total)
 
 	if err != nil {
@@ -734,6 +781,7 @@ func (r *cancionRepository) ListarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
+		model.PermisoVerCancion,
 		filtro.Orden,
 		filtro.TamanoPagina,
 		desplazamiento,

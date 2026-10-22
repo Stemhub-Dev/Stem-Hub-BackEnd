@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 // convertidorDirecto deja pasar los argumentos tal cual, igual que hace el
@@ -146,7 +147,12 @@ func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 		`c\.fechahorabajacancion IS NULL.*`+
 		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*`+
 		`c\.codigoproyecto = ANY\(\$3::bigint\[\]\)`).
-		WithArgs(int64(42), `50\%`, []int64{9}).
+		WithArgs(
+			int64(42),
+			`50\%`,
+			[]int64{9},
+			model.PermisoVerCancion,
+		).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
 	filtro := filtroBase()
@@ -167,7 +173,12 @@ func TestContarPorIntegrante_SinFiltrosPasaVaciosYNull(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).
-		WithArgs(int64(42), "", nil).
+		WithArgs(
+			int64(42),
+			"",
+			nil,
+			model.PermisoVerCancion,
+		).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	filtro := filtroBase()

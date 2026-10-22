@@ -29,9 +29,10 @@ type ProyectoListadoResponse struct {
 	Estado            string  `json:"estado"`
 	CantidadCanciones int     `json:"cantidadCanciones"`
 
-	CodRol        int64  `json:"codRol"`
-	NombreRol     string `json:"nombreRol"`
-	EsPropietario bool   `json:"esPropietario"`
+	CodRol        int64    `json:"codRol"`
+	NombreRol     string   `json:"nombreRol"`
+	EsPropietario bool     `json:"esPropietario"`
+	Permisos      []string `json:"permisos"`
 
 	// Derivada, no hay columna: lo más reciente entre el alta del proyecto y
 	// la última versión subida a alguna de sus canciones.

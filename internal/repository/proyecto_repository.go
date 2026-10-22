@@ -50,11 +50,6 @@ type ProyectoRepository interface {
 		codigosGeneros []int64,
 	) error
 
-	PuedeGestionarCanciones(
-		codigoIntegrante int64,
-		codigoProyecto int64,
-	) (bool, error)
-
 	PuedeRealizarEnProyecto(
 		codigoIntegrante int64,
 		codigoProyecto int64,
@@ -110,6 +105,11 @@ type ProyectoRepository interface {
 		codigoIntegrante int64,
 		participacion string,
 	) ([]dto.MiParticipacionProyectoResponse, error)
+
+	ListarPermisosEnProyecto(
+		codigoIntegrante int64,
+		codigoProyecto int64,
+	) ([]string, error)
 }
 
 type proyectoRepository struct {
@@ -325,40 +325,6 @@ func (r *proyectoRepository) ExisteProyectoActivo(
 	return existe, err
 }
 
-func (r *proyectoRepository) PuedeGestionarCanciones(
-	codigoIntegrante int64,
-	codigoProyecto int64,
-) (bool, error) {
-
-	var puede bool
-
-	err := r.db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1
-			FROM integranteproyecto ip
-			WHERE ip.codintegrante = $1
-			  AND ip.codigoproyecto = $2
-			  AND ip.fechahorabajaintegranteproy IS NULL
-			  AND EXISTS (
-					SELECT 1
-					FROM rolpermiso rp
-					JOIN permiso p
-					  ON p.codigopermiso = rp.codigopermiso
-					WHERE rp.codrol = ip.codrol
-					  AND rp.ambitorolpermiso = ip.ambitorol
-					  AND rp.fechahorabajarolpermiso IS NULL
-					  AND p.fechahorabajapermiso IS NULL
-					  AND p.clavepermiso = 'GESTIONAR_CANCIONES'
-			  )
-		)
-	`,
-		codigoIntegrante,
-		codigoProyecto,
-	).Scan(&puede)
-
-	return puede, err
-}
-
 func (r *proyectoRepository) PuedeRealizarEnProyecto(
 	codigoIntegrante int64,
 	codigoProyecto int64,
@@ -453,32 +419,47 @@ func (r *proyectoRepository) EsPropietarioActivo(
 // vacío = sin filtro).
 
 const consultaContarMisProyectos = `
-		SELECT COUNT(*)
-		FROM integranteproyecto ip
-		JOIN proyecto p
-		  ON p.codigoproyecto = ip.codigoproyecto
-		JOIN tipoproyecto tp
-		  ON tp.codtipoproy = p.codtipoproy
-		JOIN estadoproyecto ep
-		  ON ep.codestadoproy = p.codestadoproy
-		JOIN rol r
-		  ON r.codrol = ip.codrol
-		 AND r.ambitorol = ip.ambitorol
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND (
-			$2::text = ''
-			OR p.nombreproyecto ILIKE '%' || $2::text || '%'
-		  )
-		  AND (
-			COALESCE(array_length($3::bigint[], 1), 0) = 0
-			OR p.codestadoproy = ANY($3::bigint[])
-		  )
-		  AND (
-			COALESCE(array_length($4::bigint[], 1), 0) = 0
-			OR p.codtipoproy = ANY($4::bigint[])
-		  )
+	SELECT COUNT(*)
+	FROM integranteproyecto ip
+	JOIN proyecto p
+	  ON p.codigoproyecto = ip.codigoproyecto
+	JOIN tipoproyecto tp
+	  ON tp.codtipoproy = p.codtipoproy
+	JOIN estadoproyecto ep
+	  ON ep.codestadoproy = p.codestadoproy
+	JOIN rol r
+	  ON r.codrol = ip.codrol
+	 AND r.ambitorol = ip.ambitorol
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND p.fechahorabajaproyecto IS NULL
+
+	  AND EXISTS (
+		SELECT 1
+		FROM rolpermiso rp
+		INNER JOIN permiso per
+			ON per.codigopermiso = rp.codigopermiso
+		WHERE rp.codrol = ip.codrol
+		  AND rp.ambitorolpermiso = ip.ambitorol
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND per.fechahorabajapermiso IS NULL
+		  AND per.clavepermiso = $5
+	  )
+
+	  AND (
+		$2::text = ''
+		OR p.nombreproyecto ILIKE '%' || $2::text || '%'
+	  )
+
+	  AND (
+		COALESCE(array_length($3::bigint[], 1), 0) = 0
+		OR p.codestadoproy = ANY($3::bigint[])
+	  )
+
+	  AND (
+		COALESCE(array_length($4::bigint[], 1), 0) = 0
+		OR p.codtipoproy = ANY($4::bigint[])
+	  )
 `
 
 // La fecha de última modificación se deriva: el proyecto no guarda una. Es
@@ -486,69 +467,89 @@ const consultaContarMisProyectos = `
 // creó) y la última versión activa de alguna de sus canciones activas.
 // GREATEST ignora el NULL de un proyecto sin versiones.
 const consultaListarMisProyectos = `
-		SELECT
-			p.codigoproyecto,
-			p.nombreproyecto,
-			p.descripcionproyecto,
-			p.logoproyecto,
-			tp.nombretipoproy,
-			ep.nombreestadoproy,
+	SELECT
+		p.codigoproyecto,
+		p.nombreproyecto,
+		p.descripcionproyecto,
+		p.logoproyecto,
+		tp.nombretipoproy,
+		ep.nombreestadoproy,
+		(
+			SELECT COUNT(*)
+			FROM cancion c
+			WHERE c.codigoproyecto = p.codigoproyecto
+			  AND c.fechahorabajacancion IS NULL
+		) AS cantidadcanciones,
+		ip.codrol,
+		r.nombrerol,
+		ip.espropietario,
+		actividad.fechaultimamodificacion
+	FROM integranteproyecto ip
+	JOIN proyecto p
+	  ON p.codigoproyecto = ip.codigoproyecto
+	JOIN tipoproyecto tp
+	  ON tp.codtipoproy = p.codtipoproy
+	JOIN estadoproyecto ep
+	  ON ep.codestadoproy = p.codestadoproy
+	JOIN rol r
+	  ON r.codrol = ip.codrol
+	 AND r.ambitorol = ip.ambitorol
+
+	CROSS JOIN LATERAL (
+		SELECT GREATEST(
 			(
-				SELECT COUNT(*)
+				SELECT MIN(alta.fechahoraaltaintegranteproy)
+				FROM integranteproyecto alta
+				WHERE alta.codigoproyecto = p.codigoproyecto
+			),
+			(
+				SELECT MAX(cv.fechahoraaltaversion)
 				FROM cancion c
+				JOIN cancionversion cv
+				  ON cv.codigocancion = c.codigocancion
 				WHERE c.codigoproyecto = p.codigoproyecto
 				  AND c.fechahorabajacancion IS NULL
-			) AS cantidadcanciones,
-			ip.codrol,
-			r.nombrerol,
-			ip.espropietario,
-			actividad.fechaultimamodificacion
-		FROM integranteproyecto ip
-		JOIN proyecto p
-		  ON p.codigoproyecto = ip.codigoproyecto
-		JOIN tipoproyecto tp
-		  ON tp.codtipoproy = p.codtipoproy
-		JOIN estadoproyecto ep
-		  ON ep.codestadoproy = p.codestadoproy
-		JOIN rol r
-		  ON r.codrol = ip.codrol
-		 AND r.ambitorol = ip.ambitorol
-		CROSS JOIN LATERAL (
-			SELECT GREATEST(
-				(
-					SELECT MIN(alta.fechahoraaltaintegranteproy)
-					FROM integranteproyecto alta
-					WHERE alta.codigoproyecto = p.codigoproyecto
-				),
-				(
-					SELECT MAX(cv.fechahoraaltaversion)
-					FROM cancion c
-					JOIN cancionversion cv
-					  ON cv.codigocancion = c.codigocancion
-					WHERE c.codigoproyecto = p.codigoproyecto
-					  AND c.fechahorabajacancion IS NULL
-					  AND cv.fechahorabajaversion IS NULL
-				)
-			) AS fechaultimamodificacion
-		) actividad
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND (
-			$2::text = ''
-			OR p.nombreproyecto ILIKE '%' || $2::text || '%'
-		  )
-		  AND (
-			COALESCE(array_length($3::bigint[], 1), 0) = 0
-			OR p.codestadoproy = ANY($3::bigint[])
-		  )
-		  AND (
-			COALESCE(array_length($4::bigint[], 1), 0) = 0
-			OR p.codtipoproy = ANY($4::bigint[])
-		  )
-		ORDER BY actividad.fechaultimamodificacion DESC,
-			p.codigoproyecto DESC
-		LIMIT $5 OFFSET $6
+				  AND cv.fechahorabajaversion IS NULL
+			)
+		) AS fechaultimamodificacion
+	) actividad
+
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND p.fechahorabajaproyecto IS NULL
+
+	  AND EXISTS (
+		SELECT 1
+		FROM rolpermiso rp
+		INNER JOIN permiso per
+			ON per.codigopermiso = rp.codigopermiso
+		WHERE rp.codrol = ip.codrol
+		  AND rp.ambitorolpermiso = ip.ambitorol
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND per.fechahorabajapermiso IS NULL
+		  AND per.clavepermiso = $5
+	  )
+
+	  AND (
+		$2::text = ''
+		OR p.nombreproyecto ILIKE '%' || $2::text || '%'
+	  )
+
+	  AND (
+		COALESCE(array_length($3::bigint[], 1), 0) = 0
+		OR p.codestadoproy = ANY($3::bigint[])
+	  )
+
+	  AND (
+		COALESCE(array_length($4::bigint[], 1), 0) = 0
+		OR p.codtipoproy = ANY($4::bigint[])
+	  )
+
+	ORDER BY
+		actividad.fechaultimamodificacion DESC,
+		p.codigoproyecto DESC
+
+	LIMIT $6 OFFSET $7
 `
 
 // codigosComoArreglo adapta un filtro por códigos al bigint[] que esperan las
@@ -574,6 +575,7 @@ func (r *proyectoRepository) ContarPorIntegrante(
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Estados),
 		codigosComoArreglo(filtro.Tipos),
+		model.PermisoVerProyecto,
 	).Scan(&total)
 
 	if err != nil {
@@ -595,6 +597,7 @@ func (r *proyectoRepository) ListarPorIntegrante(
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Estados),
 		codigosComoArreglo(filtro.Tipos),
+		model.PermisoVerProyecto,
 		filtro.TamanoPagina,
 		desplazamiento,
 	)
@@ -957,49 +960,62 @@ func (r *proyectoRepository) ListarMiParticipacion(
 ) ([]dto.MiParticipacionProyectoResponse, error) {
 
 	rows, err := r.db.Query(`
-		SELECT
-			p.codigoproyecto,
-			p.nombreproyecto,
-			ip.codrol,
-			r.nombrerol,
-			ip.espropietario
-		FROM integranteproyecto ip
-		INNER JOIN proyecto p
-			ON p.codigoproyecto = ip.codigoproyecto
-		INNER JOIN rol r
-			ON r.codrol = ip.codrol
-		   AND r.ambitorol = ip.ambitorol
-		WHERE ip.codintegrante = $1
-		  AND ip.fechahorabajaintegranteproy IS NULL
-		  AND p.fechahorabajaproyecto IS NULL
-		  AND r.fechahorabajarol IS NULL
-		  AND r.ambitorol = 'PROYECTO'
-		  AND (
-				$2 = 'todos'
+	SELECT
+		p.codigoproyecto,
+		p.nombreproyecto,
+		ip.codrol,
+		r.nombrerol,
+		ip.espropietario
+	FROM integranteproyecto ip
+	INNER JOIN proyecto p
+		ON p.codigoproyecto = ip.codigoproyecto
+	INNER JOIN rol r
+		ON r.codrol = ip.codrol
+	   AND r.ambitorol = ip.ambitorol
+	WHERE ip.codintegrante = $1
+	  AND ip.fechahorabajaintegranteproy IS NULL
+	  AND p.fechahorabajaproyecto IS NULL
+	  AND r.fechahorabajarol IS NULL
+	  AND r.ambitorol = 'PROYECTO'
 
-				OR (
-					$2 = 'propietario'
-					AND ip.espropietario = TRUE
-				)
+	  AND EXISTS (
+		SELECT 1
+		FROM rolpermiso rp
+		INNER JOIN permiso per
+			ON per.codigopermiso = rp.codigopermiso
+		WHERE rp.codrol = ip.codrol
+		  AND rp.ambitorolpermiso = ip.ambitorol
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND per.fechahorabajapermiso IS NULL
+		  AND per.clavepermiso = $5
+	  )
 
-				OR (
-					$2 = 'productor'
-					AND LOWER(r.nombrerol) =
-						LOWER($3)
-				)
+	  AND (
+		$2::text = 'todos'
 
-				OR (
-					$2 = 'artista'
-					AND LOWER(r.nombrerol) =
-						LOWER($4)
-				)
-		  )
-		ORDER BY p.nombreproyecto
-	`,
+		OR (
+			$2::text = 'propietario'
+			AND ip.espropietario = TRUE
+		)
+
+		OR (
+			$2::text = 'productor'
+			AND LOWER(r.nombrerol) = LOWER($3::text)
+		)
+
+		OR (
+			$2::text = 'artista'
+			AND LOWER(r.nombrerol) = LOWER($4::text)
+		)
+	  )
+
+	ORDER BY p.nombreproyecto
+`,
 		codigoIntegrante,
 		participacion,
 		model.NombreRolProductor,
 		model.NombreRolMusicoArtista,
+		model.PermisoVerProyecto,
 	)
 
 	if err != nil {
@@ -1153,4 +1169,58 @@ func (r *proyectoRepository) DarDeBajaIntegrante(
 	}
 
 	return nil
+}
+
+func (r *proyectoRepository) ListarPermisosEnProyecto(
+	codigoIntegrante int64,
+	codigoProyecto int64,
+) ([]string, error) {
+
+	rows, err := r.db.Query(`
+		SELECT DISTINCT p.clavepermiso
+		FROM integranteproyecto ip
+		INNER JOIN rolpermiso rp
+			ON rp.codrol = ip.codrol
+		   AND rp.ambitorolpermiso = ip.ambitorol
+		INNER JOIN permiso p
+			ON p.codigopermiso = rp.codigopermiso
+		WHERE ip.codintegrante = $1
+		  AND ip.codigoproyecto = $2
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND rp.fechahorabajarolpermiso IS NULL
+		  AND p.fechahorabajapermiso IS NULL
+		  AND p.ambitopermiso = 'PROYECTO'
+		ORDER BY p.clavepermiso
+	`,
+		codigoIntegrante,
+		codigoProyecto,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	permisos := make([]string, 0)
+
+	for rows.Next() {
+
+		var permiso string
+
+		if err := rows.Scan(&permiso); err != nil {
+			return nil, err
+		}
+
+		permisos = append(
+			permisos,
+			permiso,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return permisos, nil
 }

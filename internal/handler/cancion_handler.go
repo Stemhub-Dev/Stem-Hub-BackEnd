@@ -639,6 +639,17 @@ func (h *CancionHandler) ListarPorProyecto(
 			gin.H{"error": "Error al obtener las canciones"},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrCancionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para ver las canciones de este proyecto",
+			},
+		)
+
 	default:
 		c.JSON(
 			http.StatusOK,
@@ -745,6 +756,17 @@ func (h *CancionHandler) ListarVersiones(
 		c.JSON(
 			http.StatusInternalServerError,
 			gin.H{"error": "Error al obtener las versiones"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para ver las versiones de esta canción",
+			},
 		)
 
 	default:
@@ -886,6 +908,17 @@ func (h *CancionHandler) ObtenerAudioVersion(
 		c.JSON(
 			http.StatusInternalServerError,
 			gin.H{"error": "Error al obtener el audio de la versión"},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrVersionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para reproducir esta versión",
+			},
 		)
 
 	default:

@@ -121,6 +121,17 @@ func (h *ProyectoHandler) Crear(c *gin.Context) {
 			gin.H{"error": "Error al crear el proyecto"},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
+			},
+		)
+
 	default:
 		c.JSON(
 			http.StatusCreated,
@@ -299,6 +310,17 @@ func (h *ProyectoHandler) ListarColaboradores(c *gin.Context) {
 			gin.H{"error": "Error al obtener los colaboradores"},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
+			},
+		)
+
 	default:
 		c.JSON(
 			http.StatusOK,
@@ -436,6 +458,17 @@ func (h *ProyectoHandler) ObtenerDetalle(
 			http.StatusInternalServerError,
 			gin.H{
 				"error": "Error al obtener el proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
 			},
 		)
 
@@ -844,6 +877,17 @@ func (h *ProyectoHandler) Editar(c *gin.Context) {
 			},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
+			},
+		)
+
 	default:
 
 		c.JSON(
@@ -943,6 +987,17 @@ func (h *ProyectoHandler) DarDeBaja(
 			http.StatusInternalServerError,
 			gin.H{
 				"error": "Error al dar de baja el proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
 			},
 		)
 
@@ -1188,6 +1243,17 @@ func (h *ProyectoHandler) CambiarRolIntegrante(
 			},
 		)
 
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
+			},
+		)
+
 	default:
 		c.JSON(
 			http.StatusOK,
@@ -1313,6 +1379,17 @@ func (h *ProyectoHandler) QuitarIntegrante(
 			http.StatusInternalServerError,
 			gin.H{
 				"error": "Error al quitar el integrante del proyecto",
+			},
+		)
+
+	case errors.Is(
+		err,
+		service.ErrProyectoSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción en el proyecto",
 			},
 		)
 

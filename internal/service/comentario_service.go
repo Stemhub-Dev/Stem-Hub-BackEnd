@@ -18,6 +18,10 @@ var (
 		"el comentario no puede estar vacío",
 	)
 
+	ErrComentarioSinPermiso = errors.New(
+		"el usuario no posee el permiso requerido sobre comentarios en este proyecto",
+	)
+
 	ErrComentarioTextoMuyLargo = errors.New(
 		"el comentario supera los 200 caracteres",
 	)
@@ -117,8 +121,9 @@ type ComentarioService interface {
 		codigoComentario int64,
 	) error
 
-	// Mismas reglas que Eliminar: el autor borra la suya y, con
-	// GESTIONAR_COMENTARIOS, también las de otros.
+	// Mismas reglas que Eliminar: para contenido propio se requiere
+	// ELIMINAR_COMENTARIO_PROPIO y para contenido ajeno
+	// ELIMINAR_CUALQUIER_COMENTARIO.
 	EliminarRespuesta(
 		codigoUsuario int64,
 		codigoProyecto int64,
@@ -211,6 +216,7 @@ func (s *comentarioService) Crear(
 			codigoProyecto,
 			codigoCancion,
 			codigoVersion,
+			model.PermisoCrearComentario,
 		)
 
 	if err != nil {
@@ -264,6 +270,7 @@ func (s *comentarioService) validarAccesoVersion(
 	codigoProyecto int64,
 	codigoCancion int64,
 	codigoVersion int64,
+	clavePermiso string,
 ) (*model.Integrante, error) {
 
 	existeProyecto, err :=
@@ -334,6 +341,24 @@ func (s *comentarioService) validarAccesoVersion(
 		return nil, ErrComentarioSinAcceso
 	}
 
+	if clavePermiso != "" {
+
+		tienePermiso, err :=
+			s.proyectoRepository.PuedeRealizarEnProyecto(
+				integrante.CodIntegrante,
+				codigoProyecto,
+				clavePermiso,
+			)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if !tienePermiso {
+			return nil, ErrComentarioSinPermiso
+		}
+	}
+
 	return integrante, nil
 }
 
@@ -350,6 +375,7 @@ func (s *comentarioService) ListarPorVersion(
 			codigoProyecto,
 			codigoCancion,
 			codigoVersion,
+			model.PermisoVerComentarios,
 		)
 
 	if err != nil {
@@ -440,6 +466,7 @@ func (s *comentarioService) Responder(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
+		model.PermisoResponderComentario,
 	)
 
 	if err != nil {
@@ -505,6 +532,7 @@ func (s *comentarioService) Modificar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
+		model.PermisoEditarComentarioPropio,
 	)
 
 	if err != nil {
@@ -561,6 +589,7 @@ func (s *comentarioService) Eliminar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
+		"",
 	)
 
 	if err != nil {
@@ -619,6 +648,7 @@ func (s *comentarioService) EliminarRespuesta(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
+		"",
 	)
 
 	if err != nil {
@@ -664,30 +694,33 @@ func (s *comentarioService) EliminarRespuesta(
 	return nil
 }
 
-// El autor siempre puede eliminar lo suyo; para eliminar algo ajeno hace
-// falta el permiso GESTIONAR_COMENTARIOS.
+// Para eliminar contenido propio se requiere ELIMINAR_COMENTARIO_PROPIO.
+// Para eliminar contenido de otro integrante se requiere
+// ELIMINAR_CUALQUIER_COMENTARIO.
 func (s *comentarioService) validarPermisoEliminar(
 	codigoAutor int64,
 	codigoIntegrante int64,
 	codigoProyecto int64,
 ) error {
 
+	permisoRequerido := model.PermisoEliminarCualquierComentario
+
 	if codigoAutor == codigoIntegrante {
-		return nil
+		permisoRequerido = model.PermisoEliminarComentarioPropio
 	}
 
-	puedeGestionarComentarios, err :=
+	tienePermiso, err :=
 		s.proyectoRepository.PuedeRealizarEnProyecto(
 			codigoIntegrante,
 			codigoProyecto,
-			"GESTIONAR_COMENTARIOS",
+			permisoRequerido,
 		)
 
 	if err != nil {
 		return err
 	}
 
-	if !puedeGestionarComentarios {
+	if !tienePermiso {
 		return ErrComentarioSinPermisoEliminar
 	}
 
@@ -722,6 +755,7 @@ func (s *comentarioService) CambiarEstado(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
+		model.PermisoCambiarEstadoComentario,
 	)
 
 	if err != nil {
