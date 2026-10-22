@@ -523,6 +523,10 @@ const consultaContarMisProyectos = `
 // lo más reciente entre su alta (la del primer integrante, que es quien lo
 // creó) y la última versión activa de alguna de sus canciones activas.
 // GREATEST ignora el NULL de un proyecto sin versiones.
+//
+// Una canción está "lista" si su versión actual (la de mayor numeroversion
+// sin baja) está en la última etapa activa del catálogo. Sin etapas, la
+// subconsulta de la etapa da NULL y no cuenta ninguna.
 const consultaListarMisProyectos = `
 		SELECT
 			p.codigoproyecto,
@@ -537,6 +541,27 @@ const consultaListarMisProyectos = `
 				WHERE c.codigoproyecto = p.codigoproyecto
 				  AND c.fechahorabajacancion IS NULL
 			) AS cantidadcanciones,
+			(
+				SELECT COUNT(*)
+				FROM cancion c
+				CROSS JOIN LATERAL (
+					SELECT cv.codetapaversion
+					FROM cancionversion cv
+					WHERE cv.codigocancion = c.codigocancion
+					  AND cv.fechahorabajaversion IS NULL
+					ORDER BY cv.numeroversion DESC
+					LIMIT 1
+				) actual
+				WHERE c.codigoproyecto = p.codigoproyecto
+				  AND c.fechahorabajacancion IS NULL
+				  AND actual.codetapaversion = (
+					SELECT e.codetapaversion
+					FROM etapaversionado e
+					WHERE e.fechahorabajaetapaversion IS NULL
+					ORDER BY e.ordenetapaversion DESC, e.codetapaversion DESC
+					LIMIT 1
+				  )
+			) AS cancioneslistas,
 			ip.codrol,
 			r.nombrerol,
 			ip.espropietario,
@@ -660,6 +685,7 @@ func (r *proyectoRepository) ListarPorIntegrante(
 			&proyecto.Tipo,
 			&proyecto.Estado,
 			&proyecto.CantidadCanciones,
+			&proyecto.CancionesListas,
 			&proyecto.CodRol,
 			&proyecto.NombreRol,
 			&proyecto.EsPropietario,

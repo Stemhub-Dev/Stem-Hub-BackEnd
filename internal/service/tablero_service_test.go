@@ -42,6 +42,22 @@ type tableroRepositoryFalso struct {
 	limites       []time.Time
 	inicioPeriodo time.Time
 	periodoAnt    time.Time
+	novedades     []dto.TableroNovedadResponse
+	desde         *time.Time
+	limite        int
+	visitaUsuario int64
+	visitaAhora   time.Time
+	anterior      *time.Time
+}
+
+func (r *tableroRepositoryFalso) ListarNovedades(integrante int64, desde *time.Time, limite int) ([]dto.TableroNovedadResponse, int64, error) {
+	r.integrante, r.desde, r.limite = integrante, desde, limite
+	return r.novedades, int64(len(r.novedades)), r.err
+}
+
+func (r *tableroRepositoryFalso) RegistrarVisita(codigoUsuario int64, ahora time.Time) (*time.Time, error) {
+	r.visitaUsuario, r.visitaAhora = codigoUsuario, ahora
+	return r.anterior, r.err
 }
 
 func (r *tableroRepositoryFalso) ObtenerConteos(integrante int64, _ *int64, inicio, _, anterior time.Time) (repository.TableroConteos, error) {
@@ -155,6 +171,7 @@ func TestObtenerIndicadores_CalculaValoresYVariaciones(t *testing.T) {
 		VersionesActuales: 7, VersionesInicio: 4,
 		VersionesPeriodo: 3, VersionesPeriodoAnterior: 5,
 		PendientesActuales: 6, PendientesInicio: 1,
+		StemsActuales: 12, StemsInicio: 4,
 	}}
 	servicio := nuevoServicioTablero(repo, &proyectoTableroFalso{}, integranteTablero())
 
@@ -170,6 +187,7 @@ func TestObtenerIndicadores_CalculaValoresYVariaciones(t *testing.T) {
 		ComentariosPendientes:  dto.IndicadorEnteroResponse{Valor: 6, Variacion: 5},
 		// 7/3 = 2.33; 4/4 = 1.
 		PromedioVersionesPorCancion: dto.IndicadorDecimalResponse{Valor: 2.33, Variacion: 1.33},
+		TotalStems:                  dto.IndicadorEnteroResponse{Valor: 12, Variacion: 8},
 	}
 	if *indicadores != esperado {
 		t.Errorf("indicadores = %+v\nse esperaba   %+v", *indicadores, esperado)
@@ -346,5 +364,68 @@ func TestLimitesActividad_MensualNoSeSaltaFebrero(t *testing.T) {
 	}
 	if !reflect.DeepEqual(limites, esperado) {
 		t.Errorf("límites = %v\nse esperaba %v", limites, esperado)
+	}
+}
+
+func TestObtenerNovedades_ValidaLimite(t *testing.T) {
+	for _, limite := range []int{0, -1, LimiteNovedadesMaximo + 1} {
+		repo := &tableroRepositoryFalso{}
+		servicio := nuevoServicioTablero(repo, &proyectoTableroFalso{}, integranteTablero())
+
+		if _, err := servicio.ObtenerNovedades(1, nil, limite); !errors.Is(err, ErrTableroLimiteInvalido) {
+			t.Errorf("limite %d: err = %v, se esperaba ErrTableroLimiteInvalido", limite, err)
+		}
+	}
+}
+
+func TestObtenerNovedades_PideAlRepositorioConElIntegrante(t *testing.T) {
+	desde := ahoraTablero.AddDate(0, 0, -2)
+	repo := &tableroRepositoryFalso{novedades: []dto.TableroNovedadResponse{
+		{Tipo: dto.NovedadComentario}, {Tipo: dto.NovedadVersion},
+	}}
+	servicio := nuevoServicioTablero(repo, &proyectoTableroFalso{}, integranteTablero())
+
+	respuesta, err := servicio.ObtenerNovedades(1, &desde, 3)
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if repo.integrante != 10 || repo.desde != &desde || repo.limite != 3 {
+		t.Errorf("parámetros inesperados: integrante %d, desde %v, limite %d", repo.integrante, repo.desde, repo.limite)
+	}
+	if len(respuesta.Items) != 2 || respuesta.NovedadesDesde != 2 {
+		t.Errorf("respuesta = %+v", respuesta)
+	}
+}
+
+func TestObtenerNovedades_SinPerfilDevuelveVacio(t *testing.T) {
+	repo := &tableroRepositoryFalso{}
+	servicio := nuevoServicioTablero(repo, &proyectoTableroFalso{}, &integranteRepositoryFalso{err: sql.ErrNoRows})
+
+	respuesta, err := servicio.ObtenerNovedades(1, nil, 3)
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if respuesta.Items == nil || len(respuesta.Items) != 0 || respuesta.NovedadesDesde != 0 {
+		t.Errorf("respuesta = %+v, se esperaba vacía", respuesta)
+	}
+	if repo.limite != 0 {
+		t.Error("no debería consultar el repositorio")
+	}
+}
+
+func TestRegistrarVisita_DevuelveLaAnterior(t *testing.T) {
+	anterior := ahoraTablero.AddDate(0, 0, -1)
+	repo := &tableroRepositoryFalso{anterior: &anterior}
+	servicio := nuevoServicioTablero(repo, &proyectoTableroFalso{}, integranteTablero())
+
+	visita, err := servicio.RegistrarVisita(4)
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if visita.VisitaAnterior != &anterior {
+		t.Errorf("visitaAnterior = %v, se esperaba %v", visita.VisitaAnterior, anterior)
+	}
+	if repo.visitaUsuario != 4 || !repo.visitaAhora.Equal(ahoraTablero) {
+		t.Errorf("registró usuario %d a las %v", repo.visitaUsuario, repo.visitaAhora)
 	}
 }

@@ -410,6 +410,9 @@ func NewRouter(db *sql.DB,
 	tablero.GET("/graficos/versiones-por-proyecto", tableroHandler.ObtenerVersionesPorProyecto)
 	tablero.GET("/graficos/canciones-por-etapa", tableroHandler.ObtenerCancionesPorEtapa)
 	tablero.GET("/graficos/actividad", tableroHandler.ObtenerActividad)
+	// Inicio: novedades de los demás integrantes y registro de la visita.
+	tablero.GET("/novedades", tableroHandler.ObtenerNovedades)
+	tablero.POST("/visita", tableroHandler.RegistrarVisita)
 
 	router.GET(
 		"/canciones",

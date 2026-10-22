@@ -636,6 +636,7 @@ func (s *stemService) Crear(
 	}
 
 	codStem, err := s.stemRepository.Crear(
+		codigoUsuario,
 		codigoProyecto,
 		codigoVersion,
 		nombre,

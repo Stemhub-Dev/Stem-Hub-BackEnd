@@ -68,8 +68,10 @@ type StemRepository interface {
 	) (bool, error)
 
 	// Crea el stem y, si nuevaCategoria no es nil, la categoría del proyecto
-	// en la misma transacción (codCategoriaStem se ignora en ese caso).
+	// en la misma transacción (codCategoriaStem se ignora en ese caso). El
+	// autor del alta es el integrante de codigoUsuario.
 	Crear(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		codigoCancionVersion int64,
 		nombre string,
@@ -439,6 +441,7 @@ func (r *stemRepository) ExisteNombreEnVersion(
 }
 
 func (r *stemRepository) Crear(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancionVersion int64,
 	nombre string,
@@ -470,9 +473,13 @@ func (r *stemRepository) Crear(
 			codcategoriastem,
 			urlarchivostem,
 			formatoarchivostem,
-			nombrearchivostem
+			nombrearchivostem,
+			codintegrantealtastem
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES (
+			$1, $2, $3, $4, $5, $6,
+			(SELECT codintegrante FROM integrante WHERE codigousuario = $7)
+		)
 		RETURNING codstem
 	`,
 		codigoCancionVersion,
@@ -481,6 +488,7 @@ func (r *stemRepository) Crear(
 		archivo.URL,
 		archivo.Formato,
 		archivo.NombreOriginal,
+		codigoUsuario,
 	).Scan(&codStem); err != nil {
 		return 0, err
 	}
