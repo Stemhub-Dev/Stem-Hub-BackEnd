@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -69,7 +70,7 @@ func claimsValidos() SupabaseClaims {
 
 func ejecutarProtegido(t *testing.T, clave *ecdsa.PrivateKey, servicio usuarioServiceDePrueba, authorization string) *httptest.ResponseRecorder {
 	t.Helper()
-	return ejecutarConSesiones(t, clave, servicio, &sesionesDePrueba{vigente: true}, http.MethodGet, "/protegido", authorization)
+	return ejecutarConSesiones(t, clave, servicio, &sesionesDePrueba{estado: repository.SesionVigente}, http.MethodGet, "/protegido", authorization)
 }
 
 func ejecutarConSesiones(

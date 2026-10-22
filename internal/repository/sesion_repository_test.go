@@ -22,13 +22,18 @@ func nuevaSesion(t *testing.T) (SesionRepository, string, string) {
 	return NewSesionRepository(db), idSesion, uuid.NewString()
 }
 
-func registrar(t *testing.T, repo SesionRepository, idSesion, idAuth string, ahora time.Time) bool {
+func estado(t *testing.T, repo SesionRepository, idSesion, idAuth string, ahora time.Time) EstadoSesion {
 	t.Helper()
-	vigente, err := repo.RegistrarActividad(idSesion, idAuth, ahora, inactividadPrueba)
+	resultado, err := repo.RegistrarActividad(idSesion, idAuth, ahora, inactividadPrueba)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return vigente
+	return resultado
+}
+
+func registrar(t *testing.T, repo SesionRepository, idSesion, idAuth string, ahora time.Time) bool {
+	t.Helper()
+	return estado(t, repo, idSesion, idAuth, ahora) == SesionVigente
 }
 
 func TestSesion_UsoDentroDeLos45MinutosSigueVigente(t *testing.T) {
@@ -53,12 +58,12 @@ func TestSesion_45MinutosSinUsoLaVence(t *testing.T) {
 
 	registrar(t, repo, idSesion, idAuth, inicio)
 
-	if registrar(t, repo, idSesion, idAuth, inicio.Add(45*time.Minute)) {
-		t.Fatal("a los 45 minutos sin uso: quería vencida")
+	if got := estado(t, repo, idSesion, idAuth, inicio.Add(45*time.Minute)); got != SesionInactiva {
+		t.Fatalf("a los 45 minutos sin uso: estado = %v, quería inactiva", got)
 	}
 	// Una vez vencida no revive, aunque se siga intentando.
-	if registrar(t, repo, idSesion, idAuth, inicio.Add(46*time.Minute)) {
-		t.Fatal("después de vencer: quería vencida")
+	if got := estado(t, repo, idSesion, idAuth, inicio.Add(46*time.Minute)); got != SesionInactiva {
+		t.Fatalf("después de vencer: estado = %v, quería inactiva", got)
 	}
 }
 
@@ -71,8 +76,8 @@ func TestSesion_RevocadaNoSirveMas(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if registrar(t, repo, idSesion, idAuth, ahora.Add(2*time.Minute)) {
-		t.Fatal("después del logout: quería rechazada")
+	if got := estado(t, repo, idSesion, idAuth, ahora.Add(2*time.Minute)); got != SesionCerrada {
+		t.Fatalf("después del logout: estado = %v, quería cerrada", got)
 	}
 }
 
@@ -129,8 +134,8 @@ func TestSesion_UsosEnParaleloDeUnaSesionNueva(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			vigente, err := repo.RegistrarActividad(idSesion, idAuth, ahora, inactividadPrueba)
-			if err == nil && !vigente {
+			resultado, err := repo.RegistrarActividad(idSesion, idAuth, ahora, inactividadPrueba)
+			if err == nil && resultado != SesionVigente {
 				t.Error("uso en paralelo rechazado")
 			}
 			if err != nil {
@@ -142,5 +147,58 @@ func TestSesion_UsosEnParaleloDeUnaSesionNueva(t *testing.T) {
 	close(errores)
 	for err := range errores {
 		t.Fatal(err)
+	}
+}
+
+func TestSesion_RevocarTodasCierraLasSesionesDelUsuarioYNoLasDeOtros(t *testing.T) {
+	repo, idSesion, idAuth := nuevaSesion(t)
+	db := conectarBaseUsuarios(t)
+	otraSesion, sesionAjena, otroUsuario := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM sesion WHERE idsesion IN ($1, $2)`, otraSesion, sesionAjena)
+	})
+	ahora := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+
+	registrar(t, repo, idSesion, idAuth, ahora)
+	registrar(t, repo, otraSesion, idAuth, ahora)
+	registrar(t, repo, sesionAjena, otroUsuario, ahora)
+
+	if err := repo.RevocarTodas(idAuth, ahora.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{idSesion, otraSesion} {
+		if got := estado(t, repo, id, idAuth, ahora.Add(2*time.Minute)); got != SesionCerrada {
+			t.Fatalf("sesión %s: estado = %v, quería cerrada", id, got)
+		}
+	}
+	if !registrar(t, repo, sesionAjena, otroUsuario, ahora.Add(2*time.Minute)) {
+		t.Fatal("la sesión de otro usuario no debe cerrarse")
+	}
+}
+
+func TestSesion_CerrarSesionBorraLasFilasViejasDelUsuario(t *testing.T) {
+	repo, idSesion, idAuth := nuevaSesion(t)
+	db := conectarBaseUsuarios(t)
+	vieja := uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM sesion WHERE idsesion = $1`, vieja)
+	})
+	ahora := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+
+	registrar(t, repo, vieja, idAuth, ahora.Add(-48*time.Hour))
+	registrar(t, repo, idSesion, idAuth, ahora)
+
+	if err := repo.Revocar(idSesion, idAuth, ahora); err != nil {
+		t.Fatal(err)
+	}
+
+	var filas int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sesion WHERE idautenticacion = $1`, idAuth).Scan(&filas); err != nil {
+		t.Fatal(err)
+	}
+	// Queda solo la recién revocada: la de hace dos días se borró.
+	if filas != 1 {
+		t.Fatalf("filas = %d, quería 1", filas)
 	}
 }

@@ -1,49 +1,80 @@
 package middleware
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
 // HU-SEG-B02: token de una sesión cerrada o inactiva → 401.
 
 type sesionesDePrueba struct {
-	vigente     bool
+	estado      repository.EstadoSesion
 	err         error
 	revocadas   []string
+	globales    []string
 	actividad   []string
 	inactividad time.Duration
 }
 
-func (s *sesionesDePrueba) RegistrarActividad(idSesion, _ string, _ time.Time, inactividadMaxima time.Duration) (bool, error) {
+func (s *sesionesDePrueba) RegistrarActividad(idSesion, _ string, _ time.Time, inactividadMaxima time.Duration) (repository.EstadoSesion, error) {
 	s.actividad = append(s.actividad, idSesion)
 	s.inactividad = inactividadMaxima
-	return s.vigente, s.err
+	return s.estado, s.err
 }
 
 func (s *sesionesDePrueba) Revocar(idSesion, _ string, _ time.Time) error {
 	s.revocadas = append(s.revocadas, idSesion)
-	s.vigente = false
+	s.estado = repository.SesionCerrada
 	return s.err
 }
 
-func TestValidarJWT_SesionCerradaOInactivaResponde401(t *testing.T) {
-	clave := nuevaClave(t)
-	sesiones := &sesionesDePrueba{vigente: false}
+func (s *sesionesDePrueba) RevocarTodas(idAutenticacion string, _ time.Time) error {
+	s.globales = append(s.globales, idAutenticacion)
+	s.estado = repository.SesionCerrada
+	return s.err
+}
 
-	grabador := ejecutarConSesiones(t, clave, usuarioActivo, sesiones, http.MethodGet, "/protegido",
-		"Bearer "+firmar(t, clave, claimsValidos()))
+func codigoDeError(t *testing.T, cuerpo []byte) string {
+	t.Helper()
+	var respuesta map[string]string
+	if err := json.Unmarshal(cuerpo, &respuesta); err != nil {
+		t.Fatalf("cuerpo no es JSON: %v", err)
+	}
+	return respuesta["error"]
+}
 
-	if grabador.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, quería 401", grabador.Code)
+func TestValidarJWT_SesionCerradaOInactivaResponde401ConSuCodigo(t *testing.T) {
+	casos := map[repository.EstadoSesion]string{
+		repository.SesionCerrada:  CodigoSesionCerrada,
+		repository.SesionInactiva: CodigoSesionInactiva,
+	}
+
+	for estado, codigo := range casos {
+		t.Run(codigo, func(t *testing.T) {
+			clave := nuevaClave(t)
+			sesiones := &sesionesDePrueba{estado: estado}
+
+			grabador := ejecutarConSesiones(t, clave, usuarioActivo, sesiones, http.MethodGet, "/protegido",
+				"Bearer "+firmar(t, clave, claimsValidos()))
+
+			if grabador.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, quería 401", grabador.Code)
+			}
+			if got := codigoDeError(t, grabador.Body.Bytes()); got != codigo {
+				t.Fatalf("error = %q, quería %q", got, codigo)
+			}
+		})
 	}
 }
 
 func TestValidarJWT_RegistraLaActividadConInactividadDe45Minutos(t *testing.T) {
 	clave := nuevaClave(t)
-	sesiones := &sesionesDePrueba{vigente: true}
+	sesiones := &sesionesDePrueba{estado: repository.SesionVigente}
 	claims := claimsValidos()
 
 	grabador := ejecutarConSesiones(t, clave, usuarioActivo, sesiones, http.MethodGet, "/protegido",
@@ -74,7 +105,7 @@ func TestValidarJWT_FallaDelRegistroResponde500(t *testing.T) {
 
 func TestCerrarSesion_RevocaYElMismoTokenDejaDeServir(t *testing.T) {
 	clave := nuevaClave(t)
-	sesiones := &sesionesDePrueba{vigente: true}
+	sesiones := &sesionesDePrueba{estado: repository.SesionVigente}
 	claims := claimsValidos()
 	token := "Bearer " + firmar(t, clave, claims)
 
@@ -94,7 +125,7 @@ func TestCerrarSesion_RevocaYElMismoTokenDejaDeServir(t *testing.T) {
 
 func TestCerrarSesion_SinTokenResponde401(t *testing.T) {
 	clave := nuevaClave(t)
-	sesiones := &sesionesDePrueba{vigente: true}
+	sesiones := &sesionesDePrueba{estado: repository.SesionVigente}
 
 	grabador := ejecutarConSesiones(t, clave, usuarioActivo, sesiones, http.MethodPost, "/auth/logout", "")
 
@@ -103,5 +134,24 @@ func TestCerrarSesion_SinTokenResponde401(t *testing.T) {
 	}
 	if len(sesiones.revocadas) != 0 {
 		t.Fatalf("revocó sin token: %v", sesiones.revocadas)
+	}
+}
+
+func TestCerrarSesion_ScopeGlobalRevocaTodasLasDelUsuario(t *testing.T) {
+	clave := nuevaClave(t)
+	sesiones := &sesionesDePrueba{estado: repository.SesionVigente}
+	claims := claimsValidos()
+
+	grabador := ejecutarConSesiones(t, clave, usuarioActivo, sesiones, http.MethodPost, "/auth/logout?scope=global",
+		"Bearer "+firmar(t, clave, claims))
+
+	if grabador.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, quería 204", grabador.Code)
+	}
+	if len(sesiones.globales) != 1 || sesiones.globales[0] != claims.Subject {
+		t.Fatalf("globales = %v, quería [%s]", sesiones.globales, claims.Subject)
+	}
+	if len(sesiones.revocadas) != 0 {
+		t.Fatalf("revocó solo una sesión: %v", sesiones.revocadas)
 	}
 }

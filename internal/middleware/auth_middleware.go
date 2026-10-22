@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 )
 
@@ -27,6 +28,12 @@ const (
 	// HU-SEG-B02: una sesión sin requests durante este tiempo deja de
 	// servir, aunque el access token no haya vencido.
 	InactividadMaximaSesion = 45 * time.Minute
+
+	// Deben coincidir con AuthFailureReason del frontend
+	// (stemhub-frontend/src/lib/auth/reasons.ts), que muestra un aviso
+	// distinto para cada uno.
+	CodigoSesionCerrada  = "session_not_found"
+	CodigoSesionInactiva = "session_inactive"
 )
 
 type SupabaseClaims struct {
@@ -45,8 +52,9 @@ type MetadatosUsuario struct {
 
 // RegistroSesiones lo implementa repository.SesionRepository.
 type RegistroSesiones interface {
-	RegistrarActividad(idSesion, idAutenticacion string, ahora time.Time, inactividadMaxima time.Duration) (bool, error)
+	RegistrarActividad(idSesion, idAutenticacion string, ahora time.Time, inactividadMaxima time.Duration) (repository.EstadoSesion, error)
 	Revocar(idSesion, idAutenticacion string, ahora time.Time) error
+	RevocarTodas(idAutenticacion string, ahora time.Time) error
 }
 
 type AuthMiddleware struct {
@@ -162,7 +170,7 @@ func (m *AuthMiddleware) ValidarJWT(c *gin.Context) {
 		return
 	}
 
-	vigente, err := m.sesiones.RegistrarActividad(
+	estado, err := m.sesiones.RegistrarActividad(
 		claims.SessionID,
 		claims.Subject,
 		time.Now(),
@@ -177,9 +185,16 @@ func (m *AuthMiddleware) ValidarJWT(c *gin.Context) {
 		return
 	}
 
-	if !vigente {
+	switch estado {
+	case repository.SesionVigente:
+	case repository.SesionInactiva:
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "sesión cerrada o vencida por inactividad",
+			"error": CodigoSesionInactiva,
+		})
+		return
+	default:
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": CodigoSesionCerrada,
 		})
 		return
 	}
@@ -189,9 +204,10 @@ func (m *AuthMiddleware) ValidarJWT(c *gin.Context) {
 	c.Next()
 }
 
-// CerrarSesion revoca la sesión del token (va después de ValidarJWT). El
-// front lo llama antes de cerrar la sesión en GoTrue: GoTrue revoca el
-// refresh token, pero el access token seguiría sirviendo hasta su "exp".
+// CerrarSesion revoca la sesión del token (va después de ValidarJWT), o
+// todas las del usuario con ?scope=global. El front lo llama junto con el
+// logout de GoTrue: GoTrue revoca el refresh token, pero el access token
+// seguiría sirviendo hasta su "exp".
 func (m *AuthMiddleware) CerrarSesion(c *gin.Context) {
 	claimsValue, _ := c.Get(ClaimsContextKey)
 	claims, ok := claimsValue.(*SupabaseClaims)
@@ -203,7 +219,14 @@ func (m *AuthMiddleware) CerrarSesion(c *gin.Context) {
 		return
 	}
 
-	if err := m.sesiones.Revocar(claims.SessionID, claims.Subject, time.Now()); err != nil {
+	var err error
+	if c.Query("scope") == "global" {
+		err = m.sesiones.RevocarTodas(claims.Subject, time.Now())
+	} else {
+		err = m.sesiones.Revocar(claims.SessionID, claims.Subject, time.Now())
+	}
+
+	if err != nil {
 		log.Printf("CerrarSesion: no se pudo revocar la sesión %s: %v", claims.SessionID, err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "error interno del servidor",
