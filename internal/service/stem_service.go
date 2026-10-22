@@ -33,7 +33,7 @@ var (
 
 	ErrStemNombreObligatorio = errors.New("el nombre del stem es obligatorio")
 	ErrStemNombreLargo       = errors.New("el nombre del stem es demasiado largo")
-	ErrStemNombreDuplicado   = errors.New("ya existe un stem con ese nombre en la versión")
+	ErrStemNombreDuplicado   = repository.ErrNombreStemDuplicado
 
 	ErrStemNombreArchivoObligatorio = errors.New("el nombre del archivo del stem es obligatorio")
 	ErrStemNombreArchivoLargo       = errors.New("el nombre del archivo del stem es demasiado largo")
@@ -41,7 +41,7 @@ var (
 
 	ErrStemCategoriaObligatoria   = errors.New("la categoría del stem es obligatoria")
 	ErrStemCategoriaNoEncontrada  = errors.New("la categoría no existe")
-	ErrStemCategoriaDuplicada     = errors.New("ya existe una categoría con ese nombre")
+	ErrStemCategoriaDuplicada     = repository.ErrCategoriaStemDuplicada
 	ErrStemCategoriaNombreLargo   = errors.New("el nombre de la categoría es demasiado largo")
 	ErrStemArchivoObligatorio     = errors.New("el archivo del stem es obligatorio")
 	ErrStemArchivoVacio           = errors.New("el archivo del stem está vacío")
@@ -647,7 +647,7 @@ func (s *stemService) Crear(
 
 	if err != nil {
 		s.eliminarArchivo(guardado.URL)
-		return nil, errorDeStemRepositorio(err)
+		return nil, err
 	}
 
 	stem, err := s.stemRepository.BuscarPorCodigo(codigoVersion, codStem)
@@ -659,18 +659,6 @@ func (s *stemService) Crear(
 	respuesta := stemAResponse(*stem)
 
 	return &respuesta, nil
-}
-
-// Duplicados que el repositorio detecta por el índice único (otra request
-// en paralelo ganó la carrera): mismo error que el chequeo previo.
-func errorDeStemRepositorio(err error) error {
-	switch {
-	case errors.Is(err, repository.ErrNombreStemDuplicado):
-		return ErrStemNombreDuplicado
-	case errors.Is(err, repository.ErrCategoriaStemDuplicada):
-		return ErrStemCategoriaDuplicada
-	}
-	return err
 }
 
 func (s *stemService) buscarStem(codigoVersion, codStem int64) (*model.Stem, error) {
@@ -786,7 +774,7 @@ func (s *stemService) Editar(
 		if guardado != nil {
 			s.eliminarArchivo(guardado.URL)
 		}
-		return nil, errorDeStemRepositorio(err)
+		return nil, err
 	}
 
 	// Borrado real también al reemplazar: el archivo anterior no se conserva.

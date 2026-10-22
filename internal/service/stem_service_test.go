@@ -60,6 +60,7 @@ type stemRepositoryFalso struct {
 	versionesBuscadas []int64
 	categorias        []model.CategoriaStem
 	errCrear          error
+	errActualizar     error
 
 	creado       *repository.ArchivoStemGuardado
 	nuevaCatPide *string
@@ -132,6 +133,9 @@ func (r *stemRepositoryFalso) Crear(
 }
 
 func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.CambiosStem) error {
+	if r.errActualizar != nil {
+		return r.errActualizar
+	}
 	r.cambios = &cambios
 	r.actualizado = cambios.Archivo
 	s := r.stems[cod]
@@ -593,5 +597,22 @@ func TestCrearStem_DuplicadoDetectadoPorLaBaseEsNombreDuplicado(t *testing.T) {
 				t.Fatalf("eliminados = %v, subidos = %v", e.storage.eliminados, e.storage.subidos)
 			}
 		})
+	}
+}
+
+// Lo mismo al editar: otro renombre en paralelo ganó la carrera. El archivo
+// de reemplazo que se subió se borra.
+func TestEditarStem_DuplicadoDetectadoPorLaBaseEsNombreDuplicado(t *testing.T) {
+	e := nuevoEscenarioStems()
+	e.stems.errActualizar = repository.ErrNombreStemDuplicado
+	archivo := archivoDePrueba("nuevo.wav", 100)
+
+	_, err := e.servicio.Editar(1, 7, 8, 9, 10, EditarStemRequest{Nombre: "Contrabajo"}, &archivo)
+
+	if !errors.Is(err, ErrStemNombreDuplicado) {
+		t.Fatalf("err = %v, quería ErrStemNombreDuplicado", err)
+	}
+	if len(e.storage.subidos) != 1 || len(e.storage.eliminados) != 1 || e.storage.eliminados[0] != e.storage.subidos[0] {
+		t.Fatalf("subidos = %v, eliminados = %v", e.storage.subidos, e.storage.eliminados)
 	}
 }
