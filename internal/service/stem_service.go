@@ -19,7 +19,7 @@ import (
 
 const (
 	permisoGestionarStems        = "GESTIONAR_STEMS"
-	largoMaximoNombreStem        = 150
+	largoMaximoNombreStem        = 60
 	largoMaximoNombreCategoria   = 100
 	largoMaximoNombreArchivoStem = 255
 )

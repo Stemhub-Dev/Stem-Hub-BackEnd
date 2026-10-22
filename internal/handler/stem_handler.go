@@ -164,7 +164,7 @@ func responderErrorStem(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrStemNombreObligatorio):
 		r = respuesta{http.StatusBadRequest, "Ingresá un nombre para el stem."}
 	case errors.Is(err, service.ErrStemNombreLargo):
-		r = respuesta{http.StatusBadRequest, "El nombre del stem es demasiado largo."}
+		r = respuesta{http.StatusBadRequest, "El nombre del stem puede tener hasta 60 caracteres."}
 	case errors.Is(err, service.ErrStemNombreDuplicado):
 		r = respuesta{http.StatusConflict, "Ya existe un stem con ese nombre en esta versión."}
 	case errors.Is(err, service.ErrStemNombreArchivoObligatorio):
