@@ -597,16 +597,19 @@ func (r *stemRepository) Eliminar(
 
 	defer tx.Rollback()
 
-	// Las FK son RESTRICT: primero las respuestas, después los comentarios
-	// y recién ahí el stem. Incluye los comentarios ya dados de baja, que
-	// también referencian al stem.
+	// Se borran las respuestas y los comentarios del stem (incluidos los ya
+	// dados de baja). El stem queda con baja lógica: el indicador de stems
+	// del Inicio necesita saber que existía al comienzo del período.
 	sentencias := []string{
 		`DELETE FROM comentariorespuesta
 		 WHERE codigocomentario IN (
 			SELECT codigocomentario FROM comentario WHERE codstem = $1
 		 )`,
 		`DELETE FROM comentario WHERE codstem = $1`,
-		`DELETE FROM stem WHERE codstem = $1`,
+		`UPDATE stem
+		 SET fechahorabajastem = CURRENT_TIMESTAMP
+		 WHERE codstem = $1
+		   AND fechahorabajastem IS NULL`,
 	}
 
 	for _, sentencia := range sentencias {
