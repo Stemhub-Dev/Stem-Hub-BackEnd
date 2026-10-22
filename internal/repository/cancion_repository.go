@@ -141,18 +141,7 @@ func (r *cancionRepository) ExisteNombreEnProyecto(
 
 	var existe bool
 
-	err := r.db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1
-			FROM cancion
-			WHERE codigoproyecto = $1
-			  AND LOWER(TRIM(nombrecancion)) = LOWER(TRIM($2))
-			  AND fechahorabajacancion IS NULL
-		)
-	`,
-		codigoProyecto,
-		nombre,
-	).Scan(&existe)
+	err := r.db.QueryRow(consultaNombreCancionOcupado, codigoProyecto, 0, nombre).Scan(&existe)
 
 	return existe, err
 }
@@ -169,8 +158,7 @@ func (r *cancionRepository) IniciarCreacionCancion(
 	}
 
 	// El lock queda tomado hasta que el service confirme la transacción
-	// (después de subir el audio): otra alta con el mismo nombre espera y
-	// después ve la canción ya creada.
+	// (después de subir el audio).
 	if err := bloquearNombreCancion(tx, codigoProyecto, nombre); err != nil {
 		tx.Rollback()
 		return nil, 0, err
@@ -203,29 +191,38 @@ func (r *cancionRepository) IniciarCreacionCancion(
 	return tx, codigoCancion, nil
 }
 
-// Serializa las altas y renombres que usan el mismo nombre en el mismo
-// proyecto. Sin esto, dos requests en paralelo (p. ej. un doble clic en
-// "Crear canción") pasaban las dos el chequeo de ExisteNombreEnProyecto y
-// creaban dos canciones con el mismo nombre. Se bloquea por nombre y no por
-// proyecto para no frenar las altas de otras canciones mientras se sube el
-// audio.
+// Evita que dos altas o renombres en paralelo (p. ej. un doble clic en
+// "Crear canción") pasen los dos el chequeo de nombre y dejen dos canciones
+// iguales. El lock es por proyecto y nombre, y no se espera: en un alta queda
+// tomado mientras se sube el audio, así que si otra request lo tiene es
+// porque está creando o renombrando a ese nombre y esta responde 409 al
+// instante en vez de ocupar una conexión hasta que termine.
 func bloquearNombreCancion(tx *sql.Tx, codigoProyecto int64, nombre string) error {
-	_, err := tx.Exec(
-		`SELECT pg_advisory_xact_lock($1, hashtext($2::bigint::text || ':' || LOWER(TRIM($3))))`,
+
+	var obtenido bool
+
+	err := tx.QueryRow(
+		`SELECT pg_try_advisory_xact_lock($1, hashtext($2::bigint::text || ':' || LOWER(TRIM($3))))`,
 		lockNombreCancion,
 		codigoProyecto,
 		nombre,
-	)
-	return err
+	).Scan(&obtenido)
+
+	if err != nil {
+		return err
+	}
+
+	if !obtenido {
+		return ErrNombreCancionDuplicado
+	}
+
+	return nil
 }
 
-// Igual que ExisteNombreEnProyectoExceptoCancion, pero dentro de la
-// transacción y con el lock tomado. exceptoCancion = 0 en un alta.
-func verificarNombreLibre(tx *sql.Tx, codigoProyecto, exceptoCancion int64, nombre string) error {
-
-	var existe bool
-
-	err := tx.QueryRow(`
+// Otra canción activa del proyecto con el mismo nombre, sin distinguir
+// mayúsculas ni espacios en los extremos. $2 es la canción que se renombra
+// (0 en un alta).
+const consultaNombreCancionOcupado = `
 		SELECT EXISTS (
 			SELECT 1
 			FROM cancion
@@ -234,13 +231,15 @@ func verificarNombreLibre(tx *sql.Tx, codigoProyecto, exceptoCancion int64, nomb
 			  AND LOWER(TRIM(nombrecancion)) = LOWER(TRIM($3))
 			  AND fechahorabajacancion IS NULL
 		)
-	`,
-		codigoProyecto,
-		exceptoCancion,
-		nombre,
-	).Scan(&existe)
+`
 
-	if err != nil {
+// Igual que ExisteNombreEnProyectoExceptoCancion, pero dentro de la
+// transacción y con el lock tomado. exceptoCancion = 0 en un alta.
+func verificarNombreLibre(tx *sql.Tx, codigoProyecto, exceptoCancion int64, nombre string) error {
+
+	var existe bool
+
+	if err := tx.QueryRow(consultaNombreCancionOcupado, codigoProyecto, exceptoCancion, nombre).Scan(&existe); err != nil {
 		return err
 	}
 
@@ -992,20 +991,7 @@ func (r *cancionRepository) ExisteNombreEnProyectoExceptoCancion(
 
 	var existe bool
 
-	err := r.db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1
-			FROM cancion
-			WHERE codigoproyecto = $1
-			  AND codigocancion <> $2
-			  AND LOWER(TRIM(nombrecancion)) = LOWER(TRIM($3))
-			  AND fechahorabajacancion IS NULL
-		)
-	`,
-		codigoProyecto,
-		codigoCancion,
-		nombre,
-	).Scan(&existe)
+	err := r.db.QueryRow(consultaNombreCancionOcupado, codigoProyecto, codigoCancion, nombre).Scan(&existe)
 
 	return existe, err
 }
