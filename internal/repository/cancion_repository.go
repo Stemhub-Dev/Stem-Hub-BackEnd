@@ -3,7 +3,6 @@ package repository
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
@@ -499,10 +498,7 @@ func (r *cancionRepository) ListarPorProyecto(
 			version := dto.VersionActualCancionResponse{
 				CodigoCancionVersion: codigoVersion.Int64,
 				NumeroVersion:        int(numeroVersion.Int64),
-				EtiquetaVersion: fmt.Sprintf(
-					"v1.%d.0",
-					numeroVersion.Int64-1,
-				),
+				EtiquetaVersion:      dto.EtiquetaVersion(numeroVersion.Int64),
 			}
 
 			if urlArchivo.Valid {
@@ -591,10 +587,7 @@ func (r *cancionRepository) ListarVersiones(
 			return nil, err
 		}
 
-		version.EtiquetaVersion = fmt.Sprintf(
-			"v1.%d.0",
-			version.NumeroVersion-1,
-		)
+		version.EtiquetaVersion = dto.EtiquetaVersion(int64(version.NumeroVersion))
 
 		if urlArchivo.Valid {
 			version.URLArchivo = &urlArchivo.String
@@ -870,10 +863,7 @@ func (r *cancionRepository) ListarPorIntegrante(
 			version := dto.VersionActualCancionResponse{
 				CodigoCancionVersion: codigoVersion.Int64,
 				NumeroVersion:        int(numeroVersion.Int64),
-				EtiquetaVersion: fmt.Sprintf(
-					"v1.%d.0",
-					numeroVersion.Int64-1,
-				),
+				EtiquetaVersion:      dto.EtiquetaVersion(numeroVersion.Int64),
 			}
 
 			if urlArchivo.Valid {

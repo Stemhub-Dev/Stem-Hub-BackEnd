@@ -55,6 +55,8 @@ type columnaPDF struct {
 	etiqueta string
 	ancho    float64
 	alinear  string
+	// formatear reemplaza a valorATexto para esta columna.
+	formatear func(interface{}) string
 }
 
 // Mismas claves y etiquetas que la vista previa del frontend
@@ -63,7 +65,7 @@ type columnaPDF struct {
 var columnasPorTipo = map[string][]columnaPDF{
 	ReporteHistorial: {
 		{clave: "cancion", etiqueta: "Canción", ancho: 0.32, alinear: "L"},
-		{clave: "numero_version", etiqueta: "Versión", ancho: 0.12, alinear: "C"},
+		{clave: "numero_version", etiqueta: "Versión", ancho: 0.12, alinear: "C", formatear: versionATexto},
 		{clave: "fecha", etiqueta: "Fecha", ancho: 0.17, alinear: "L"},
 		{clave: "formato", etiqueta: "Formato", ancho: 0.13, alinear: "C"},
 		{clave: "notas", etiqueta: "Notas", ancho: 0.26, alinear: "L"},
@@ -76,7 +78,7 @@ var columnasPorTipo = map[string][]columnaPDF{
 	},
 	ReporteEstadoCanciones: {
 		{clave: "cancion", etiqueta: "Canción", ancho: 0.31, alinear: "L"},
-		{clave: "ultima_version", etiqueta: "Última versión", ancho: 0.15, alinear: "C"},
+		{clave: "ultima_version", etiqueta: "Última versión", ancho: 0.15, alinear: "C", formatear: versionATexto},
 		{clave: "total_versiones", etiqueta: "Versiones", ancho: 0.13, alinear: "C"},
 		{clave: "comentarios", etiqueta: "Comentarios", ancho: 0.15, alinear: "C"},
 		{clave: "comentarios_pendientes", etiqueta: "Pendientes", ancho: 0.13, alinear: "C"},
@@ -307,7 +309,11 @@ func (d *documentoReporte) filaTabla(columnas []columnaPDF, fila map[string]inte
 
 	for _, columna := range columnas {
 		ancho := columna.ancho * anchoUtilPDF
-		valor := d.recortar(valorATexto(fila[columna.clave]), ancho-3)
+		formatear := valorATexto
+		if columna.formatear != nil {
+			formatear = columna.formatear
+		}
+		valor := d.recortar(formatear(fila[columna.clave]), ancho-3)
 		d.pdf.CellFormat(ancho, altoFilaTabla, d.tr(valor), "B", 0, columna.alinear, true, 0, "")
 	}
 	d.pdf.Ln(-1)
@@ -395,23 +401,46 @@ func describirVersion(reporte *dto.ReporteRespuesta) string {
 	if codigo == nil {
 		return "todas"
 	}
-	if numero := buscarEnFilas(reporte.Datos, "codigo_version", *codigo, "numero_version"); numero != "" {
-		return "v" + numero
+	if numero, ok := buscarValorEnFilas(reporte.Datos, "codigo_version", *codigo, "numero_version"); ok {
+		if etiqueta := versionATexto(numero); etiqueta != sinDato {
+			return etiqueta
+		}
 	}
 	return "#" + strconv.FormatInt(*codigo, 10)
 }
 
 func buscarEnFilas(datos []map[string]interface{}, claveCodigo string, codigo int64, claveValor string) string {
+	if valor, ok := buscarValorEnFilas(datos, claveCodigo, codigo, claveValor); ok {
+		return valorATexto(valor)
+	}
+	return ""
+}
+
+func buscarValorEnFilas(datos []map[string]interface{}, claveCodigo string, codigo int64, claveValor string) (interface{}, bool) {
 	for _, fila := range datos {
 		valor, ok := fila[claveCodigo]
 		if !ok {
 			continue
 		}
 		if numero, ok := valor.(int64); ok && numero == codigo {
-			return valorATexto(fila[claveValor])
+			return fila[claveValor], true
 		}
 	}
-	return ""
+	return nil, false
+}
+
+// versionATexto muestra un número de versión como en el resto de la app
+// ("v3"). Las filas vienen de rows.Scan en int64; ultima_version es 0 en una
+// canción sin versiones.
+func versionATexto(valor interface{}) string {
+	numero, ok := valor.(int64)
+	if !ok {
+		return valorATexto(valor)
+	}
+	if numero <= 0 {
+		return sinDato
+	}
+	return dto.EtiquetaVersion(numero)
 }
 
 func valorATexto(valor interface{}) string {
