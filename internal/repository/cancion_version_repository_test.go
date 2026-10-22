@@ -41,8 +41,8 @@ func TestListarVersiones_DevuelveAutorYVersionActual(t *testing.T) {
 	}
 
 	actual := versiones[0]
-	if !actual.EsActual || actual.EtiquetaVersion != "v1.1.0" {
-		t.Errorf("la versión 2 debería ser la actual v1.1.0: %+v", actual)
+	if !actual.EsActual || actual.EtiquetaVersion != "v2" {
+		t.Errorf("la versión 2 debería ser la actual v2: %+v", actual)
 	}
 	if actual.Autor == nil || actual.Autor.CodigoIntegrante != 42 || actual.Autor.Nombre != "Ana" {
 		t.Errorf("autor inesperado: %+v", actual.Autor)

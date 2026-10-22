@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -56,9 +57,10 @@ func firmar(t *testing.T, clave *ecdsa.PrivateKey, claims SupabaseClaims) string
 
 func claimsValidos() SupabaseClaims {
 	return SupabaseClaims{
-		Email: "ana@test.com",
+		Email:     "ana@test.com",
+		SessionID: "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4",
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   "auth-123",
+			Subject:   "5b0c3f0e-7a52-4c39-9d7e-3f2a1b6c8d01",
 			Issuer:    issuerPrueba,
 			Audience:  jwt.ClaimStrings{audiencePrueba},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
@@ -68,11 +70,23 @@ func claimsValidos() SupabaseClaims {
 
 func ejecutarProtegido(t *testing.T, clave *ecdsa.PrivateKey, servicio usuarioServiceDePrueba, authorization string) *httptest.ResponseRecorder {
 	t.Helper()
+	return ejecutarConSesiones(t, clave, servicio, &sesionesDePrueba{estado: repository.SesionVigente}, http.MethodGet, "/protegido", authorization)
+}
+
+func ejecutarConSesiones(
+	t *testing.T,
+	clave *ecdsa.PrivateKey,
+	servicio usuarioServiceDePrueba,
+	sesiones *sesionesDePrueba,
+	metodo, ruta, authorization string,
+) *httptest.ResponseRecorder {
+	t.Helper()
 
 	gin.SetMode(gin.TestMode)
 
 	m := &AuthMiddleware{
 		usuarioService: servicio,
+		sesiones:       sesiones,
 		keyFunc:        func(*jwt.Token) (any, error) { return &clave.PublicKey, nil },
 		issuer:         issuerPrueba,
 		audience:       audiencePrueba,
@@ -82,9 +96,10 @@ func ejecutarProtegido(t *testing.T, clave *ecdsa.PrivateKey, servicio usuarioSe
 	router.GET("/protegido", m.ValidarJWT, m.UsuarioActivo, func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
+	router.POST("/auth/logout", m.ValidarJWT, m.CerrarSesion)
 
 	grabador := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/protegido", nil)
+	request := httptest.NewRequest(metodo, ruta, nil)
 	if authorization != "" {
 		request.Header.Set("Authorization", authorization)
 	}
@@ -104,6 +119,9 @@ func TestValidarJWT_TokenFaltanteOInvalidoResponde401(t *testing.T) {
 	otraAudiencia := claimsValidos()
 	otraAudiencia.Audience = jwt.ClaimStrings{"otra"}
 
+	sinSesion := claimsValidos()
+	sinSesion.SessionID = ""
+
 	casos := map[string]string{
 		"sin header":     "",
 		"sin Bearer":     firmar(t, clave, claimsValidos()),
@@ -111,6 +129,7 @@ func TestValidarJWT_TokenFaltanteOInvalidoResponde401(t *testing.T) {
 		"vencido":        "Bearer " + firmar(t, clave, vencido),
 		"otra audiencia": "Bearer " + firmar(t, clave, otraAudiencia),
 		"basura":         "Bearer no-es-un-jwt",
+		"sin session_id": "Bearer " + firmar(t, clave, sinSesion),
 	}
 
 	for caso, authorization := range casos {

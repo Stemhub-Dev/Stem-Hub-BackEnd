@@ -33,7 +33,7 @@ var (
 
 	ErrStemNombreObligatorio = errors.New("el nombre del stem es obligatorio")
 	ErrStemNombreLargo       = errors.New("el nombre del stem es demasiado largo")
-	ErrStemNombreDuplicado   = errors.New("ya existe un stem con ese nombre en la versión")
+	ErrStemNombreDuplicado   = repository.ErrNombreStemDuplicado
 
 	ErrStemNombreArchivoObligatorio = errors.New("el nombre del archivo del stem es obligatorio")
 	ErrStemNombreArchivoLargo       = errors.New("el nombre del archivo del stem es demasiado largo")
@@ -41,7 +41,7 @@ var (
 
 	ErrStemCategoriaObligatoria   = errors.New("la categoría del stem es obligatoria")
 	ErrStemCategoriaNoEncontrada  = errors.New("la categoría no existe")
-	ErrStemCategoriaDuplicada     = errors.New("ya existe una categoría con ese nombre")
+	ErrStemCategoriaDuplicada     = repository.ErrCategoriaStemDuplicada
 	ErrStemCategoriaNombreLargo   = errors.New("el nombre de la categoría es demasiado largo")
 	ErrStemArchivoObligatorio     = errors.New("el archivo del stem es obligatorio")
 	ErrStemArchivoVacio           = errors.New("el archivo del stem está vacío")
