@@ -125,6 +125,17 @@ func responderCreacionInvitacion(c *gin.Context, invitacion *dto.InvitacionRespo
 		log.Println("Error al crear invitación:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al crear la invitación"})
 
+	case errors.Is(
+		err,
+		service.ErrInvitacionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción sobre las invitaciones",
+			},
+		)
+
 	default:
 		c.JSON(http.StatusCreated, invitacion)
 	}
@@ -158,6 +169,17 @@ func (h *InvitacionProyectoHandler) ListarPendientes(c *gin.Context) {
 	case err != nil:
 		log.Println("Error al listar invitaciones:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener las invitaciones"})
+
+	case errors.Is(
+		err,
+		service.ErrInvitacionSinPermiso,
+	):
+		c.JSON(
+			http.StatusForbidden,
+			gin.H{
+				"error": "No tenés permiso para realizar esta acción sobre las invitaciones",
+			},
+		)
 
 	default:
 		c.JSON(http.StatusOK, invitaciones)

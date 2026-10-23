@@ -23,6 +23,10 @@ var (
 		"solo el propietario del proyecto puede invitar",
 	)
 
+	ErrInvitacionSinPermiso = errors.New(
+		"el usuario no posee el permiso requerido para administrar invitaciones",
+	)
+
 	ErrInvitacionEmailInvalido = errors.New(
 		"el email es inválido",
 	)
@@ -275,47 +279,29 @@ func (s *invitacionProyectoService) CrearEnlace(
 }
 
 // validarPuedeInvitar valida lo común a invitar por email y por enlace:
-// proyecto activo, quien invita es propietario y el rol es de proyecto.
+// proyecto activo, quien invita es propietario con permiso para invitar
+// y el rol seleccionado pertenece al ámbito proyecto.
 func (s *invitacionProyectoService) validarPuedeInvitar(
 	codigoUsuario int64,
 	codigoProyecto int64,
 	codRol int64,
 ) (*model.Integrante, string, error) {
 
-	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
+	integranteInvito, err :=
+		s.validarOwnerConPermiso(
+			codigoUsuario,
+			codigoProyecto,
+			model.PermisoInvitarIntegrante,
+		)
 
 	if err != nil {
 		return nil, "", err
 	}
 
-	if !existeProyecto {
-		return nil, "", ErrProyectoNoEncontrado
-	}
-
-	integranteInvito, err := s.integranteRepository.BuscarPorCodigoUsuario(codigoUsuario)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", ErrInvitacionNoEsOwner
-	}
-
-	if err != nil {
-		return nil, "", err
-	}
-
-	esPropietario, err := s.proyectoRepository.EsPropietarioActivo(
-		integranteInvito.CodIntegrante,
-		codigoProyecto,
-	)
-
-	if err != nil {
-		return nil, "", err
-	}
-
-	if !esPropietario {
-		return nil, "", ErrInvitacionNoEsOwner
-	}
-
-	ambitoRol, err := s.proyectoRepository.ObtenerAmbitoRolActivo(codRol)
+	ambitoRol, err :=
+		s.proyectoRepository.ObtenerAmbitoRolActivo(
+			codRol,
+		)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrInvitacionRolNoValido
@@ -415,7 +401,14 @@ func (s *invitacionProyectoService) ListarPendientes(
 	codigoProyecto int64,
 ) ([]dto.InvitacionResponse, error) {
 
-	if err := s.validarEsOwner(codigoUsuario, codigoProyecto); err != nil {
+	_, err :=
+		s.validarOwnerConPermiso(
+			codigoUsuario,
+			codigoProyecto,
+			model.PermisoVerInvitacionesProyecto,
+		)
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -447,7 +440,14 @@ func (s *invitacionProyectoService) Cancelar(
 	codigoInvitacion int64,
 ) error {
 
-	if err := s.validarEsOwner(codigoUsuario, codigoProyecto); err != nil {
+	_, err :=
+		s.validarOwnerConPermiso(
+			codigoUsuario,
+			codigoProyecto,
+			model.PermisoCancelarInvitacion,
+		)
+
+	if err != nil {
 		return err
 	}
 
@@ -470,45 +470,72 @@ func (s *invitacionProyectoService) Cancelar(
 // validarEsOwner resuelve el integrante del usuario autenticado y confirma
 // que es propietario activo del proyecto — mismo criterio usado en
 // Invitar, reusado acá para listar/cancelar.
-func (s *invitacionProyectoService) validarEsOwner(
+func (s *invitacionProyectoService) validarOwnerConPermiso(
 	codigoUsuario int64,
 	codigoProyecto int64,
-) error {
+	clavePermiso string,
+) (*model.Integrante, error) {
 
-	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
+	existeProyecto, err :=
+		s.proyectoRepository.ExisteProyectoActivo(
+			codigoProyecto,
+		)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !existeProyecto {
-		return ErrProyectoNoEncontrado
+		return nil, ErrProyectoNoEncontrado
 	}
 
-	integrante, err := s.integranteRepository.BuscarPorCodigoUsuario(codigoUsuario)
+	integrante, err :=
+		s.integranteRepository.BuscarPorCodigoUsuario(
+			codigoUsuario,
+		)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrInvitacionNoEsOwner
+		return nil, ErrInvitacionNoEsOwner
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	esPropietario, err := s.proyectoRepository.EsPropietarioActivo(
-		integrante.CodIntegrante,
-		codigoProyecto,
-	)
+	if integrante.FechaHoraBajaIntegrante != nil {
+		return nil, ErrInvitacionNoEsOwner
+	}
+
+	esPropietario, err :=
+		s.proyectoRepository.EsPropietarioActivo(
+			integrante.CodIntegrante,
+			codigoProyecto,
+		)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !esPropietario {
-		return ErrInvitacionNoEsOwner
+		return nil, ErrInvitacionNoEsOwner
 	}
 
-	return nil
+	tienePermiso, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
+			integrante.CodIntegrante,
+			codigoProyecto,
+			clavePermiso,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !tienePermiso {
+		return nil, ErrInvitacionSinPermiso
+	}
+
+	return integrante, nil
 }
 
 func (s *invitacionProyectoService) ObtenerDetalle(

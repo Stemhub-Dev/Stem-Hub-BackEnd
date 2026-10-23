@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
@@ -59,16 +60,8 @@ var (
 		"el proyecto no existe",
 	)
 
-	ErrCancionSinPermiso = errors.New(
-		"el usuario no puede crear canciones en este proyecto",
-	)
-
 	ErrCancionNombreDuplicado = errors.New(
 		"ya existe una canción con ese nombre en el proyecto",
-	)
-
-	ErrCancionPerfilRequerido = errors.New(
-		"el usuario no posee perfil",
 	)
 
 	ErrCancionFormatoInvalido = errors.New(
@@ -79,20 +72,12 @@ var (
 		"el archivo de audio supera el tamaño máximo permitido",
 	)
 
-	ErrCancionErrorAlmacenamiento = errors.New(
-		"error al almacenar el archivo de audio",
-	)
-
 	ErrVersionPistaObligatoria = errors.New(
 		"la pista de la nueva versión es obligatoria",
 	)
 
 	ErrVersionCancionNoEncontrada = errors.New(
 		"la canción no existe en el proyecto",
-	)
-
-	ErrVersionSinPermiso = errors.New(
-		"el usuario no puede crear versiones en este proyecto",
 	)
 
 	ErrCancionSinAccesoProyecto = errors.New(
@@ -105,6 +90,14 @@ var (
 
 	ErrCancionNoEncontrada = errors.New(
 		"la canción no existe en el proyecto",
+	)
+
+	ErrCancionSinPermiso = errors.New(
+		"el usuario no posee el permiso requerido sobre canciones en este proyecto",
+	)
+
+	ErrVersionSinPermiso = errors.New(
+		"el usuario no posee el permiso requerido sobre versiones en este proyecto",
 	)
 
 	ErrVersionNoEncontrada = errors.New(
@@ -121,6 +114,14 @@ var (
 
 	ErrVersionUnica = errors.New(
 		"una canción necesita al menos una versión",
+	)
+
+	ErrCancionPerfilRequerido = errors.New(
+		"el usuario no posee perfil",
+	)
+
+	ErrCancionErrorAlmacenamiento = errors.New(
+		"error al almacenar el archivo de audio",
 	)
 )
 
@@ -312,17 +313,18 @@ func (s *cancionService) Crear(
 		return nil, err
 	}
 
-	puedeGestionar, err :=
-		s.proyectoRepository.PuedeGestionarCanciones(
+	puedeCrearCancion, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
 			integrante.CodIntegrante,
 			codigoProyecto,
+			model.PermisoCrearCancion,
 		)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if !puedeGestionar {
+	if !puedeCrearCancion {
 		return nil, ErrCancionSinPermiso
 	}
 
@@ -432,7 +434,7 @@ func (s *cancionService) CrearVersion(
 		s.proyectoRepository.PuedeRealizarEnProyecto(
 			integrante.CodIntegrante,
 			codigoProyecto,
-			"GESTIONAR_VERSIONES",
+			model.PermisoCrearVersion,
 		)
 
 	if err != nil {
@@ -566,6 +568,21 @@ func (s *cancionService) ListarPorProyecto(
 		return nil, ErrCancionSinAccesoProyecto
 	}
 
+	puedeVerCanciones, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
+			integrante.CodIntegrante,
+			codigoProyecto,
+			model.PermisoVerCancion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puedeVerCanciones {
+		return nil, ErrCancionSinPermiso
+	}
+
 	return s.cancionRepository.ListarPorProyecto(
 		codigoProyecto,
 	)
@@ -629,6 +646,21 @@ func (s *cancionService) ListarVersiones(
 
 	if !esIntegrante {
 		return nil, ErrCancionSinAccesoProyecto
+	}
+
+	puedeVerVersiones, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
+			integrante.CodIntegrante,
+			codigoProyecto,
+			model.PermisoVerVersion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puedeVerVersiones {
+		return nil, ErrVersionSinPermiso
 	}
 
 	return s.cancionRepository.ListarVersiones(
@@ -695,6 +727,21 @@ func (s *cancionService) ObtenerURLDescargaVersion(
 
 	if !esIntegrante {
 		return nil, ErrCancionSinAccesoProyecto
+	}
+
+	puedeVerVersion, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
+			integrante.CodIntegrante,
+			codigoProyecto,
+			model.PermisoVerVersion,
+		)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !puedeVerVersion {
+		return nil, ErrVersionSinPermiso
 	}
 
 	version, err := s.cancionRepository.BuscarVersionPorCodigo(
@@ -856,19 +903,18 @@ func (s *cancionService) Editar(
 		return nil, err
 	}
 
-	// La misma regla que para crear canciones:
-	// debe tener GESTIONAR_CANCIONES en el proyecto.
-	puedeGestionar, err :=
-		s.proyectoRepository.PuedeGestionarCanciones(
+	puedeEditarCancion, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
 			integrante.CodIntegrante,
 			codigoProyecto,
+			model.PermisoEditarCancion,
 		)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if !puedeGestionar {
+	if !puedeEditarCancion {
 		return nil, ErrCancionSinPermiso
 	}
 
@@ -966,18 +1012,18 @@ func (s *cancionService) DarDeBaja(
 		return err
 	}
 
-	// Debe poder gestionar canciones en ese proyecto.
-	puedeGestionar, err :=
-		s.proyectoRepository.PuedeGestionarCanciones(
+	puedeEliminarCancion, err :=
+		s.proyectoRepository.PuedeRealizarEnProyecto(
 			integrante.CodIntegrante,
 			codigoProyecto,
+			model.PermisoEliminarCancion,
 		)
 
 	if err != nil {
 		return err
 	}
 
-	if !puedeGestionar {
+	if !puedeEliminarCancion {
 		return ErrCancionSinPermiso
 	}
 
@@ -998,14 +1044,13 @@ func (s *cancionService) DarDeBaja(
 	return nil
 }
 
-// puedeGestionarVersiones valida lo común a editar y dar de baja una
-// versión: proyecto y canción activos, perfil y permiso GESTIONAR_VERSIONES.
-// Devuelve false (sin error) si falta solo el permiso, para que cada caller
-// responda su propio mensaje.
+// puedeGestionarVersiones valida proyecto y canción activos,
+// perfil y el permiso requerido por la operación
 func (s *cancionService) puedeGestionarVersiones(
 	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancion int64,
+	clavePermiso string,
 ) (bool, error) {
 
 	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
@@ -1044,7 +1089,7 @@ func (s *cancionService) puedeGestionarVersiones(
 	return s.proyectoRepository.PuedeRealizarEnProyecto(
 		integrante.CodIntegrante,
 		codigoProyecto,
-		"GESTIONAR_VERSIONES",
+		clavePermiso,
 	)
 }
 
@@ -1056,7 +1101,7 @@ func (s *cancionService) EditarVersion(
 	request dto.EditarVersionRequest,
 ) (*dto.EditarVersionResponse, error) {
 
-	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion, model.PermisoEditarVersion)
 
 	if err != nil {
 		return nil, err
@@ -1102,7 +1147,7 @@ func (s *cancionService) DarDeBajaVersion(
 	codigoCancionVersion int64,
 ) (*dto.BajaVersionResponse, error) {
 
-	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion, model.PermisoEliminarVersion)
 
 	if err != nil {
 		return nil, err

@@ -141,9 +141,9 @@ func (s *separacionStemService) Solicitar(
 		return nil, ErrSeparacionCantidadInvalida
 	}
 
-	// Separar está habilitado para cualquier integrante del proyecto
-	// (HU-IA-F01), no solo para quien tiene GESTIONAR_STEMS: alcanza con
-	// pertenecer al proyecto.
+	// La separación por IA requiere el permiso específico
+	// SEPARAR_STEMS_IA dentro del proyecto.
+
 	integrante, err := validarAccesoVersionStem(
 		s.proyectoRepository,
 		s.cancionRepository,
@@ -152,7 +152,7 @@ func (s *separacionStemService) Solicitar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		"",
+		model.PermisoSepararStemsIA,
 	)
 
 	if err != nil {
@@ -222,7 +222,7 @@ func (s *separacionStemService) ObtenerUltima(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		"",
+		model.PermisoVerStem,
 	); err != nil {
 		return nil, err
 	}

@@ -29,7 +29,7 @@ var (
 	ErrStemVersionNoEncontrada  = errors.New("la versión no existe en la canción")
 	ErrStemNoEncontrado         = errors.New("el stem no existe en la versión")
 	ErrStemSinAcceso            = errors.New("el usuario no pertenece al proyecto")
-	ErrStemSinPermiso           = errors.New("el usuario no puede gestionar stems en este proyecto")
+	ErrStemSinPermiso           = errors.New("el usuario no posee el permiso requerido sobre stems en este proyecto")
 
 	ErrStemNombreObligatorio = errors.New("el nombre del stem es obligatorio")
 	ErrStemNombreLargo       = errors.New("el nombre del stem es demasiado largo")
@@ -48,6 +48,7 @@ var (
 	ErrStemFormatoInvalido        = errors.New("el formato del stem no está soportado")
 	ErrStemArchivoDemasiadoGrande = errors.New("el stem supera el tamaño máximo permitido")
 	ErrStemPerfilRequerido        = errors.New("el usuario no posee un perfil de integrante")
+	ErrStemErrorAlmacenamiento    = errors.New("error al almacenar el archivo del stem")
 )
 
 // CrearStemRequest: la categoría es una existente (CodCategoriaStem) o una
@@ -307,7 +308,7 @@ func validarAccesoProyectoStem(
 		)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrCancionPerfilRequerido
+		return nil, ErrStemPerfilRequerido
 	}
 
 	if err != nil {
@@ -498,7 +499,7 @@ func (s *stemService) subirArchivo(
 		archivo.Tamano,
 		formatosAudioPermitidos[formato],
 	); err != nil {
-		return nil, ErrCancionErrorAlmacenamiento
+		return nil, ErrStemErrorAlmacenamiento
 	}
 
 	return &repository.ArchivoStemGuardado{
@@ -521,7 +522,11 @@ func (s *stemService) ListarCategorias(
 	codigoProyecto int64,
 ) ([]dto.CategoriaStemResponse, error) {
 
-	if err := s.validarAccesoProyecto(codigoUsuario, codigoProyecto, ""); err != nil {
+	if err := s.validarAccesoProyecto(
+		codigoUsuario,
+		codigoProyecto,
+		model.PermisoVerStem,
+	); err != nil {
 		return nil, err
 	}
 
@@ -551,7 +556,13 @@ func (s *stemService) Listar(
 	codigoVersion int64,
 ) ([]dto.StemListadoResponse, error) {
 
-	if err := s.validarAcceso(codigoUsuario, codigoProyecto, codigoCancion, codigoVersion, ""); err != nil {
+	if err := s.validarAcceso(
+		codigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+		codigoVersion,
+		model.PermisoVerStem,
+	); err != nil {
 		return nil, err
 	}
 
@@ -608,7 +619,7 @@ func (s *stemService) Crear(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		permisoGestionarStems,
+		model.PermisoCrearStem,
 	); err != nil {
 		return nil, err
 	}
@@ -707,7 +718,7 @@ func (s *stemService) Editar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		permisoGestionarStems,
+		model.PermisoEditarStem,
 	); err != nil {
 		return nil, err
 	}
@@ -806,7 +817,7 @@ func (s *stemService) Eliminar(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		permisoGestionarStems,
+		model.PermisoEliminarStem,
 	); err != nil {
 		return err
 	}
@@ -834,7 +845,13 @@ func (s *stemService) ObtenerURLAudio(
 	codStem int64,
 ) (*dto.AudioStemResponse, error) {
 
-	if err := s.validarAcceso(codigoUsuario, codigoProyecto, codigoCancion, codigoVersion, ""); err != nil {
+	if err := s.validarAcceso(
+		codigoUsuario,
+		codigoProyecto,
+		codigoCancion,
+		codigoVersion,
+		model.PermisoVerStem,
+	); err != nil {
 		return nil, err
 	}
 
@@ -895,7 +912,7 @@ func (s *stemService) ListarGlobal(
 
 	total, err :=
 		s.stemRepository.
-			ContarGlobalPorProductor(
+			ContarGlobal(
 				integrante.CodIntegrante,
 				filtro,
 			)
@@ -938,7 +955,7 @@ func (s *stemService) ListarGlobal(
 
 	stems, err :=
 		s.stemRepository.
-			ListarGlobalPorProductor(
+			ListarGlobal(
 				integrante.CodIntegrante,
 				filtro,
 				desplazamiento,
