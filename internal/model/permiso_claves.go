@@ -33,8 +33,10 @@ const (
 	PermisoEliminarCancion = "ELIMINAR_CANCION"
 
 	// Versiones.
-	PermisoVerVersion   = "VER_VERSION"
-	PermisoCrearVersion = "CREAR_VERSION"
+	PermisoVerVersion      = "VER_VERSION"
+	PermisoCrearVersion    = "CREAR_VERSION"
+	PermisoEditarVersion   = "EDITAR_VERSION"
+	PermisoEliminarVersion = "ELIMINAR_VERSION"
 
 	// Stems.
 	PermisoVerStem        = "VER_STEM"

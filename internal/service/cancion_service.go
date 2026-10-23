@@ -1039,14 +1039,13 @@ func (s *cancionService) DarDeBaja(
 	return nil
 }
 
-// puedeGestionarVersiones valida lo común a editar y dar de baja una
-// versión: proyecto y canción activos, perfil y permiso GESTIONAR_VERSIONES.
-// Devuelve false (sin error) si falta solo el permiso, para que cada caller
-// responda su propio mensaje.
+// puedeGestionarVersiones valida proyecto y canción activos,
+// perfil y el permiso requerido por la operación
 func (s *cancionService) puedeGestionarVersiones(
 	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancion int64,
+	clavePermiso string,
 ) (bool, error) {
 
 	existeProyecto, err := s.proyectoRepository.ExisteProyectoActivo(codigoProyecto)
@@ -1085,7 +1084,7 @@ func (s *cancionService) puedeGestionarVersiones(
 	return s.proyectoRepository.PuedeRealizarEnProyecto(
 		integrante.CodIntegrante,
 		codigoProyecto,
-		"GESTIONAR_VERSIONES",
+		clavePermiso,
 	)
 }
 
@@ -1097,7 +1096,7 @@ func (s *cancionService) EditarVersion(
 	request dto.EditarVersionRequest,
 ) (*dto.EditarVersionResponse, error) {
 
-	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion, model.PermisoEditarVersion)
 
 	if err != nil {
 		return nil, err
@@ -1143,7 +1142,7 @@ func (s *cancionService) DarDeBajaVersion(
 	codigoCancionVersion int64,
 ) (*dto.BajaVersionResponse, error) {
 
-	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion)
+	puede, err := s.puedeGestionarVersiones(codigoUsuario, codigoProyecto, codigoCancion, model.PermisoEliminarVersion)
 
 	if err != nil {
 		return nil, err
