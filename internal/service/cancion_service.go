@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -349,6 +348,12 @@ func (s *cancionService) Crear(
 			nombre,
 		)
 
+	// La otra alta con el mismo nombre ganó la carrera (ver
+	// bloquearNombreCancion).
+	if errors.Is(err, repository.ErrNombreCancionDuplicado) {
+		return nil, ErrCancionNombreDuplicado
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +389,7 @@ func (s *cancionService) Crear(
 		NombreCancion:        nombre,
 		CodigoCancionVersion: codigoVersion,
 		NumeroVersion:        1,
-		EtiquetaVersion:      "v1.0.0",
+		EtiquetaVersion:      dto.EtiquetaVersion(1),
 	}, nil
 }
 
@@ -509,15 +514,11 @@ func (s *cancionService) CrearVersion(
 		return nil, err
 	}
 
-	etiqueta := "v1." +
-		strconv.Itoa(siguienteVersion-1) +
-		".0"
-
 	return &dto.CrearVersionCancionResponse{
 		CodigoCancionVersion: codigoVersion,
 		CodigoCancion:        codigoCancion,
 		NumeroVersion:        siguienteVersion,
-		EtiquetaVersion:      etiqueta,
+		EtiquetaVersion:      dto.EtiquetaVersion(int64(siguienteVersion)),
 		Notas:                notas,
 	}, nil
 }
@@ -944,6 +945,10 @@ func (s *cancionService) Editar(
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCancionNoEncontrada
+	}
+
+	if errors.Is(err, repository.ErrNombreCancionDuplicado) {
+		return nil, ErrCancionNombreDuplicado
 	}
 
 	if err != nil {

@@ -2,6 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -474,6 +477,31 @@ func (r *stemRepository) ExisteNombreEnVersion(
 	return existe, err
 }
 
+// Las altas y ediciones en paralelo (p. ej. un doble clic en "Agregar
+// stem") pasan las dos el chequeo de ExisteNombreEnVersion y la segunda
+// choca con el índice único: se informa como duplicado (409) y no como un
+// error interno. El service usa estos mismos errores.
+var (
+	ErrNombreStemDuplicado    = errors.New("ya existe un stem con ese nombre en la versión")
+	ErrCategoriaStemDuplicada = errors.New("ya existe una categoría con ese nombre")
+)
+
+func errorDeUnicidadStem(err error) error {
+	switch {
+	case esViolacionUnica(err, "uqstemnombreversion"):
+		return ErrNombreStemDuplicado
+	case esViolacionUnica(err, "uqcategoriastemnombre"):
+		return ErrCategoriaStemDuplicada
+	}
+	return err
+}
+
+// esViolacionUnica: err es un 23505 sobre esa restricción.
+func esViolacionUnica(err error, restriccion string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == codigoViolacionUnica && pgErr.ConstraintName == restriccion
+}
+
 func (r *stemRepository) Crear(
 	codigoUsuario int64,
 	codigoProyecto int64,
@@ -482,7 +510,9 @@ func (r *stemRepository) Crear(
 	codCategoriaStem int64,
 	nuevaCategoria *string,
 	archivo ArchivoStemGuardado,
-) (int64, error) {
+) (_ int64, err error) {
+
+	defer func() { err = errorDeUnicidadStem(err) }()
 
 	tx, err := r.db.Begin()
 
@@ -561,7 +591,9 @@ func (r *stemRepository) Actualizar(
 	codigoProyecto int64,
 	codStem int64,
 	cambios CambiosStem,
-) error {
+) (err error) {
+
+	defer func() { err = errorDeUnicidadStem(err) }()
 
 	tx, err := r.db.Begin()
 

@@ -61,7 +61,7 @@ func (s *comentarioService) ResumirPorVersion(
 	resultado, err := s.mlCliente.ResumirComentarios(context.Background(), mlservice.ResumenRequest{
 		Context: &mlservice.ContextoResumen{
 			SongName:     nombreCancion,
-			VersionLabel: fmt.Sprintf("v%d", numeroVersion),
+			VersionLabel: dto.EtiquetaVersion(int64(numeroVersion)),
 		},
 		Comments: entrada,
 	})

@@ -90,8 +90,11 @@ func main() {
 	// backend no puede alcanzar SUPABASE_URL por red (ver supabase/README.md).
 	supabaseJWKSBaseURL := os.Getenv("SUPABASE_JWKS_BASE_URL")
 
+	sesionRepository := repository.NewSesionRepository(db)
+
 	authMiddleware, err := middleware.NewAuthMiddleware(
 		usuarioService,
+		sesionRepository,
 		supabaseURL,
 		supabaseAudience,
 		supabaseJWKSBaseURL,
