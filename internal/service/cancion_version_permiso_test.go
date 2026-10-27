@@ -10,9 +10,9 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
-// PRU-08 (HU-SEG-B01): un integrante sin CREAR_VERSION no puede crear
-// una versión, y el rechazo ocurre antes de validar el archivo y de abrir
-// la transacción, así que no se inserta nada en cancionversion.
+// PRU-08 (HU-SEG-B01): un integrante sin GESTIONAR_VERSIONES (rol Músico) no
+// puede crear una versión, y el rechazo ocurre antes de validar el archivo y
+// de abrir la transacción, así que no se inserta nada en cancionversion.
 
 var errRepositorio = errors.New("falla del repositorio")
 
@@ -83,12 +83,8 @@ func TestCrearVersion_SinPermisoNoCreaNada(t *testing.T) {
 	if !errors.Is(err, ErrVersionSinPermiso) {
 		t.Fatalf("err = %v, se esperaba ErrVersionSinPermiso", err)
 	}
-	if e.proyectos.permisoPide != model.PermisoCrearVersion {
-		t.Fatalf(
-			"permiso consultado = %q, se esperaba %q",
-			e.proyectos.permisoPide,
-			model.PermisoCrearVersion,
-		)
+	if e.proyectos.permisoPide != "GESTIONAR_VERSIONES" {
+		t.Fatalf("permiso consultado = %q", e.proyectos.permisoPide)
 	}
 	if e.canciones.iniciarLlamado {
 		t.Fatal("no debería iniciar la creación de la versión")

@@ -34,10 +34,9 @@ type ProyectoListadoResponse struct {
 	// progreso que muestra el Inicio.
 	CancionesListas int `json:"cancionesListas"`
 
-	CodRol        int64    `json:"codRol"`
-	NombreRol     string   `json:"nombreRol"`
-	EsPropietario bool     `json:"esPropietario"`
-	Permisos      []string `json:"permisos"`
+	CodRol        int64  `json:"codRol"`
+	NombreRol     string `json:"nombreRol"`
+	EsPropietario bool   `json:"esPropietario"`
 
 	// Derivada, no hay columna: lo más reciente entre el alta del proyecto y
 	// la última versión subida a alguna de sus canciones.

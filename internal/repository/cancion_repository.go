@@ -693,173 +693,139 @@ func (r *cancionRepository) ListarVersiones(
 // totalItems tiene que reflejar el mismo subconjunto que se pagina;
 // TestConsultasMisCancionesCompartenFiltro lo verifica.
 //
-// En ambas:
-// $1 = integrante
-// $2 = patrón de búsqueda
-// $3 = proyectos
-// $4 = permiso requerido para ver canciones
-// $5 = solo canciones con comentarios pendientes
+// En ambas, $1 es el integrante, $2 el patrón de búsqueda ya escapado
+// (cadena vacía = sin filtro por nombre), $3 los proyectos por los que se
+// filtra (arreglo vacío o NULL = todos los del integrante) y $4 si solo van
+// las canciones con comentarios pendientes en su versión actual (los de sus
+// stems incluidos: también pertenecen a la versión).
 //
-// En el listado:
-// $6 = orden
-// $7 = tamaño de página
-// $8 = desplazamiento.
+// El orden también viaja como parámetro ($5 en el listado) y se resuelve con
+// CASE, en lugar de armar el ORDER BY concatenando texto.
+
 const consultaContarMisCanciones = `
-	SELECT COUNT(*)
-	FROM integranteproyecto ip
-	INNER JOIN proyecto p
-		ON p.codigoproyecto = ip.codigoproyecto
-	INNER JOIN cancion c
-		ON c.codigoproyecto = p.codigoproyecto
-	WHERE ip.codintegrante = $1
-	  AND ip.fechahorabajaintegranteproy IS NULL
-	  AND p.fechahorabajaproyecto IS NULL
-	  AND c.fechahorabajacancion IS NULL
-
-	  AND EXISTS (
-		SELECT 1
-		FROM rolpermiso rp
-		INNER JOIN permiso per
-			ON per.codigopermiso = rp.codigopermiso
-		WHERE rp.codrol = ip.codrol
-		  AND rp.ambitorolpermiso = ip.ambitorol
-		  AND rp.fechahorabajarolpermiso IS NULL
-		  AND per.fechahorabajapermiso IS NULL
-		  AND per.clavepermiso = $4
-	  )
-
-	  AND (
-		$2::text = ''
-		OR c.nombrecancion ILIKE '%' || $2::text || '%'
-	  )
-
-	  AND (
-		COALESCE(array_length($3::bigint[], 1), 0) = 0
-		OR c.codigoproyecto = ANY($3::bigint[])
-	  )
-
-	  AND (
-		NOT $5::boolean
-		OR EXISTS (
-			SELECT 1
-			FROM comentario cop
-			INNER JOIN estadocomentario ecp
-				ON ecp.codestadocom = cop.codestadocom
-			WHERE cop.codigocancionversion = (
-				SELECT cvp.codigocancionversion
-				FROM cancionversion cvp
-				WHERE cvp.codigocancion = c.codigocancion
-				  AND cvp.fechahorabajaversion IS NULL
-				ORDER BY cvp.numeroversion DESC
-				LIMIT 1
+		SELECT COUNT(*)
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
+		  )
+		  AND (
+			NOT $4::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM comentario cop
+				INNER JOIN estadocomentario ecp
+					ON ecp.codestadocom = cop.codestadocom
+				WHERE cop.codigocancionversion = (
+					SELECT cvp.codigocancionversion
+					FROM cancionversion cvp
+					WHERE cvp.codigocancion = c.codigocancion
+					  AND cvp.fechahorabajaversion IS NULL
+					ORDER BY cvp.numeroversion DESC
+					LIMIT 1
+				)
+				  AND cop.fechahorabajacomentario IS NULL
+				  AND LOWER(ecp.nombreestadocom) = 'pendiente'
 			)
-			  AND cop.fechahorabajacomentario IS NULL
-			  AND LOWER(ecp.nombreestadocom) = 'pendiente'
-		)
-	  )
+		  )
 `
 
 const consultaListarMisCanciones = `
-	SELECT
-		c.codigocancion,
-		c.nombrecancion,
-		p.codigoproyecto,
-		p.nombreproyecto,
-		cv.codigocancionversion,
-		cv.numeroversion,
-		cv.urlarchivocancionver,
-		cv.formatoarchivocancionver,
-		cv.fechahoraaltaversion,
-		autor.codintegrante,
-		autor.nombreintegrante,
-		etapa.nombreetapaversion,
-		(
-			SELECT COUNT(*)
-			FROM comentario co
-			INNER JOIN estadocomentario ec
-				ON ec.codestadocom = co.codestadocom
-			WHERE co.codigocancionversion = cv.codigocancionversion
-			  AND co.fechahorabajacomentario IS NULL
-			  AND LOWER(ec.nombreestadocom) = 'pendiente'
-		)
-	FROM integranteproyecto ip
-	INNER JOIN proyecto p
-		ON p.codigoproyecto = ip.codigoproyecto
-	INNER JOIN cancion c
-		ON c.codigoproyecto = p.codigoproyecto
-	LEFT JOIN LATERAL (
 		SELECT
-			cvv.codigocancionversion,
-			cvv.numeroversion,
-			cvv.urlarchivocancionver,
-			cvv.formatoarchivocancionver,
-			cvv.fechahoraaltaversion,
-			cvv.codintegrantealtaversion,
-			cvv.codetapaversion
-		FROM cancionversion cvv
-		WHERE cvv.codigocancion = c.codigocancion
-		  AND cvv.fechahorabajaversion IS NULL
-		ORDER BY cvv.numeroversion DESC
-		LIMIT 1
-	) cv ON TRUE
-	LEFT JOIN integrante autor
-		ON autor.codintegrante = cv.codintegrantealtaversion
-	LEFT JOIN etapaversionado etapa
-		ON etapa.codetapaversion = cv.codetapaversion
-	WHERE ip.codintegrante = $1
-	  AND ip.fechahorabajaintegranteproy IS NULL
-	  AND p.fechahorabajaproyecto IS NULL
-	  AND c.fechahorabajacancion IS NULL
-
-	  AND EXISTS (
-		SELECT 1
-		FROM rolpermiso rp
-		INNER JOIN permiso per
-			ON per.codigopermiso = rp.codigopermiso
-		WHERE rp.codrol = ip.codrol
-		  AND rp.ambitorolpermiso = ip.ambitorol
-		  AND rp.fechahorabajarolpermiso IS NULL
-		  AND per.fechahorabajapermiso IS NULL
-		  AND per.clavepermiso = $4
-	  )
-
-	  AND (
-		$2::text = ''
-		OR c.nombrecancion ILIKE '%' || $2::text || '%'
-	  )
-
-	  AND (
-		COALESCE(array_length($3::bigint[], 1), 0) = 0
-		OR c.codigoproyecto = ANY($3::bigint[])
-	  )
-
-	  AND (
-		NOT $5::boolean
-		OR EXISTS (
-			SELECT 1
-			FROM comentario cop
-			INNER JOIN estadocomentario ecp
-				ON ecp.codestadocom = cop.codestadocom
-			WHERE cop.codigocancionversion = (
-				SELECT cvp.codigocancionversion
-				FROM cancionversion cvp
-				WHERE cvp.codigocancion = c.codigocancion
-				  AND cvp.fechahorabajaversion IS NULL
-				ORDER BY cvp.numeroversion DESC
-				LIMIT 1
+			c.codigocancion,
+			c.nombrecancion,
+			p.codigoproyecto,
+			p.nombreproyecto,
+			cv.codigocancionversion,
+			cv.numeroversion,
+			cv.urlarchivocancionver,
+			cv.formatoarchivocancionver,
+			cv.fechahoraaltaversion,
+			autor.codintegrante,
+			autor.nombreintegrante,
+			etapa.nombreetapaversion,
+			(
+				SELECT COUNT(*)
+				FROM comentario co
+				INNER JOIN estadocomentario ec
+					ON ec.codestadocom = co.codestadocom
+				WHERE co.codigocancionversion = cv.codigocancionversion
+				  AND co.fechahorabajacomentario IS NULL
+				  AND LOWER(ec.nombreestadocom) = 'pendiente'
 			)
-			  AND cop.fechahorabajacomentario IS NULL
-			  AND LOWER(ecp.nombreestadocom) = 'pendiente'
-		)
-	  )
-
-	ORDER BY
-		CASE WHEN $6::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
-		CASE WHEN $6::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
-		CASE WHEN $6::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
-		c.codigocancion DESC
-
-	LIMIT $7 OFFSET $8
+		FROM integranteproyecto ip
+		INNER JOIN proyecto p
+			ON p.codigoproyecto = ip.codigoproyecto
+		INNER JOIN cancion c
+			ON c.codigoproyecto = p.codigoproyecto
+		LEFT JOIN LATERAL (
+			SELECT
+				cvv.codigocancionversion,
+				cvv.numeroversion,
+				cvv.urlarchivocancionver,
+				cvv.formatoarchivocancionver,
+				cvv.fechahoraaltaversion,
+				cvv.codintegrantealtaversion,
+				cvv.codetapaversion
+			FROM cancionversion cvv
+			WHERE cvv.codigocancion = c.codigocancion
+			  AND cvv.fechahorabajaversion IS NULL
+			ORDER BY cvv.numeroversion DESC
+			LIMIT 1
+		) cv ON TRUE
+		LEFT JOIN integrante autor
+			ON autor.codintegrante = cv.codintegrantealtaversion
+		LEFT JOIN etapaversionado etapa
+			ON etapa.codetapaversion = cv.codetapaversion
+		WHERE ip.codintegrante = $1
+		  AND ip.fechahorabajaintegranteproy IS NULL
+		  AND p.fechahorabajaproyecto IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		  AND (
+			$2::text = ''
+			OR c.nombrecancion ILIKE '%' || $2::text || '%'
+		  )
+		  AND (
+			COALESCE(array_length($3::bigint[], 1), 0) = 0
+			OR c.codigoproyecto = ANY($3::bigint[])
+		  )
+		  AND (
+			NOT $4::boolean
+			OR EXISTS (
+				SELECT 1
+				FROM comentario cop
+				INNER JOIN estadocomentario ecp
+					ON ecp.codestadocom = cop.codestadocom
+				WHERE cop.codigocancionversion = (
+					SELECT cvp.codigocancionversion
+					FROM cancionversion cvp
+					WHERE cvp.codigocancion = c.codigocancion
+					  AND cvp.fechahorabajaversion IS NULL
+					ORDER BY cvp.numeroversion DESC
+					LIMIT 1
+				)
+				  AND cop.fechahorabajacomentario IS NULL
+				  AND LOWER(ecp.nombreestadocom) = 'pendiente'
+			)
+		  )
+		ORDER BY
+			CASE WHEN $5::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC,
+			CASE WHEN $5::text = 'nombreDesc' THEN lower(c.nombrecancion) END DESC,
+			CASE WHEN $5::text = 'reciente' THEN cv.fechahoraaltaversion END DESC NULLS LAST,
+			c.codigocancion DESC
+		LIMIT $6 OFFSET $7
 `
 
 // escaparPatronLike neutraliza los comodines de LIKE (% y _) y el carácter
@@ -884,7 +850,6 @@ func (r *cancionRepository) ContarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
-		model.PermisoVerCancion,
 		filtro.SoloConComentariosPendientes,
 	).Scan(&total)
 
@@ -911,7 +876,6 @@ func (r *cancionRepository) ListarPorIntegrante(
 		codigoIntegrante,
 		escaparPatronLike(filtro.Busqueda),
 		codigosComoArreglo(filtro.Proyectos),
-		model.PermisoVerCancion,
 		filtro.SoloConComentariosPendientes,
 		filtro.Orden,
 		filtro.TamanoPagina,

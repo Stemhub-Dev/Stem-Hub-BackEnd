@@ -9,7 +9,6 @@ import (
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/mlservice"
-	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 )
 
 var (
@@ -30,7 +29,6 @@ func (s *comentarioService) ResumirPorVersion(
 		codigoProyecto,
 		codigoCancion,
 		codigoVersion,
-		model.PermisoResumirComentariosIA,
 	)
 
 	if err != nil {

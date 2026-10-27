@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
-	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 	"github.com/google/uuid"
@@ -100,10 +99,6 @@ var (
 
 	ErrNoSePuedeQuitarPropietario = errors.New(
 		"no se puede quitar al propietario del proyecto",
-	)
-
-	ErrProyectoSinPermiso = errors.New(
-		"el usuario no posee el permiso requerido en el proyecto",
 	)
 )
 
@@ -371,19 +366,6 @@ func (s *proyectoService) ListarProyectos(
 	}
 
 	for i := range proyectos {
-
-		permisos, err :=
-			s.proyectoRepository.ListarPermisosEnProyecto(
-				integrante.CodIntegrante,
-				proyectos[i].CodigoProyecto,
-			)
-
-		if err != nil {
-			return nil, err
-		}
-
-		proyectos[i].Permisos = permisos
-
 		proyectos[i].PortadaURL = s.portadaParaListado(
 			proyectos[i].CodigoProyecto,
 			proyectos[i].Logo,
@@ -461,21 +443,6 @@ func (s *proyectoService) ListarColaboradores(
 
 	if !esIntegrante {
 		return nil, ErrProyectoSinAcceso
-	}
-
-	puedeVerIntegrantes, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integrante.CodIntegrante,
-			codigoProyecto,
-			model.PermisoVerIntegrantes,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !puedeVerIntegrantes {
-		return nil, ErrProyectoSinPermiso
 	}
 
 	colaboradores, err :=
@@ -596,21 +563,6 @@ func (s *proyectoService) ObtenerDetalleProyecto(
 
 	if !esIntegrante {
 		return nil, ErrProyectoSinAcceso
-	}
-
-	puedeVerProyecto, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integrante.CodIntegrante,
-			codigoProyecto,
-			model.PermisoVerProyecto,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !puedeVerProyecto {
-		return nil, ErrProyectoSinPermiso
 	}
 
 	proyecto,
@@ -870,21 +822,6 @@ func (s *proyectoService) EditarProyecto(
 
 	if !esPropietario {
 		return nil, ErrProyectoSoloPropietario
-	}
-
-	puedeEditarProyecto, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integrante.CodIntegrante,
-			codigoProyecto,
-			model.PermisoEditarProyecto,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !puedeEditarProyecto {
-		return nil, ErrProyectoSinPermiso
 	}
 
 	// 4. Obtener valores actuales.
@@ -1186,21 +1123,6 @@ func (s *proyectoService) DarDeBaja(
 		return ErrProyectoSoloPropietario
 	}
 
-	puedeEliminarProyecto, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integrante.CodIntegrante,
-			codigoProyecto,
-			model.PermisoEliminarProyecto,
-		)
-
-	if err != nil {
-		return err
-	}
-
-	if !puedeEliminarProyecto {
-		return ErrProyectoSinPermiso
-	}
-
 	// 4. Baja lógica únicamente del proyecto.
 	err = s.proyectoRepository.DarDeBaja(
 		codigoProyecto,
@@ -1341,21 +1263,6 @@ func (s *proyectoService) CambiarRolIntegrante(
 
 	if !esPropietario {
 		return nil, ErrGestionIntegrantesSoloPropietario
-	}
-
-	puedeCambiarRol, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integranteGestiona.CodIntegrante,
-			codigoProyecto,
-			model.PermisoCambiarRolIntegrante,
-		)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !puedeCambiarRol {
-		return nil, ErrProyectoSinPermiso
 	}
 
 	// 4. El integrante objetivo debe pertenecer actualmente al proyecto.
@@ -1502,21 +1409,6 @@ func (s *proyectoService) QuitarIntegrante(
 
 	if !esPropietario {
 		return ErrGestionIntegrantesSoloPropietario
-	}
-
-	puedeQuitarIntegrante, err :=
-		s.proyectoRepository.PuedeRealizarEnProyecto(
-			integranteGestiona.CodIntegrante,
-			codigoProyecto,
-			model.PermisoQuitarIntegrante,
-		)
-
-	if err != nil {
-		return err
-	}
-
-	if !puedeQuitarIntegrante {
-		return ErrProyectoSinPermiso
 	}
 
 	// 4. Obtener al integrante que se quiere quitar.

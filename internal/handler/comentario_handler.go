@@ -173,17 +173,6 @@ func (h *ComentarioHandler) Crear(c *gin.Context) {
 			gin.H{"error": "Error al crear el comentario"},
 		)
 
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
-		)
-
 	default:
 		c.JSON(
 			http.StatusCreated,
@@ -309,17 +298,6 @@ func (h *ComentarioHandler) ListarPorVersion(c *gin.Context) {
 		c.JSON(
 			http.StatusInternalServerError,
 			gin.H{"error": "Error al obtener los comentarios"},
-		)
-
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
 		)
 
 	default:
@@ -480,17 +458,6 @@ func (h *ComentarioHandler) Responder(c *gin.Context) {
 			gin.H{"error": "Error al responder el comentario"},
 		)
 
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
-		)
-
 	default:
 		c.JSON(
 			http.StatusCreated,
@@ -634,17 +601,6 @@ func (h *ComentarioHandler) Modificar(c *gin.Context) {
 		c.JSON(
 			http.StatusInternalServerError,
 			gin.H{"error": "Error al modificar el comentario"},
-		)
-
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
 		)
 
 	default:
@@ -967,17 +923,6 @@ func (h *ComentarioHandler) CambiarEstado(c *gin.Context) {
 			},
 		)
 
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
-		)
-
 	default:
 		c.JSON(
 			http.StatusOK,
@@ -1045,17 +990,6 @@ func (h *ComentarioHandler) ResumirPorVersion(c *gin.Context) {
 	case err != nil:
 		log.Println("Error al resumir comentarios:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al generar el resumen"})
-
-	case errors.Is(
-		err,
-		service.ErrComentarioSinPermiso,
-	):
-		c.JSON(
-			http.StatusForbidden,
-			gin.H{
-				"error": "No tenés permiso para realizar esta acción sobre los comentarios",
-			},
-		)
 	default:
 		c.JSON(http.StatusOK, resumen)
 	}

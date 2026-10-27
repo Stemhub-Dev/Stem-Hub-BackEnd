@@ -97,12 +97,12 @@ type StemRepository interface {
 		codStem int64,
 	) error
 
-	ContarGlobal(
+	ContarGlobalPorProductor(
 		codigoIntegrante int64,
 		filtro dto.ListarStemsGlobalFiltro,
 	) (int, error)
 
-	ListarGlobal(
+	ListarGlobalPorProductor(
 		codigoIntegrante int64,
 		filtro dto.ListarStemsGlobalFiltro,
 		desplazamiento int,
@@ -122,52 +122,36 @@ func NewStemRepository(db *sql.DB) StemRepository {
 const consultaContarStemsGlobales = `
 	SELECT COUNT(*)
 	FROM integranteproyecto ip
-
+	INNER JOIN rol r
+		ON r.codrol = ip.codrol
+	   AND r.ambitorol = ip.ambitorol
 	INNER JOIN proyecto p
 		ON p.codigoproyecto = ip.codigoproyecto
-
 	INNER JOIN cancion c
 		ON c.codigoproyecto = p.codigoproyecto
-
 	INNER JOIN cancionversion cv
 		ON cv.codigocancion = c.codigocancion
-
 	INNER JOIN stem s
 		ON s.codigocancionversion = cv.codigocancionversion
-
 	INNER JOIN categoriastem cs
 		ON cs.codcategoriastem = s.codcategoriastem
-
 	WHERE ip.codintegrante = $1
 	  AND ip.fechahorabajaintegranteproy IS NULL
 	  AND ip.ambitorol = 'PROYECTO'
-
-	  AND EXISTS (
-		SELECT 1
-		FROM rolpermiso rp
-		INNER JOIN permiso per
-			ON per.codigopermiso = rp.codigopermiso
-		WHERE rp.codrol = ip.codrol
-		  AND rp.ambitorolpermiso = ip.ambitorol
-		  AND rp.fechahorabajarolpermiso IS NULL
-		  AND per.fechahorabajapermiso IS NULL
-		  AND per.clavepermiso = $2
-	  )
-
+	  AND r.fechahorabajarol IS NULL
+	  AND LOWER(r.nombrerol) = LOWER($2)
 	  AND p.fechahorabajaproyecto IS NULL
 	  AND c.fechahorabajacancion IS NULL
 	  AND cv.fechahorabajaversion IS NULL
 	  AND s.fechahorabajastem IS NULL
 	  AND cs.fechahorabajacategoriastem IS NULL
-
 	  AND (
-		$3::text = ''
-		OR s.nombrestem ILIKE '%' || $3::text || '%'
+			$3::text = ''
+			OR s.nombrestem ILIKE '%' || $3::text || '%'
 	  )
-
 	  AND (
-		$4::bigint IS NULL
-		OR s.codcategoriastem = $4::bigint
+			$4::bigint IS NULL
+			OR s.codcategoriastem = $4::bigint
 	  )
 `
 
@@ -191,56 +175,38 @@ const consultaListarStemsGlobales = `
 		cv.numeroversion
 
 	FROM integranteproyecto ip
-
+	INNER JOIN rol r
+		ON r.codrol = ip.codrol
+	   AND r.ambitorol = ip.ambitorol
 	INNER JOIN proyecto p
 		ON p.codigoproyecto = ip.codigoproyecto
-
 	INNER JOIN cancion c
 		ON c.codigoproyecto = p.codigoproyecto
-
 	INNER JOIN cancionversion cv
 		ON cv.codigocancion = c.codigocancion
-
 	INNER JOIN stem s
 		ON s.codigocancionversion = cv.codigocancionversion
-
 	INNER JOIN categoriastem cs
 		ON cs.codcategoriastem = s.codcategoriastem
-
 	WHERE ip.codintegrante = $1
 	  AND ip.fechahorabajaintegranteproy IS NULL
 	  AND ip.ambitorol = 'PROYECTO'
-
-	  AND EXISTS (
-		SELECT 1
-		FROM rolpermiso rp
-		INNER JOIN permiso per
-			ON per.codigopermiso = rp.codigopermiso
-		WHERE rp.codrol = ip.codrol
-		  AND rp.ambitorolpermiso = ip.ambitorol
-		  AND rp.fechahorabajarolpermiso IS NULL
-		  AND per.fechahorabajapermiso IS NULL
-		  AND per.clavepermiso = $2
-	  )
-
+	  AND r.fechahorabajarol IS NULL
+	  AND LOWER(r.nombrerol) = LOWER($2)
 	  AND p.fechahorabajaproyecto IS NULL
 	  AND c.fechahorabajacancion IS NULL
 	  AND cv.fechahorabajaversion IS NULL
 	  AND s.fechahorabajastem IS NULL
 	  AND cs.fechahorabajacategoriastem IS NULL
-
 	  AND (
-		$3::text = ''
-		OR s.nombrestem ILIKE '%' || $3::text || '%'
+			$3::text = ''
+			OR s.nombrestem ILIKE '%' || $3::text || '%'
 	  )
-
 	  AND (
-		$4::bigint IS NULL
-		OR s.codcategoriastem = $4::bigint
+			$4::bigint IS NULL
+			OR s.codcategoriastem = $4::bigint
 	  )
-
 	ORDER BY s.codstem DESC
-
 	LIMIT $5 OFFSET $6
 `
 
@@ -687,7 +653,7 @@ func (r *stemRepository) Eliminar(
 	return tx.Commit()
 }
 
-func (r *stemRepository) ContarGlobal(
+func (r *stemRepository) ContarGlobalPorProductor(
 	codigoIntegrante int64,
 	filtro dto.ListarStemsGlobalFiltro,
 ) (int, error) {
@@ -703,8 +669,10 @@ func (r *stemRepository) ContarGlobal(
 	err := r.db.QueryRow(
 		consultaContarStemsGlobales,
 		codigoIntegrante,
-		model.PermisoVerStemsGlobal,
-		escaparPatronLike(filtro.Busqueda),
+		model.NombreRolProductor,
+		escaparPatronLike(
+			filtro.Busqueda,
+		),
 		categoria,
 	).Scan(&total)
 
@@ -715,7 +683,7 @@ func (r *stemRepository) ContarGlobal(
 	return total, nil
 }
 
-func (r *stemRepository) ListarGlobal(
+func (r *stemRepository) ListarGlobalPorProductor(
 	codigoIntegrante int64,
 	filtro dto.ListarStemsGlobalFiltro,
 	desplazamiento int,
@@ -730,8 +698,10 @@ func (r *stemRepository) ListarGlobal(
 	rows, err := r.db.Query(
 		consultaListarStemsGlobales,
 		codigoIntegrante,
-		model.PermisoVerStemsGlobal,
-		escaparPatronLike(filtro.Busqueda),
+		model.NombreRolProductor,
+		escaparPatronLike(
+			filtro.Busqueda,
+		),
 		categoria,
 		filtro.TamanoPagina,
 		desplazamiento,
@@ -743,10 +713,11 @@ func (r *stemRepository) ListarGlobal(
 
 	defer rows.Close()
 
-	stems := make(
-		[]dto.StemGlobalListadoResponse,
-		0,
-	)
+	stems :=
+		make(
+			[]dto.StemGlobalListadoResponse,
+			0,
+		)
 
 	for rows.Next() {
 
@@ -772,7 +743,10 @@ func (r *stemRepository) ListarGlobal(
 			return nil, err
 		}
 
-		stems = append(stems, stem)
+		stems = append(
+			stems,
+			stem,
+		)
 	}
 
 	if err := rows.Err(); err != nil {

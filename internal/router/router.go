@@ -340,11 +340,10 @@ func NewRouter(db *sql.DB,
 		comentarioHandler.ListarPorVersion,
 	)
 
-	// Stems (HU-ABM-04-*).
-	// La autorización se resuelve en el service mediante permisos de ámbito
-	// PROYECTO según la acción solicitada (ver, crear, editar, eliminar o
-	// separar con IA). Las reglas se evalúan contra el rol activo que el
-	// integrante posee dentro del proyecto.
+	// Stems (HU-ABM-04-*). Leer es para cualquier integrante del proyecto;
+	// el ABM exige GESTIONAR_STEMS, que valida el service contra el rol del
+	// usuario en el proyecto (no es un permiso de SISTEMA, por eso no pasa
+	// por permisoMiddleware).
 	proyectos.GET(
 		"/:proyectoId/categorias-stem",
 		stemHandler.ListarCategorias,
