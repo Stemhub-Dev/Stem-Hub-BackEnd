@@ -244,6 +244,7 @@ WHERE r.ambitorol = 'PROYECTO'
   AND r.fechahorabajarol IS NULL
   AND LOWER(r.nombrerol) IN (
       LOWER('Productor'),
+      LOWER('Músico (Artista)'),
       LOWER('Artista')
   )
   AND p.ambitopermiso = 'PROYECTO'
