@@ -52,7 +52,8 @@ func (r *portadaRepositoryFalso) ExistenGeneros([]int64) (bool, error) {
 }
 
 func (r *portadaRepositoryFalso) Crear(
-	_ int64,
+	_ int64, // Usuario actor.
+	_ int64, // Integrante propietario.
 	_ string,
 	_ *string,
 	_ int64,
@@ -105,6 +106,7 @@ func (r *portadaRepositoryFalso) ListarGenerosProyecto(int64) ([]dto.GeneroProye
 }
 
 func (r *portadaRepositoryFalso) Actualizar(
+	_ int64,
 	_ int64,
 	_ string,
 	_ *string,

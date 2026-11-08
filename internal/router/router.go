@@ -25,6 +25,7 @@ func NewRouter(db *sql.DB,
 	stemHandler *handler.StemHandler,
 	reporteHandler *handler.ReporteHandler,
 	tableroHandler *handler.TableroHandler,
+	auditoriaHandler *handler.AuditoriaHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -550,6 +551,14 @@ func NewRouter(db *sql.DB,
 	invitaciones.GET(
 		"",
 		invitacionProyectoHandler.MisInvitaciones,
+	)
+
+	router.GET(
+		"/auditoria",
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+		permisoMiddleware.RequerirPermiso("CONSULTAR_AUDITORIA"),
+		auditoriaHandler.Listar,
 	)
 
 	return router

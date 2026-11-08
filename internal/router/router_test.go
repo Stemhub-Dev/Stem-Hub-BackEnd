@@ -34,6 +34,7 @@ func nuevoRouterDePrueba(t *testing.T) *gin.Engine {
 		&handler.StemHandler{},
 		&handler.ReporteHandler{},
 		&handler.TableroHandler{},
+		&handler.AuditoriaHandler{},
 		&handler.PermisoHandler{},
 		&handler.RolPermisoHandler{},
 		&middleware.AuthMiddleware{},

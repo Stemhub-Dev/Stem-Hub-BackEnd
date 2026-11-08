@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	// Base de zonas horarias embebida: la imagen alpine no trae tzdata.
 	_ "time/tzdata"
 
@@ -247,6 +248,11 @@ func main() {
 	)
 	tableroHandler := handler.NewTableroHandler(tableroService)
 
+	//Auditoria
+	auditoriaRepository := repository.NewAuditoriaConsultaRepository(db)
+	auditoriaService := service.NewAuditoriaService(auditoriaRepository)
+	auditoriaHandler := handler.NewAuditoriaHandler(auditoriaService)
+
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
@@ -265,6 +271,7 @@ func main() {
 		stemHandler,
 		reporteHandler,
 		tableroHandler,
+		auditoriaHandler,
 		permisoHandler,
 		rolPermisoHandler,
 		authMiddleware,

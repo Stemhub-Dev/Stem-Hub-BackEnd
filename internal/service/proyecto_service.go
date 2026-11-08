@@ -282,6 +282,7 @@ func (s *proyectoService) CrearProyecto(
 
 	codigoProyecto, err :=
 		s.proyectoRepository.Crear(
+			codigoUsuario,
 			integrante.CodIntegrante,
 			request.Nombre,
 			request.Descripcion,
@@ -1082,6 +1083,7 @@ func (s *proyectoService) EditarProyecto(
 	// logoVigente puede diferir de logoObjectKey si no se tocó el logo y
 	// otra edición lo cambió mientras tanto: la respuesta firma el vigente.
 	logoVigente, logoAnterior, err := s.proyectoRepository.Actualizar(
+		codigoUsuario,
 		codigoProyecto,
 		nombre,
 		descripcion,
@@ -1203,6 +1205,7 @@ func (s *proyectoService) DarDeBaja(
 
 	// 4. Baja lógica únicamente del proyecto.
 	err = s.proyectoRepository.DarDeBaja(
+		codigoUsuario,
 		codigoProyecto,
 	)
 
