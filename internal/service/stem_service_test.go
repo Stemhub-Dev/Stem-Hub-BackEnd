@@ -132,7 +132,7 @@ func (r *stemRepositoryFalso) Crear(
 	return 99, nil
 }
 
-func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.CambiosStem) error {
+func (r *stemRepositoryFalso) Actualizar(_ int64, _ int64, cod int64, cambios repository.CambiosStem) error {
 	if r.errActualizar != nil {
 		return r.errActualizar
 	}
@@ -151,7 +151,7 @@ func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.
 	return nil
 }
 
-func (r *stemRepositoryFalso) Eliminar(cod int64) error {
+func (r *stemRepositoryFalso) Eliminar(_ int64, _ int64, cod int64) error {
 	r.eliminado = cod
 	delete(r.stems, cod)
 	return nil

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -25,6 +26,7 @@ type CancionRepository interface {
 	// ActualizarNotasVersion cambia solo las notas de una versión activa.
 	// sql.ErrNoRows si la versión no existe o no es de esa canción.
 	ActualizarNotasVersion(
+		codigoUsuario int64,
 		codigoCancion int64,
 		codigoCancionVersion int64,
 		notas *string,
@@ -35,6 +37,7 @@ type CancionRepository interface {
 	// que dos bajas en paralelo no la dejen sin versiones:
 	// ErrVersionUnicaActiva si es la última que queda.
 	DarDeBajaVersion(
+		codigoUsuario int64,
 		codigoCancion int64,
 		codigoCancionVersion int64,
 	) (int, error)
@@ -51,6 +54,7 @@ type CancionRepository interface {
 
 	FinalizarCreacionVersionInicial(
 		tx *sql.Tx,
+		codigoUsuario int64,
 		codigoCancion int64,
 		codIntegranteAutor int64,
 		urlArchivo string,
@@ -112,12 +116,14 @@ type CancionRepository interface {
 	) (bool, error)
 
 	ActualizarNombre(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		codigoCancion int64,
 		nombre string,
 	) error
 
 	DarDeBaja(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		codigoCancion int64,
 	) error
@@ -251,6 +257,7 @@ func verificarNombreLibre(tx *sql.Tx, codigoProyecto, exceptoCancion int64, nomb
 
 func (r *cancionRepository) FinalizarCreacionVersionInicial(
 	tx *sql.Tx,
+	codigoUsuario int64,
 	codigoCancion int64,
 	codIntegranteAutor int64,
 	urlArchivo string,
@@ -286,6 +293,57 @@ func (r *cancionRepository) FinalizarCreacionVersionInicial(
 		formatoArchivo,
 	).Scan(&codigoCancionVersion)
 
+	if err != nil {
+		return 0, err
+	}
+
+	var codigoProyecto int64
+	var nombreProyecto string
+	var nombreCancion string
+
+	err = tx.QueryRow(`
+		SELECT
+			c.codigoproyecto,
+			p.nombreproyecto,
+			c.nombrecancion
+		FROM cancion c
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		WHERE c.codigocancion = $1
+	`, codigoCancion).Scan(
+		&codigoProyecto,
+		&nombreProyecto,
+		&nombreCancion,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "cancion",
+		CodigoRegistro: codigoCancion,
+		Accion:         "INSERT",
+		Evento:         "ALTA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto":       nombreProyecto,
+			"nombreCancion":        nombreCancion,
+			"codigoVersionInicial": codigoCancionVersion,
+			"numeroVersion":        1,
+			"formatoArchivo":       formatoArchivo,
+		},
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	err = RegistrarAltaVersionTx(
+		tx,
+		codigoUsuario,
+		codigoCancionVersion,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1023,123 +1081,247 @@ func (r *cancionRepository) ExisteNombreEnProyectoExceptoCancion(
 }
 
 func (r *cancionRepository) ActualizarNombre(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancion int64,
 	nombre string,
 ) error {
-
 	tx, err := r.db.Begin()
-
 	if err != nil {
 		return err
 	}
-
 	defer tx.Rollback()
 
+	// Conservamos el control de nombres concurrentes existente.
 	if err := bloquearNombreCancion(tx, codigoProyecto, nombre); err != nil {
 		return err
 	}
 
-	if err := verificarNombreLibre(tx, codigoProyecto, codigoCancion, nombre); err != nil {
+	if err := verificarNombreLibre(
+		tx,
+		codigoProyecto,
+		codigoCancion,
+		nombre,
+	); err != nil {
 		return err
 	}
 
-	resultado, err := tx.Exec(`
+	var nombreAnterior string
+	var nombreProyecto string
+
+	err = tx.QueryRow(`
+		SELECT c.nombrecancion, p.nombreproyecto
+		FROM cancion c
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		WHERE c.codigocancion = $1
+		  AND c.codigoproyecto = $2
+		  AND c.fechahorabajacancion IS NULL
+		FOR UPDATE OF c
+	`, codigoCancion, codigoProyecto).Scan(
+		&nombreAnterior,
+		&nombreProyecto,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Guardar exactamente el mismo nombre no genera un evento.
+	if nombreAnterior == nombre {
+		return tx.Commit()
+	}
+
+	_, err = tx.Exec(`
 		UPDATE cancion
 		SET nombrecancion = $1
 		WHERE codigocancion = $2
 		  AND codigoproyecto = $3
 		  AND fechahorabajacancion IS NULL
-	`,
-		nombre,
-		codigoCancion,
-		codigoProyecto,
-	)
-
+	`, nombre, codigoCancion, codigoProyecto)
 	if err != nil {
 		return err
 	}
 
-	filas, err := resultado.RowsAffected()
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "cancion",
+		CodigoRegistro: codigoCancion,
+		Accion:         "UPDATE",
+		Evento:         "MODIFICACION",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": nombreProyecto,
+			"nombreCancion":  nombre,
+			"anterior": map[string]any{
+				"nombreCancion": nombreAnterior,
+			},
+			"posterior": map[string]any{
+				"nombreCancion": nombre,
+			},
+		},
+	})
 	if err != nil {
 		return err
-	}
-
-	if filas == 0 {
-		return sql.ErrNoRows
 	}
 
 	return tx.Commit()
 }
 
 func (r *cancionRepository) DarDeBaja(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	codigoCancion int64,
 ) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-	resultado, err := r.db.Exec(`
+	var nombreCancion string
+	var fechaBaja time.Time
+
+	err = tx.QueryRow(`
 		UPDATE cancion
 		SET fechahorabajacancion = CURRENT_TIMESTAMP
 		WHERE codigocancion = $1
 		  AND codigoproyecto = $2
 		  AND fechahorabajacancion IS NULL
-	`,
-		codigoCancion,
-		codigoProyecto,
+		RETURNING nombrecancion, fechahorabajacancion
+	`, codigoCancion, codigoProyecto).Scan(
+		&nombreCancion,
+		&fechaBaja,
 	)
-
 	if err != nil {
 		return err
 	}
 
-	filas, err := resultado.RowsAffected()
+	var nombreProyecto string
+
+	err = tx.QueryRow(`
+		SELECT nombreproyecto
+		FROM proyecto
+		WHERE codigoproyecto = $1
+	`, codigoProyecto).Scan(&nombreProyecto)
 	if err != nil {
 		return err
 	}
 
-	if filas == 0 {
-		return sql.ErrNoRows
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "cancion",
+		CodigoRegistro: codigoCancion,
+		Accion:         "UPDATE",
+		Evento:         "BAJA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": nombreProyecto,
+			"nombreCancion":  nombreCancion,
+			"fechaBaja":      fechaBaja,
+		},
+	})
+	if err != nil {
+		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (r *cancionRepository) ActualizarNotasVersion(
+	codigoUsuario int64,
 	codigoCancion int64,
 	codigoCancionVersion int64,
 	notas *string,
 ) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-	resultado, err := r.db.Exec(`
-		UPDATE cancionversion
-		SET notasversion = $3
-		WHERE codigocancionversion = $1
-		  AND codigocancion = $2
-		  AND fechahorabajaversion IS NULL
-	`,
-		codigoCancionVersion,
-		codigoCancion,
-		notas,
+	var codigoProyecto int64
+	var nombreProyecto string
+	var nombreCancion string
+	var numeroVersion int
+	var notasAnteriores *string
+
+	err = tx.QueryRow(`
+		SELECT
+			c.codigoproyecto,
+			p.nombreproyecto,
+			c.nombrecancion,
+			cv.numeroversion,
+			cv.notasversion
+		FROM cancionversion cv
+		JOIN cancion c
+		  ON c.codigocancion = cv.codigocancion
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		WHERE cv.codigocancionversion = $1
+		  AND cv.codigocancion = $2
+		  AND cv.fechahorabajaversion IS NULL
+		  AND c.fechahorabajacancion IS NULL
+		FOR UPDATE OF c, cv
+	`, codigoCancionVersion, codigoCancion).Scan(
+		&codigoProyecto,
+		&nombreProyecto,
+		&nombreCancion,
+		&numeroVersion,
+		&notasAnteriores,
 	)
-
 	if err != nil {
 		return err
 	}
 
-	filas, err := resultado.RowsAffected()
+	sinCambios := notasAnteriores == nil && notas == nil
+	if notasAnteriores != nil && notas != nil {
+		sinCambios = *notasAnteriores == *notas
+	}
 
+	if sinCambios {
+		return tx.Commit()
+	}
+
+	_, err = tx.Exec(`
+		UPDATE cancionversion
+		SET notasversion = $1
+		WHERE codigocancionversion = $2
+		  AND codigocancion = $3
+		  AND fechahorabajaversion IS NULL
+	`, notas, codigoCancionVersion, codigoCancion)
 	if err != nil {
 		return err
 	}
 
-	if filas == 0 {
-		return sql.ErrNoRows
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "cancionversion",
+		CodigoRegistro: codigoCancionVersion,
+		Accion:         "UPDATE",
+		Evento:         "MODIFICACION",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": nombreProyecto,
+			"codigoCancion":  codigoCancion,
+			"nombreCancion":  nombreCancion,
+			"numeroVersion":  numeroVersion,
+			"anterior": map[string]any{
+				"notas": notasAnteriores,
+			},
+			"posterior": map[string]any{
+				"notas": notas,
+			},
+		},
+	})
+	if err != nil {
+		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 func (r *cancionRepository) DarDeBajaVersion(
+	codigoUsuario int64,
 	codigoCancion int64,
 	codigoCancionVersion int64,
 ) (int, error) {
@@ -1204,14 +1386,57 @@ func (r *cancionRepository) DarDeBajaVersion(
 		return 0, ErrVersionUnicaActiva
 	}
 
-	_, err = tx.Exec(`
+	var fechaBaja time.Time
+
+	err = tx.QueryRow(`
 		UPDATE cancionversion
 		SET fechahorabajaversion = CURRENT_TIMESTAMP
 		WHERE codigocancionversion = $1
-	`,
-		codigoCancionVersion,
-	)
+		  AND codigocancion = $2
+		  AND fechahorabajaversion IS NULL
+		RETURNING fechahorabajaversion
+	`, codigoCancionVersion, codigoCancion).Scan(&fechaBaja)
+	if err != nil {
+		return 0, err
+	}
 
+	var codigoProyecto int64
+	var nombreProyecto string
+	var nombreCancion string
+
+	err = tx.QueryRow(`
+		SELECT
+			c.codigoproyecto,
+			p.nombreproyecto,
+			c.nombrecancion
+		FROM cancion c
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		WHERE c.codigocancion = $1
+	`, codigoCancion).Scan(
+		&codigoProyecto,
+		&nombreProyecto,
+		&nombreCancion,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "cancionversion",
+		CodigoRegistro: codigoCancionVersion,
+		Accion:         "UPDATE",
+		Evento:         "BAJA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": nombreProyecto,
+			"codigoCancion":  codigoCancion,
+			"nombreCancion":  nombreCancion,
+			"numeroVersion":  numeroVersion,
+			"fechaBaja":      fechaBaja,
+		},
+	})
 	if err != nil {
 		return 0, err
 	}

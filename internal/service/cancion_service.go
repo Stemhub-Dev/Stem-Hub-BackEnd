@@ -374,6 +374,7 @@ func (s *cancionService) Crear(
 	codigoVersion, err :=
 		s.cancionRepository.FinalizarCreacionVersionInicial(
 			tx,
+			codigoUsuario,
 			codigoCancion,
 			integrante.CodIntegrante,
 			objectKey,
@@ -505,6 +506,16 @@ func (s *cancionService) CrearVersion(
 			notas,
 		)
 
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	err = repository.RegistrarAltaVersionTx(
+		tx,
+		codigoUsuario,
+		codigoVersion,
+	)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -938,6 +949,7 @@ func (s *cancionService) Editar(
 
 	// Actualizar únicamente el nombre.
 	err = s.cancionRepository.ActualizarNombre(
+		codigoUsuario,
 		codigoProyecto,
 		codigoCancion,
 		nombre,
@@ -1029,6 +1041,7 @@ func (s *cancionService) DarDeBaja(
 
 	// Baja lógica.
 	err = s.cancionRepository.DarDeBaja(
+		codigoUsuario,
 		codigoProyecto,
 		codigoCancion,
 	)
@@ -1124,7 +1137,7 @@ func (s *cancionService) EditarVersion(
 		return nil, ErrVersionNotasLargas
 	}
 
-	err = s.cancionRepository.ActualizarNotasVersion(codigoCancion, codigoCancionVersion, notas)
+	err = s.cancionRepository.ActualizarNotasVersion(codigoUsuario, codigoCancion, codigoCancionVersion, notas)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrVersionNoEncontrada
@@ -1157,7 +1170,7 @@ func (s *cancionService) DarDeBajaVersion(
 		return nil, ErrVersionSinPermisoBaja
 	}
 
-	numeroVersion, err := s.cancionRepository.DarDeBajaVersion(codigoCancion, codigoCancionVersion)
+	numeroVersion, err := s.cancionRepository.DarDeBajaVersion(codigoUsuario, codigoCancion, codigoCancionVersion)
 
 	if errors.Is(err, repository.ErrVersionUnicaActiva) {
 		return nil, ErrVersionUnica

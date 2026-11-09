@@ -23,7 +23,10 @@ func (r *comentarioAutorFalso) ObtenerAutorComentario(int64, int64) (int64, erro
 	return r.codigoAutor, nil
 }
 
-func (r *comentarioAutorFalso) DarDeBaja(codigoComentario int64) (bool, error) {
+func (r *comentarioAutorFalso) DarDeBaja(
+	_ int64,
+	codigoComentario int64,
+) (bool, error) {
 	r.bajaLlamada = true
 	r.bajaComentario = codigoComentario
 	return true, nil

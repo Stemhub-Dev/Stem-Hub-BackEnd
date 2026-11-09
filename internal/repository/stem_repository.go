@@ -2,7 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -86,6 +88,7 @@ type StemRepository interface {
 	// Si cambios.Archivo no es nil lo reemplaza y el stem pierde la marca de
 	// IA. La versión (y con ella la canción) del stem no cambia nunca.
 	Actualizar(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		codStem int64,
 		cambios CambiosStem,
@@ -94,6 +97,8 @@ type StemRepository interface {
 	// Borrado real de la fila, junto con sus comentarios y las respuestas a
 	// esos comentarios (HU-ABM-04-03 CA2).
 	Eliminar(
+		codigoUsuario int64,
+		codigoProyecto int64,
 		codStem int64,
 	) error
 
@@ -557,6 +562,10 @@ func (r *stemRepository) Crear(
 		return 0, err
 	}
 
+	if err := RegistrarAltaStemTx(tx, codigoUsuario, codStem); err != nil {
+		return 0, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -588,6 +597,7 @@ func insertarCategoriaProyecto(
 }
 
 func (r *stemRepository) Actualizar(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	codStem int64,
 	cambios CambiosStem,
@@ -602,6 +612,11 @@ func (r *stemRepository) Actualizar(
 	}
 
 	defer tx.Rollback()
+
+	anterior, err := obtenerContextoStemTx(tx, codigoProyecto, codStem)
+	if err != nil {
+		return err
+	}
 
 	codCategoriaStem := cambios.CodCategoriaStem
 
@@ -648,40 +663,96 @@ func (r *stemRepository) Actualizar(
 		return err
 	}
 
-	return tx.Commit()
-}
-
-func (r *stemRepository) Eliminar(
-	codStem int64,
-) error {
-
-	tx, err := r.db.Begin()
-
+	posterior, err := obtenerContextoStemTx(tx, codigoProyecto, codStem)
 	if err != nil {
 		return err
 	}
 
+	if string(anterior.Datos) != string(posterior.Datos) {
+		err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+			CodigoUsuario:  codigoUsuario,
+			Entidad:        "stem",
+			CodigoRegistro: codStem,
+			Accion:         "UPDATE",
+			Evento:         "MODIFICACION",
+			CodigoProyecto: &codigoProyecto,
+			Contexto: map[string]any{
+				"nombreProyecto": posterior.NombreProyecto,
+				"nombreStem":     posterior.NombreStem,
+				"anterior":       anterior.Datos,
+				"posterior":      posterior.Datos,
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *stemRepository) Eliminar(
+	codigoUsuario int64,
+	codigoProyecto int64,
+	codStem int64,
+) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
 	defer tx.Rollback()
 
-	// Se borran las respuestas y los comentarios del stem (incluidos los ya
-	// dados de baja). El stem queda con baja lógica: el indicador de stems
-	// del Inicio necesita saber que existía al comienzo del período.
+	anterior, err := obtenerContextoStemTx(tx, codigoProyecto, codStem)
+	if err != nil {
+		return err
+	}
+
+	// Conservamos el borrado de comentarios y respuestas.
 	sentencias := []string{
 		`DELETE FROM comentariorespuesta
 		 WHERE codigocomentario IN (
-			SELECT codigocomentario FROM comentario WHERE codstem = $1
+			SELECT codigocomentario
+			FROM comentario
+			WHERE codstem = $1
 		 )`,
 		`DELETE FROM comentario WHERE codstem = $1`,
-		`UPDATE stem
-		 SET fechahorabajastem = CURRENT_TIMESTAMP
-		 WHERE codstem = $1
-		   AND fechahorabajastem IS NULL`,
 	}
 
 	for _, sentencia := range sentencias {
 		if _, err := tx.Exec(sentencia, codStem); err != nil {
 			return err
 		}
+	}
+
+	var fechaBaja time.Time
+
+	err = tx.QueryRow(`
+		UPDATE stem
+		SET fechahorabajastem = CURRENT_TIMESTAMP
+		WHERE codstem = $1
+		  AND fechahorabajastem IS NULL
+		RETURNING fechahorabajastem
+	`, codStem).Scan(&fechaBaja)
+	if err != nil {
+		return err
+	}
+
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "stem",
+		CodigoRegistro: codStem,
+		Accion:         "UPDATE",
+		Evento:         "BAJA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": anterior.NombreProyecto,
+			"nombreStem":     anterior.NombreStem,
+			"fechaBaja":      fechaBaja,
+			"estadoAnterior": anterior.Datos,
+		},
+	})
+	if err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -780,4 +851,65 @@ func (r *stemRepository) ListarGlobal(
 	}
 
 	return stems, nil
+}
+
+type contextoAuditoriaStem struct {
+	CodigoProyecto int64
+	NombreProyecto string
+	NombreStem     string
+	Datos          json.RawMessage
+}
+
+// Lee y bloquea un stem activo del proyecto indicado.
+func obtenerContextoStemTx(
+	tx *sql.Tx,
+	codigoProyecto int64,
+	codStem int64,
+) (*contextoAuditoriaStem, error) {
+	var contexto contextoAuditoriaStem
+	var datos string
+
+	err := tx.QueryRow(`
+		SELECT
+			c.codigoproyecto,
+			p.nombreproyecto,
+			s.nombrestem,
+			jsonb_build_object(
+				'codigoCancion', c.codigocancion,
+				'nombreCancion', c.nombrecancion,
+				'codigoCancionVersion', cv.codigocancionversion,
+				'numeroVersion', cv.numeroversion,
+				'nombreStem', s.nombrestem,
+				'codigoCategoria', s.codcategoriastem,
+				'nombreCategoria', cat.nombrecategoriastem,
+				'nombreArchivo', s.nombrearchivostem,
+				'formatoArchivo', s.formatoarchivostem,
+				'archivoObjectKey', s.urlarchivostem,
+				'generadoConIA', s.generadoconia
+			)::text
+		FROM stem s
+		JOIN cancionversion cv
+		  ON cv.codigocancionversion = s.codigocancionversion
+		JOIN cancion c
+		  ON c.codigocancion = cv.codigocancion
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		JOIN categoriastem cat
+		  ON cat.codcategoriastem = s.codcategoriastem
+		WHERE s.codstem = $1
+		  AND c.codigoproyecto = $2
+		  AND s.fechahorabajastem IS NULL
+		FOR UPDATE OF s
+	`, codStem, codigoProyecto).Scan(
+		&contexto.CodigoProyecto,
+		&contexto.NombreProyecto,
+		&contexto.NombreStem,
+		&datos,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	contexto.Datos = json.RawMessage(datos)
+	return &contexto, nil
 }
