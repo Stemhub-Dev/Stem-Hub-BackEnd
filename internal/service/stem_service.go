@@ -775,7 +775,7 @@ func (s *stemService) Editar(
 		}
 	}
 
-	if err := s.stemRepository.Actualizar(codigoProyecto, codStem, repository.CambiosStem{
+	if err := s.stemRepository.Actualizar(codigoUsuario, codigoProyecto, codStem, repository.CambiosStem{
 		Nombre:           nombre,
 		NombreArchivo:    nombreArchivo,
 		CodCategoriaStem: codCategoriaStem,
@@ -828,7 +828,7 @@ func (s *stemService) Eliminar(
 		return err
 	}
 
-	if err := s.stemRepository.Eliminar(codStem); err != nil {
+	if err := s.stemRepository.Eliminar(codigoUsuario, codigoProyecto, codStem); err != nil {
 		return err
 	}
 

@@ -175,17 +175,34 @@ func (r *separacionStemRepository) Completar(
 	stems []StemGenerado,
 	tiempoProcesamientoMs int64,
 ) error {
-
 	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
+	// El actor es el usuario que solicitó la separación.
+	// Bloqueamos el pedido para impedir completar dos veces el mismo trabajo.
+	var codigoUsuario int64
+
+	err = tx.QueryRow(`
+		SELECT i.codigousuario
+		FROM separacionstem sep
+		JOIN integrante i
+		  ON i.codintegrante = sep.codintegrante
+		WHERE sep.codseparacionstem = $1
+		  AND sep.codigocancionversion = $2
+		  AND sep.estadoseparacion = 'PROCESANDO'
+		FOR UPDATE OF sep
+	`, codSeparacionStem, codigoCancionVersion).Scan(&codigoUsuario)
 	if err != nil {
 		return err
 	}
 
-	defer tx.Rollback()
-
 	for _, stem := range stems {
-		if _, err := tx.Exec(`
+		var codStem int64
+
+		err = tx.QueryRow(`
 			INSERT INTO stem (
 				codigocancionversion,
 				nombrestem,
@@ -198,8 +215,13 @@ func (r *separacionStemRepository) Completar(
 			)
 			VALUES (
 				$1, $2, $3, $4, $5, $6, true,
-				(SELECT codintegrante FROM separacionstem WHERE codseparacionstem = $7)
+				(
+					SELECT codintegrante
+					FROM separacionstem
+					WHERE codseparacionstem = $7
+				)
 			)
+			RETURNING codstem
 		`,
 			codigoCancionVersion,
 			stem.Nombre,
@@ -208,12 +230,18 @@ func (r *separacionStemRepository) Completar(
 			stem.Archivo.Formato,
 			stem.Archivo.NombreOriginal,
 			codSeparacionStem,
-		); err != nil {
+		).Scan(&codStem)
+		if err != nil {
+			return err
+		}
+
+		err = RegistrarAltaStemTx(tx, codigoUsuario, codStem)
+		if err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(`
+	_, err = tx.Exec(`
 		UPDATE separacionstem
 		SET estadoseparacion = 'COMPLETADA',
 			tiempoprocesamientoms = $2,
@@ -222,7 +250,8 @@ func (r *separacionStemRepository) Completar(
 	`,
 		codSeparacionStem,
 		tiempoProcesamientoMs,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 

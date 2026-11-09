@@ -2,12 +2,18 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 )
 
 type ComentarioRepository interface {
 	Crear(
+		codigoUsuario int64,
 		codigoIntegrante int64,
 		codigoVersion int64,
 		codStem *int64,
@@ -55,11 +61,13 @@ type ComentarioRepository interface {
 	) (bool, error)
 
 	Modificar(
+		codigoUsuario int64,
 		codigoComentario int64,
 		texto string,
 	) error
 
 	DarDeBaja(
+		codigoUsuario int64,
 		codigoComentario int64,
 	) (bool, error)
 
@@ -68,6 +76,7 @@ type ComentarioRepository interface {
 	) (bool, error)
 
 	CambiarEstado(
+		codigoUsuario int64,
 		codigoComentario int64,
 		codigoVersion int64,
 		estado string,
@@ -94,6 +103,7 @@ func NewComentarioRepository(
 }
 
 func (r *comentarioRepository) Crear(
+	codigoUsuario int64,
 	codigoIntegrante int64,
 	codigoVersion int64,
 	codStem *int64,
@@ -101,10 +111,15 @@ func (r *comentarioRepository) Crear(
 	tiempoInicioSegundos *float64,
 	tiempoFinSegundos *float64,
 ) (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
 
 	var codigoComentario int64
 
-	err := r.db.QueryRow(`
+	err = tx.QueryRow(`
 		INSERT INTO comentario (
 			codintegrante,
 			codestadocom,
@@ -136,8 +151,24 @@ func (r *comentarioRepository) Crear(
 		tiempoFinSegundos,
 		codStem,
 	).Scan(&codigoComentario)
+	if err != nil {
+		return 0, err
+	}
 
-	return codigoComentario, err
+	err = RegistrarAltaComentarioTx(
+		tx,
+		codigoUsuario,
+		codigoComentario,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return codigoComentario, nil
 }
 
 func (r *comentarioRepository) ExisteStemActivoEnVersion(
@@ -474,47 +505,39 @@ func (r *comentarioRepository) DarDeBajaRespuesta(
 }
 
 func (r *comentarioRepository) Modificar(
+	codigoUsuario int64,
 	codigoComentario int64,
 	texto string,
 ) error {
-
-	_, err := r.db.Exec(`
-		UPDATE comentario
-		SET descripcioncomentario = $2
-		WHERE codigocomentario = $1
-		  AND fechahorabajacomentario IS NULL
-	`,
+	actualizado, err := r.cambiarConAuditoria(
+		codigoUsuario,
 		codigoComentario,
+		nil,
+		"MODIFICACION",
 		texto,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if !actualizado {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
 
 func (r *comentarioRepository) DarDeBaja(
+	codigoUsuario int64,
 	codigoComentario int64,
 ) (bool, error) {
-
-	resultado, err := r.db.Exec(`
-		UPDATE comentario
-		SET fechahorabajacomentario = CURRENT_TIMESTAMP
-		WHERE codigocomentario = $1
-		  AND fechahorabajacomentario IS NULL
-	`,
+	return r.cambiarConAuditoria(
+		codigoUsuario,
 		codigoComentario,
+		nil,
+		"BAJA",
+		"",
 	)
-
-	if err != nil {
-		return false, err
-	}
-
-	filasAfectadas, err := resultado.RowsAffected()
-
-	if err != nil {
-		return false, err
-	}
-
-	return filasAfectadas > 0, nil
 }
 
 func (r *comentarioRepository) ExisteEstadoComentarioActivo(
@@ -538,39 +561,18 @@ func (r *comentarioRepository) ExisteEstadoComentarioActivo(
 }
 
 func (r *comentarioRepository) CambiarEstado(
+	codigoUsuario int64,
 	codigoComentario int64,
 	codigoVersion int64,
 	estado string,
 ) (bool, error) {
-
-	resultado, err := r.db.Exec(`
-		UPDATE comentario
-		SET codestadocom = (
-			SELECT codestadocom
-			FROM estadocomentario
-			WHERE LOWER(nombreestadocom) = LOWER($3)
-			  AND fechahorabajaestadocom IS NULL
-		)
-		WHERE codigocomentario = $1
-		  AND codigocancionversion = $2
-		  AND fechahorabajacomentario IS NULL
-	`,
+	return r.cambiarConAuditoria(
+		codigoUsuario,
 		codigoComentario,
-		codigoVersion,
+		&codigoVersion,
+		"CAMBIO_ESTADO",
 		estado,
 	)
-
-	if err != nil {
-		return false, err
-	}
-
-	filasAfectadas, err := resultado.RowsAffected()
-
-	if err != nil {
-		return false, err
-	}
-
-	return filasAfectadas > 0, nil
 }
 
 func punteroTextoSiValido(valor sql.NullString) *string {
@@ -607,4 +609,189 @@ func (r *comentarioRepository) ObtenerContextoVersion(
 	).Scan(&nombreCancion, &numeroVersion)
 
 	return nombreCancion, numeroVersion, err
+}
+
+type contextoAuditoriaComentario struct {
+	CodigoProyecto int64
+	NombreProyecto string
+	Texto          string
+	Estado         string
+	Datos          json.RawMessage
+}
+
+func obtenerContextoComentarioTx(
+	tx *sql.Tx,
+	codigoComentario int64,
+	codigoVersion *int64,
+) (*contextoAuditoriaComentario, error) {
+	var contexto contextoAuditoriaComentario
+	var datos string
+
+	err := tx.QueryRow(`
+		SELECT
+			c.codigoproyecto,
+			p.nombreproyecto,
+			com.descripcioncomentario,
+			ec.nombreestadocom,
+			jsonb_build_object(
+				'codigoCancion', c.codigocancion,
+				'nombreCancion', c.nombrecancion,
+				'codigoCancionVersion', cv.codigocancionversion,
+				'numeroVersion', cv.numeroversion,
+				'codStem', com.codstem,
+				'nombreStem', s.nombrestem,
+				'texto', com.descripcioncomentario,
+				'estado', ec.nombreestadocom,
+				'tiempoInicioSegundos', com.tiempoiniciosegundos,
+				'tiempoFinSegundos', com.tiempofinsegundos
+			)::text
+		FROM comentario com
+		JOIN cancionversion cv
+		  ON cv.codigocancionversion = com.codigocancionversion
+		JOIN cancion c
+		  ON c.codigocancion = cv.codigocancion
+		JOIN proyecto p
+		  ON p.codigoproyecto = c.codigoproyecto
+		JOIN estadocomentario ec
+		  ON ec.codestadocom = com.codestadocom
+		LEFT JOIN stem s
+		  ON s.codstem = com.codstem
+		WHERE com.codigocomentario = $1
+		  AND com.fechahorabajacomentario IS NULL
+		  AND (
+			$2::bigint IS NULL
+			OR com.codigocancionversion = $2
+		  )
+		FOR UPDATE OF com
+	`, codigoComentario, codigoVersion).Scan(
+		&contexto.CodigoProyecto,
+		&contexto.NombreProyecto,
+		&contexto.Texto,
+		&contexto.Estado,
+		&datos,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	contexto.Datos = json.RawMessage(datos)
+	return &contexto, nil
+}
+
+func (r *comentarioRepository) cambiarConAuditoria(
+	codigoUsuario int64,
+	codigoComentario int64,
+	codigoVersion *int64,
+	evento string,
+	valor string,
+) (bool, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	anterior, err := obtenerContextoComentarioTx(
+		tx,
+		codigoComentario,
+		codigoVersion,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	contexto := map[string]any{
+		"nombreProyecto": anterior.NombreProyecto,
+	}
+
+	switch evento {
+	case "MODIFICACION":
+		if anterior.Texto == valor {
+			return true, tx.Commit()
+		}
+
+		_, err = tx.Exec(`
+			UPDATE comentario
+			SET descripcioncomentario = $2
+			WHERE codigocomentario = $1
+			  AND fechahorabajacomentario IS NULL
+		`, codigoComentario, valor)
+
+	case "CAMBIO_ESTADO":
+		if strings.EqualFold(anterior.Estado, valor) {
+			return true, tx.Commit()
+		}
+
+		_, err = tx.Exec(`
+			UPDATE comentario
+			SET codestadocom = (
+				SELECT codestadocom
+				FROM estadocomentario
+				WHERE LOWER(nombreestadocom) = LOWER($2)
+				  AND fechahorabajaestadocom IS NULL
+			)
+			WHERE codigocomentario = $1
+			  AND fechahorabajacomentario IS NULL
+		`, codigoComentario, valor)
+
+	case "BAJA":
+		var fechaBaja time.Time
+
+		err = tx.QueryRow(`
+			UPDATE comentario
+			SET fechahorabajacomentario = CURRENT_TIMESTAMP
+			WHERE codigocomentario = $1
+			  AND fechahorabajacomentario IS NULL
+			RETURNING fechahorabajacomentario
+		`, codigoComentario).Scan(&fechaBaja)
+
+		contexto["fechaBaja"] = fechaBaja
+		contexto["estadoAnterior"] = anterior.Datos
+
+	default:
+		return false, fmt.Errorf(
+			"evento de comentario no soportado: %s",
+			evento,
+		)
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	if evento != "BAJA" {
+		posterior, err := obtenerContextoComentarioTx(
+			tx,
+			codigoComentario,
+			codigoVersion,
+		)
+		if err != nil {
+			return false, err
+		}
+
+		contexto["anterior"] = anterior.Datos
+		contexto["posterior"] = posterior.Datos
+	}
+
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "comentario",
+		CodigoRegistro: codigoComentario,
+		Accion:         "UPDATE",
+		Evento:         evento,
+		CodigoProyecto: &anterior.CodigoProyecto,
+		Contexto:       contexto,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

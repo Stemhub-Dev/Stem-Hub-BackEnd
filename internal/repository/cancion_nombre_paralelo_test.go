@@ -8,6 +8,41 @@ import (
 	"time"
 )
 
+func usuarioParaAuditoriaCancion(t *testing.T) int64 {
+	t.Helper()
+
+	db := conectarBaseUsuarios(t)
+	email := fmt.Sprintf(
+		"qa-auditoria-cancion-%d@test.local",
+		time.Now().UnixNano(),
+	)
+
+	var codigoUsuario int64
+
+	err := db.QueryRow(`
+		INSERT INTO usuario (email, idautenticacion)
+		VALUES ($1, md5($1)::uuid)
+		RETURNING codigousuario
+	`, email).Scan(&codigoUsuario)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = db.Exec(`
+			DELETE FROM public.auditoria
+			WHERE codigousuario = $1
+		`, codigoUsuario)
+
+		_, _ = db.Exec(`
+			DELETE FROM usuario
+			WHERE codigousuario = $1
+		`, codigoUsuario)
+	})
+
+	return codigoUsuario
+}
+
 // HU-ABM-02-01 / HU-ABM-02-02 contra PostgreSQL real: dos altas o renombres
 // en paralelo con el mismo nombre no pueden dejar dos canciones iguales.
 
@@ -116,6 +151,7 @@ func TestCancion_AltaQueFallaLiberaElNombre(t *testing.T) {
 
 func TestCancion_RenombresEnParaleloAlMismoNombreDejanUno(t *testing.T) {
 	repo, proyecto := proyectoParaNombres(t)
+	codigoUsuario := usuarioParaAuditoriaCancion(t)
 
 	const cantidad = 4
 	codigos := make([]int64, cantidad)
@@ -137,7 +173,7 @@ func TestCancion_RenombresEnParaleloAlMismoNombreDejanUno(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := repo.ActualizarNombre(proyecto, codigo, "Final")
+			err := repo.ActualizarNombre(codigoUsuario, proyecto, codigo, "Final")
 			if errors.Is(err, ErrNombreCancionDuplicado) {
 				return
 			}
@@ -162,6 +198,7 @@ func TestCancion_RenombresEnParaleloAlMismoNombreDejanUno(t *testing.T) {
 
 func TestCancion_RenombrarAlMismoNombreConOtrasMayusculasNoChocaConsigoMisma(t *testing.T) {
 	repo, proyecto := proyectoParaNombres(t)
+	codigoUsuario := usuarioParaAuditoriaCancion(t)
 
 	tx, codigo, err := repo.IniciarCreacionCancion(proyecto, "outro")
 	if err != nil {
@@ -171,7 +208,12 @@ func TestCancion_RenombrarAlMismoNombreConOtrasMayusculasNoChocaConsigoMisma(t *
 		t.Fatal(err)
 	}
 
-	if err := repo.ActualizarNombre(proyecto, codigo, "Outro"); err != nil {
+	if err := repo.ActualizarNombre(
+		codigoUsuario,
+		proyecto,
+		codigo,
+		"Outro",
+	); err != nil {
 		t.Fatalf("renombrar la misma canción: %v", err)
 	}
 }
