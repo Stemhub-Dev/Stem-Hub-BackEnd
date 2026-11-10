@@ -28,40 +28,43 @@ func reporteDePrueba(tipo string, datos []map[string]interface{}) *dto.ReporteRe
 	}
 }
 
-func TestConstruirReportePDF_GeneraUnPDFPorCadaTipo(t *testing.T) {
-	filaPorTipo := map[string]map[string]interface{}{
-		ReporteActividad:       {"canciones": int64(3), "versiones": int64(7), "comentarios": int64(12), "colaboradores": int64(4)},
-		ReporteHistorial:       {"cancion": "Balada", "numero_version": int64(2), "fecha": time.Now(), "formato": "wav", "notas": nil},
-		ReporteParticipacion:   {"colaborador": "Ana", "rol": "Productor", "versiones_comentadas": int64(2), "comentarios": int64(5)},
-		ReporteEstadoCanciones: {"cancion": "Balada", "ultima_version": int64(2), "total_versiones": int64(2), "comentarios": int64(3), "comentarios_pendientes": int64(1), "comentarios_resueltos": int64(2)},
-	}
-
-	for tipo, fila := range filaPorTipo {
-		t.Run(tipo, func(t *testing.T) {
-			contenido, err := construirReportePDF(reporteDePrueba(tipo, []map[string]interface{}{fila}))
-			if err != nil {
-				t.Fatalf("error inesperado: %v", err)
-			}
-			if !bytes.HasPrefix(contenido, []byte("%PDF-")) {
-				t.Fatalf("el contenido no es un PDF")
-			}
-		})
+func filaEstado(cancion string, comentarios, resueltos, pendientes int64) map[string]interface{} {
+	return map[string]interface{}{
+		"cancion": cancion, "ultima_version": int64(2), "total_versiones": int64(2),
+		"comentarios": comentarios, "comentarios_resueltos": resueltos, "comentarios_pendientes": pendientes,
 	}
 }
 
-func TestConstruirReportePDF_ActividadSinFilasNoFalla(t *testing.T) {
-	if _, err := construirReportePDF(reporteDePrueba(ReporteActividad, nil)); err != nil {
+func TestConstruirReportePDF_GeneraElEstadoDelProyecto(t *testing.T) {
+	contenido, err := construirReportePDF(reporteDePrueba(ReporteEstadoCanciones, []map[string]interface{}{
+		filaEstado("Balada", 3, 2, 1),
+	}), nil)
+	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
+	}
+	if !bytes.HasPrefix(contenido, []byte("%PDF-")) {
+		t.Fatalf("el contenido no es un PDF")
+	}
+}
+
+func TestConstruirReportePDF_SinFilasNoFalla(t *testing.T) {
+	if _, err := construirReportePDF(reporteDePrueba(ReporteEstadoCanciones, nil), nil); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	filtrado := reporteDePrueba(ReporteEstadoCanciones, nil)
+	filtrado.Parametros.CodigoCancion = punteroInt64(5)
+	if _, err := construirReportePDF(filtrado, nil); err != nil {
+		t.Fatalf("error inesperado con filtro: %v", err)
 	}
 }
 
 func TestConstruirReportePDF_TablaLargaAgregaPaginas(t *testing.T) {
 	datos := make([]map[string]interface{}, 0, 80)
 	for indice := 0; indice < 80; indice++ {
-		datos = append(datos, map[string]interface{}{"colaborador": "Colaborador con un nombre bastante largo para recortar", "rol": "Productor"})
+		datos = append(datos, filaEstado("Canción con un nombre bastante largo para tener que recortarlo", 1, 1, 0))
 	}
 
-	contenido, err := construirReportePDF(reporteDePrueba(ReporteParticipacion, datos))
+	contenido, err := construirReportePDF(reporteDePrueba(ReporteEstadoCanciones, datos), nil)
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
@@ -70,9 +73,74 @@ func TestConstruirReportePDF_TablaLargaAgregaPaginas(t *testing.T) {
 	}
 }
 
-func TestConstruirReportePDF_TipoSinColumnasNoArmaTabla(t *testing.T) {
-	if _, err := construirReportePDF(reporteDePrueba("desconocido", nil)); err != nil {
+func TestConstruirReportePDF_TipoDesconocidoNoFalla(t *testing.T) {
+	if _, err := construirReportePDF(reporteDePrueba("desconocido", nil), nil); err != nil {
 		t.Fatalf("error inesperado: %v", err)
+	}
+}
+
+func TestTotalesEstado(t *testing.T) {
+	totales := totalesEstado([]map[string]interface{}{
+		filaEstado("Balada", 4, 3, 1),
+		filaEstado("Rock", 2, 2, 0),
+		filaEstado("Intro", 0, 0, 0),
+	})
+	esperado := totalesProyecto{canciones: 3, versiones: 6, comentarios: 6, resueltos: 5, conPendientes: 1}
+	if totales != esperado {
+		t.Errorf("totalesEstado() = %+v, se esperaba %+v", totales, esperado)
+	}
+	// Redondea hacia abajo, igual que el frontend.
+	if got := totales.porcentajeResueltos(); got != "83%" {
+		t.Errorf("porcentajeResueltos() = %q", got)
+	}
+	if got := totalesEstado(nil).porcentajeResueltos(); got != sinDato {
+		t.Errorf("porcentajeResueltos() sin comentarios = %q", got)
+	}
+}
+
+func TestEstadoCancion(t *testing.T) {
+	casos := []struct {
+		nombre string
+		fila   map[string]interface{}
+		quiero string
+	}{
+		{"sin versiones", map[string]interface{}{"ultima_version": int64(0)}, "Sin versiones"},
+		{"un pendiente", filaEstado("A", 3, 2, 1), "1 pendiente"},
+		{"varios pendientes", filaEstado("A", 3, 0, 3), "3 pendientes"},
+		{"sin comentarios", filaEstado("A", 0, 0, 0), "Sin revisar"},
+		{"todo resuelto", filaEstado("A", 2, 2, 0), "Al día"},
+	}
+	for _, caso := range casos {
+		if got := estadoCancion(caso.fila).texto; got != caso.quiero {
+			t.Errorf("%s: estadoCancion() = %q, quería %q", caso.nombre, got, caso.quiero)
+		}
+	}
+}
+
+// La misma canción tiene que tener siempre la misma portada.
+func TestIndicePortadaEsEstable(t *testing.T) {
+	if indicePortada("Balada") != indicePortada("  balada ") {
+		t.Error("el índice depende de mayúsculas o espacios")
+	}
+	vistos := map[int]bool{}
+	for _, nombre := range []string{"Balada", "Rock", "Intro", "Outro", "Noches de Sur", "Marea Alta", "Casa Vacía"} {
+		indice := indicePortada(nombre)
+		if indice < 0 || indice >= len(disenosPortada) {
+			t.Fatalf("índice fuera de rango: %d", indice)
+		}
+		vistos[indice] = true
+	}
+	if len(vistos) < 2 {
+		t.Error("todas las canciones recibieron la misma portada")
+	}
+}
+
+func TestColorHex(t *testing.T) {
+	if got := colorHex("#6f62a0"); got != (colorRGB{111, 98, 160}) {
+		t.Errorf("colorHex = %+v", got)
+	}
+	if got := colorHex("nada"); got != (colorRGB{}) {
+		t.Errorf("colorHex inválido = %+v", got)
 	}
 }
 
@@ -93,70 +161,41 @@ func TestRecortar(t *testing.T) {
 }
 
 func TestDescribirFiltros(t *testing.T) {
-	desde := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	estado := "Pendiente"
 	vacio := "  "
 
 	casos := []struct {
 		nombre     string
-		tipo       string
 		parametros dto.GenerarReporteRequest
 		datos      []map[string]interface{}
 		esperado   []string
 	}{
+		{nombre: "sin filtros no aclara nada", esperado: []string{}},
 		{
-			nombre:     "actividad sin fechas",
-			tipo:       ReporteActividad,
+			nombre:     "estado de comentario en blanco no se lista",
 			parametros: dto.GenerarReporteRequest{EstadoComentario: &vacio},
-			esperado:   []string{"Desde: sin límite", "Hasta: sin límite", "Las fechas aplican a versiones y comentarios"},
+			esperado:   []string{},
 		},
 		{
-			nombre:     "historial con canción y versión encontradas en las filas",
-			tipo:       ReporteHistorial,
-			parametros: dto.GenerarReporteRequest{FechaDesde: &desde, CodigoCancion: punteroInt64(5), CodigoVersion: punteroInt64(9)},
+			nombre:     "canción encontrada en las filas y estado de comentario",
+			parametros: dto.GenerarReporteRequest{CodigoCancion: punteroInt64(5), EstadoComentario: &estado},
 			datos: []map[string]interface{}{
 				{"codigo_cancion": "no es un número"},
 				{"otra": int64(1)},
-				{"codigo_cancion": int64(5), "cancion": "Balada", "codigo_version": int64(9), "numero_version": int64(3)},
+				{"codigo_cancion": int64(5), "cancion": "Balada"},
 			},
-			esperado: []string{"Desde: 01/01/2026", "Hasta: sin límite", "Canción: Balada", "Versión: v3"},
+			esperado: []string{"Canción: Balada", "Comentarios: Pendiente"},
 		},
 		{
-			nombre:     "historial con la versión en las filas pero sin número",
-			tipo:       ReporteHistorial,
-			parametros: dto.GenerarReporteRequest{CodigoVersion: punteroInt64(9)},
-			datos: []map[string]interface{}{
-				{"codigo_cancion": int64(5), "cancion": "Balada", "codigo_version": int64(9), "numero_version": nil},
-			},
-			esperado: []string{"Desde: sin límite", "Hasta: sin límite", "Canción: todas", "Versión: #9"},
-		},
-		{
-			nombre:     "historial con códigos que no aparecen en las filas",
-			tipo:       ReporteHistorial,
-			parametros: dto.GenerarReporteRequest{FechaHasta: &desde, CodigoCancion: punteroInt64(5), CodigoVersion: punteroInt64(9)},
-			esperado:   []string{"Desde: sin límite", "Hasta: 01/01/2026", "Canción: #5", "Versión: #9"},
-		},
-		{
-			nombre:     "estado de canciones sin canción elegida y con estado de comentario",
-			tipo:       ReporteEstadoCanciones,
-			parametros: dto.GenerarReporteRequest{EstadoComentario: &estado},
-			esperado:   []string{"Canción: todas", "Estado de comentarios: Pendiente"},
-		},
-		{
-			nombre:   "historial sin filtros",
-			tipo:     ReporteHistorial,
-			esperado: []string{"Desde: sin límite", "Hasta: sin límite", "Canción: todas", "Versión: todas"},
-		},
-		{
-			nombre:   "tipo sin filtros aplicables",
-			tipo:     "desconocido",
-			esperado: []string{"Sin filtros: todo el proyecto"},
+			nombre:     "canción que no aparece en las filas",
+			parametros: dto.GenerarReporteRequest{CodigoCancion: punteroInt64(5)},
+			esperado:   []string{"Canción: #5"},
 		},
 	}
 
 	for _, caso := range casos {
 		t.Run(caso.nombre, func(t *testing.T) {
-			reporte := reporteDePrueba(caso.tipo, caso.datos)
+			reporte := reporteDePrueba(ReporteEstadoCanciones, caso.datos)
 			reporte.Parametros = caso.parametros
 
 			if got := describirFiltros(reporte); !reflect.DeepEqual(got, caso.esperado) {
@@ -193,7 +232,7 @@ func TestValorATexto(t *testing.T) {
 }
 
 func TestTituloReporte(t *testing.T) {
-	if got := tituloReporte(ReporteEstadoCanciones); got != "Estado de canciones" {
+	if got := tituloReporte(ReporteEstadoCanciones); got != "Estado del proyecto" {
 		t.Errorf("tituloReporte conocido = %q", got)
 	}
 	if got := tituloReporte("otro"); got != "otro" {
@@ -201,12 +240,12 @@ func TestTituloReporte(t *testing.T) {
 	}
 }
 
-func TestCantidadDeFilas(t *testing.T) {
-	if got := cantidadDeFilas(1); got != "1 resultado" {
-		t.Errorf("cantidadDeFilas(1) = %q", got)
+func TestPlural(t *testing.T) {
+	if got := plural(1, "canción", "canciones"); got != "1 canción" {
+		t.Errorf("plural(1) = %q", got)
 	}
-	if got := cantidadDeFilas(3); got != "3 resultados" {
-		t.Errorf("cantidadDeFilas(3) = %q", got)
+	if got := plural(3, "canción", "canciones"); got != "3 canciones" {
+		t.Errorf("plural(3) = %q", got)
 	}
 }
 
@@ -232,7 +271,7 @@ func TestNombreArchivoReporte(t *testing.T) {
 	t.Cleanup(func() { time.Local = anterior })
 
 	got := nombreArchivoReporte(reporteDePrueba(ReporteEstadoCanciones, nil))
-	if esperado := "maqueta-solista_estado-de-canciones_2026-09-29.pdf"; got != esperado {
+	if esperado := "maqueta-solista_estado-del-proyecto_2026-09-29.pdf"; got != esperado {
 		t.Errorf("nombreArchivoReporte() = %q, se esperaba %q", got, esperado)
 	}
 }

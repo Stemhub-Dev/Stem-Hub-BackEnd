@@ -28,6 +28,7 @@ func prepararEscenarioReportes(t *testing.T) *escenarioVersiones {
 		repository.NewReporteRepository(e.db),
 		repository.NewProyectoRepository(e.db),
 		repository.NewIntegranteRepository(e.db),
+		nil,
 	))
 	e.router.GET("/report/reportes", h.Listar)
 	e.router.POST("/report/reportes/:tipo/generar", h.Generar)
@@ -55,7 +56,7 @@ func errorDe(rec *httptest.ResponseRecorder) string {
 
 // HU-REP-B01
 
-func TestReportes_ListarLosCuatroDelProyecto(t *testing.T) {
+func TestReportes_ListarSoloElEstadoDelProyecto(t *testing.T) {
 	e := prepararEscenarioReportes(t)
 
 	rec := e.pedirReporte(t, e.productor, http.MethodGet, fmt.Sprintf("/report/reportes?proyectoId=%d", e.proyecto), nil)
@@ -70,19 +71,8 @@ func TestReportes_ListarLosCuatroDelProyecto(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &reportes); err != nil {
 		t.Fatal(err)
 	}
-	esperados := map[string]string{
-		"REP-001": "actividad-proyecto",
-		"REP-002": "historial-versiones",
-		"REP-003": "participacion-colaboradores",
-		"REP-004": "estado-canciones",
-	}
-	if len(reportes) != len(esperados) {
+	if len(reportes) != 1 || reportes[0].ID != "REP-001" || reportes[0].Tipo != "estado-canciones" || reportes[0].Funcion == "" {
 		t.Fatalf("reportes = %+v", reportes)
-	}
-	for _, r := range reportes {
-		if esperados[r.ID] != r.Tipo || r.Funcion == "" {
-			t.Fatalf("reporte inesperado: %+v", r)
-		}
 	}
 }
 
@@ -116,10 +106,10 @@ func TestReportes_ListarErrores(t *testing.T) {
 
 // HU-REP-B02
 
-func TestReportes_GenerarHistorialDeVersiones(t *testing.T) {
+func TestReportes_GenerarEstadoDelProyecto(t *testing.T) {
 	e := prepararEscenarioReportes(t)
 
-	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/historial-versiones/generar",
+	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/estado-canciones/generar",
 		map[string]any{"codigo_proyecto": e.proyecto})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
@@ -135,26 +125,30 @@ func TestReportes_GenerarHistorialDeVersiones(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &reporte); err != nil {
 		t.Fatal(err)
 	}
-	if reporte.ID != "REP-002" || reporte.Tipo != "historial-versiones" || reporte.Fecha == "" {
+	if reporte.ID != "REP-001" || reporte.Tipo != "estado-canciones" || reporte.Fecha == "" {
 		t.Fatalf("reporte = %+v", reporte)
 	}
 	if reporte.Parametros["codigo_proyecto"] != float64(e.proyecto) || reporte.Proyecto == nil {
 		t.Fatalf("parámetros o proyecto = %v %v", reporte.Parametros, reporte.Proyecto)
 	}
-	if len(reporte.Datos) != 3 {
-		t.Fatalf("filas = %d, quería una por versión (3)", len(reporte.Datos))
+	// Una fila por canción: el escenario tiene una canción con tres versiones.
+	if len(reporte.Datos) != 1 {
+		t.Fatalf("filas = %d, quería una por canción (1)", len(reporte.Datos))
+	}
+	fila := reporte.Datos[0]
+	if fila["ultima_version"] != float64(3) || fila["total_versiones"] != float64(3) {
+		t.Fatalf("fila = %v, quería versión actual 3 y 3 versiones", fila)
 	}
 }
 
 func TestReportes_GenerarSinDatosResponde204(t *testing.T) {
 	e := prepararEscenarioReportes(t)
 
-	// Todas las versiones del escenario son anteriores a este rango.
-	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/historial-versiones/generar",
+	// Ninguna canción del proyecto tiene este código.
+	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/estado-canciones/generar",
 		map[string]any{
 			"codigo_proyecto": e.proyecto,
-			"fecha_desde":     "2099-01-01T00:00:00Z",
-			"fecha_hasta":     "2099-12-31T00:00:00Z",
+			"codigo_cancion":  999999999,
 		})
 
 	if rec.Code != http.StatusNoContent {
@@ -173,16 +167,18 @@ func TestReportes_GenerarErrores(t *testing.T) {
 		status  int
 		mensaje string
 	}{
-		{"sin codigo_proyecto", e.productor, "historial-versiones", map[string]any{}, http.StatusBadRequest,
+		{"sin codigo_proyecto", e.productor, "estado-canciones", map[string]any{}, http.StatusBadRequest,
 			"Los parámetros del reporte son inválidos"},
-		{"fechas invertidas", e.productor, "historial-versiones", map[string]any{
+		{"fechas invertidas", e.productor, "estado-canciones", map[string]any{
 			"codigo_proyecto": e.proyecto,
 			"fecha_desde":     "2026-10-20T00:00:00Z",
 			"fecha_hasta":     "2026-10-01T00:00:00Z",
 		}, http.StatusBadRequest, "Los filtros del reporte son inválidos"},
+		{"tipo eliminado", e.productor, "historial-versiones", map[string]any{"codigo_proyecto": e.proyecto},
+			http.StatusNotFound, "El reporte no existe"},
 		{"tipo inexistente", e.productor, "ventas", map[string]any{"codigo_proyecto": e.proyecto},
 			http.StatusNotFound, "El reporte no existe"},
-		{"no es el propietario", e.musico, "historial-versiones", map[string]any{"codigo_proyecto": e.proyecto},
+		{"no es el propietario", e.musico, "estado-canciones", map[string]any{"codigo_proyecto": e.proyecto},
 			http.StatusForbidden, "No tenés permiso para consultar reportes de este proyecto"},
 	}
 
@@ -201,7 +197,7 @@ func TestReportes_GenerarErrores(t *testing.T) {
 func TestReportes_ExportarPDF(t *testing.T) {
 	e := prepararEscenarioReportes(t)
 
-	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/historial-versiones/exportar-pdf",
+	rec := e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/estado-canciones/exportar-pdf",
 		map[string]any{"codigo_proyecto": e.proyecto})
 
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/pdf" {
@@ -215,7 +211,7 @@ func TestReportes_ExportarPDF(t *testing.T) {
 		t.Fatal("el cuerpo no es un PDF")
 	}
 
-	rec = e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/historial-versiones/exportar-pdf",
+	rec = e.pedirReporte(t, e.productor, http.MethodPost, "/report/reportes/estado-canciones/exportar-pdf",
 		map[string]any{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("parámetros inválidos: status = %d", rec.Code)

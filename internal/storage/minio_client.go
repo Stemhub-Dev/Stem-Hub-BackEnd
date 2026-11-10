@@ -16,6 +16,10 @@ type AudioStorage interface {
 	Subir(ctx context.Context, objectKey string, contenido io.Reader, tamano int64, contentType string) error
 	ObtenerURLDescarga(ctx context.Context, objectKey string, vigencia time.Duration) (string, error)
 	Eliminar(ctx context.Context, objectKey string) error
+	// Descargar lee un objeto completo desde el backend (no desde el
+	// navegador). Falla si supera maximoBytes, para no cargar en memoria un
+	// archivo inesperadamente grande.
+	Descargar(ctx context.Context, objectKey string, maximoBytes int64) ([]byte, error)
 }
 
 type minioAudioStorage struct {
@@ -142,4 +146,22 @@ func (s *minioAudioStorage) Eliminar(ctx context.Context, objectKey string) erro
 	}
 
 	return nil
+}
+
+func (s *minioAudioStorage) Descargar(ctx context.Context, objectKey string, maximoBytes int64) ([]byte, error) {
+	objeto, err := s.client.GetObject(ctx, s.bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error al descargar el archivo de MinIO: %w", err)
+	}
+	defer objeto.Close()
+
+	// Se lee un byte de más para distinguir "justo en el límite" de "excedido".
+	contenido, err := io.ReadAll(io.LimitReader(objeto, maximoBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("error al leer el archivo de MinIO: %w", err)
+	}
+	if int64(len(contenido)) > maximoBytes {
+		return nil, fmt.Errorf("el archivo %s supera los %d bytes", objectKey, maximoBytes)
+	}
+	return contenido, nil
 }

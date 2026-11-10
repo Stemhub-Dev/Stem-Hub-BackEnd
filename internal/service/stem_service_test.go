@@ -180,6 +180,10 @@ func (s *storageStemFalso) Eliminar(_ context.Context, key string) error {
 	return nil
 }
 
+func (s *storageStemFalso) Descargar(context.Context, string, int64) ([]byte, error) {
+	return nil, nil
+}
+
 type escenarioStems struct {
 	proyecto *proyectoAccesoFalso
 	cancion  *cancionExistenciaFalsa

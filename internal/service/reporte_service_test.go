@@ -47,7 +47,7 @@ func nuevoServicioReportes(proyectos *proyectoReporteFalso) ReporteService {
 		{"codigo_cancion": int64(1), "cancion": "Balada", "comentarios_pendientes": int64(2)},
 	}}
 	integrantes := &integranteRepositoryFalso{integrante: &model.Integrante{CodIntegrante: 10}}
-	return NewReporteService(reportes, proyectos, integrantes)
+	return NewReporteService(reportes, proyectos, integrantes, nil)
 }
 
 func TestExportarPDF_DevuelvePDFConNombreDescriptivo(t *testing.T) {
@@ -60,7 +60,7 @@ func TestExportarPDF_DevuelvePDFConNombreDescriptivo(t *testing.T) {
 	if !bytes.HasPrefix(contenido, []byte("%PDF-")) {
 		t.Errorf("el contenido no es un PDF")
 	}
-	if !strings.HasPrefix(nombre, "maqueta-solista_estado-de-canciones_") || !strings.HasSuffix(nombre, ".pdf") {
+	if !strings.HasPrefix(nombre, "maqueta-solista_estado-del-proyecto_") || !strings.HasSuffix(nombre, ".pdf") {
 		t.Errorf("nombre de archivo inesperado: %q", nombre)
 	}
 }
