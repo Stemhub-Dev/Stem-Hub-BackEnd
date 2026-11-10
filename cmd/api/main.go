@@ -245,6 +245,7 @@ func main() {
 		reporteRepository,
 		proyectoRepository,
 		integranteRepository,
+		audioStorage,
 	)
 	reporteHandler := handler.NewReporteHandler(reporteService)
 

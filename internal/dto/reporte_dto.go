@@ -22,6 +22,9 @@ type ReporteProyectoResponse struct {
 	Nombre         string `json:"nombre"`
 	Estado         string `json:"estado"`
 	Tipo           string `json:"tipo"`
+	// Clave del logo en el storage. No viaja en el JSON (es una ruta interna
+	// de MinIO): solo la usa el PDF para dibujar la portada real.
+	Logo *string `json:"-"`
 }
 
 type ReporteRespuesta struct {

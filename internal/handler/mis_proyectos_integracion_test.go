@@ -51,6 +51,10 @@ func (storageDePrueba) Eliminar(context.Context, string) error {
 	return nil
 }
 
+func (storageDePrueba) Descargar(context.Context, string, int64) ([]byte, error) {
+	return nil, nil
+}
+
 func (storageDePrueba) ObtenerURLDescarga(_ context.Context, objectKey string, _ time.Duration) (string, error) {
 	return "https://storage.test/" + objectKey + "?firma=ok", nil
 }
