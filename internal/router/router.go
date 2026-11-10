@@ -28,6 +28,7 @@ func NewRouter(db *sql.DB,
 	auditoriaHandler *handler.AuditoriaHandler,
 	permisoHandler *handler.PermisoHandler,
 	rolPermisoHandler *handler.RolPermisoHandler,
+	ayudaHandler *handler.AyudaHandler,
 	authMiddleware *middleware.AuthMiddleware,
 	permisoMiddleware *middleware.PermisoMiddleware,
 	corsAllowedOrigins []string,
@@ -403,6 +404,16 @@ func NewRouter(db *sql.DB,
 	reportes.GET("", reporteHandler.Listar)
 	reportes.POST("/:tipo/generar", reporteHandler.Generar)
 	reportes.POST("/:tipo/exportar-pdf", reporteHandler.ExportarPDF)
+
+	// Ayuda y soporte (HU-AYS-B1/B2): cualquier usuario autenticado y activo,
+	// sin permiso específico porque aplica a todos los roles.
+	ayuda := router.Group("/ayuda")
+	ayuda.Use(
+		authMiddleware.ValidarJWT,
+		authMiddleware.UsuarioActivo,
+	)
+	ayuda.GET("/preguntas-frecuentes", ayudaHandler.ListarPreguntasFrecuentes)
+	ayuda.GET("/manual", ayudaHandler.DescargarManual)
 
 	// Tablero (HU-DASH-B01/B02): cualquier usuario autenticado; los datos se
 	// limitan a los proyectos en los que participa (lo resuelve el service).

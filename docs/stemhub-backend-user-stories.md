@@ -121,8 +121,8 @@ Algunas HU referencian IDs de una numeración anterior. Usar esta tabla para res
 | HU-CFG-B03 | Editar género musical | 6.3.3 Configuración y parámetros | Media | En Desarrollo |
 | HU-CFG-B04 | Desactivar / Activar género musical | 6.3.3 Configuración y parámetros | Media | En Desarrollo |
 | HU-CFG-B05 | Obtener géneros activos para selector de proyectos | 6.3.3 Configuración y parámetros | Alta | En Desarrollo |
-| HU-AYS-B1 | Obtener el las preguntas y respuestas frecuentes | 6.3.4 Ayuda y soporte al usuario | Baja | No figura |
-| HU-AYS-B2 | Obtener el manual de usuario | 6.3.4 Ayuda y soporte al usuario | Baja | No figura |
+| HU-AYS-B1 | Obtener el las preguntas y respuestas frecuentes | 6.3.4 Ayuda y soporte al usuario | Baja | Implementado |
+| HU-AYS-B2 | Obtener el manual de usuario | 6.3.4 Ayuda y soporte al usuario | Baja | Implementado |
 
 ---
 
@@ -1823,7 +1823,7 @@ Sin definir (ver Puntos a revisar).
 #### HU-AYS-B1 — Obtener el las preguntas y respuestas frecuentes
 
 - **Módulo:** 6.3 Módulos de información y control › 6.3.4 Ayuda y soporte al usuario
-- **Estado (matriz de trazabilidad):** No figura en la matriz de trazabilidad
+- **Estado (matriz de trazabilidad):** Implementado
 - **Actor:** El sistema
 - **Prioridad:** Baja
 - **Complejidad:** Media
@@ -1834,31 +1834,29 @@ Como sistema, quiero que el sistema exponga un endpoint para obtener el listado 
 
 **Precondiciones**
 
-El usuario esté autorizado y el manual esté cargado
+El usuario está autenticado y activo.
 
 **Permisos**
 
-Sin definir (ver Puntos a revisar).
+Usuario autenticado y activo; no requiere un permiso específico porque aplica a todos los roles.
+
+**Endpoint**
+
+`GET /ayuda/preguntas-frecuentes`
 
 **Criterios de aceptación**
 
 | # | Cuando | Espero | Referencias |
 |---|---|---|---|
-| 1 | Haga una petición al endpoint de preguntas frecuentes | El sistema responde con HTTP 200 y un array de Preguntas Frecuentes. Cada objeto incluye:ID, preguntaFrecuente, respuestaPreguntaFreceutnte, funcionalidadPrincipal | — |
+| 1 | Haga una petición al endpoint de preguntas frecuentes | El sistema responde con HTTP 200 y un array de Preguntas Frecuentes. Cada objeto incluye: id, preguntaFrecuente, respuestaPreguntaFrecuente, funcionalidadPrincipal. Solo incluye las activas, en orden de carga | — |
 | 2 | El sistema no tiene Preguntas frecuentes cargadas | El sistema responde con HTTP 200 y un array vacío []. | — |
-| 3 | El preguntaFrecuenteid no corresponde a ninguna pregunta frecuente existente | El sistema responde con HTTP 404. | — |
-
-**Puntos a revisar**
-
-- [ ] La ficha no tiene Nombre ni Permisos, ni ruta de endpoint definida.
-- [ ] La precondición menciona "el manual esté cargado"; para esta HU debería ser "las preguntas frecuentes estén cargadas".
 
 ---
 
 #### HU-AYS-B2 — Obtener el manual de usuario
 
 - **Módulo:** 6.3 Módulos de información y control › 6.3.4 Ayuda y soporte al usuario
-- **Estado (matriz de trazabilidad):** No figura en la matriz de trazabilidad
+- **Estado (matriz de trazabilidad):** Implementado
 - **Actor:** El sistema
 - **Prioridad:** Baja
 - **Complejidad:** Media
@@ -1869,11 +1867,15 @@ Como sistema, quiero que el sistema exponga un endpoint para obtener el manual d
 
 **Precondiciones**
 
-El usuario esté autorizado y el manual esté cargado
+El usuario está autenticado y activo.
 
 **Permisos**
 
-Sin definir (ver Puntos a revisar).
+Usuario autenticado y activo; no requiere un permiso específico porque aplica a todos los roles.
+
+**Endpoint**
+
+`GET /ayuda/manual`
 
 **Criterios de aceptación**
 
