@@ -130,23 +130,7 @@ func promedioPixeles(pixeles []pixelLeido) (colorRGB, bool) {
 // transparentes no cuentan; false si no hay ninguno visible. pixeles es
 // RGBA sin premultiplicar, como getImageData en el navegador.
 func colorDominante(pixeles []uint8) (colorRGB, bool) {
-	leidos := []pixelLeido{}
-	votos := make([]float64, franjasTono)
-
-	for i := 0; i+3 < len(pixeles); i += 4 {
-		if pixeles[i+3] < 128 {
-			continue
-		}
-		c := colorRGB{int(pixeles[i]), int(pixeles[i+1]), int(pixeles[i+2])}
-		hsl := rgbAHsl(c)
-		intensidad := hsl.s * (1 - math.Abs(2*hsl.l-1))
-		franja := int(math.Floor(hsl.h/(360/franjasTono))) % franjasTono
-		cromatico := intensidad >= intensidadMinima
-		if cromatico {
-			votos[franja] += 1 + intensidad
-		}
-		leidos = append(leidos, pixelLeido{c, franja, cromatico})
-	}
+	leidos, votos := leerPixeles(pixeles)
 
 	cromaticos := []pixelLeido{}
 	for _, pixel := range leidos {
@@ -158,9 +142,61 @@ func colorDominante(pixeles []uint8) (colorRGB, bool) {
 		return promedioPixeles(leidos)
 	}
 
-	normalizar := func(franja int) int { return (franja%franjasTono + franjasTono) % franjasTono }
+	centro := franjaCentral(votos)
+	cercanos := []pixelLeido{}
+	for _, pixel := range cromaticos {
+		if distanciaFranjas(pixel.franja, centro) <= 1 {
+			cercanos = append(cercanos, pixel)
+		}
+	}
+	return promedioPixeles(cercanos)
+}
+
+// leerPixeles clasifica los píxeles visibles por franja de tono y suma los
+// votos de los que tienen color. Manda el área; la intensidad solo
+// desempata un poco.
+func leerPixeles(pixeles []uint8) ([]pixelLeido, []float64) {
+	leidos := []pixelLeido{}
+	votos := make([]float64, franjasTono)
+	for i := 0; i+3 < len(pixeles); i += 4 {
+		if pixeles[i+3] < 128 {
+			continue
+		}
+		c := colorRGB{int(pixeles[i]), int(pixeles[i+1]), int(pixeles[i+2])}
+		hsl := rgbAHsl(c)
+		// Saturación "percibida": un blanco o un negro puros no aportan tono
+		// aunque su HSL diga saturación alta.
+		intensidad := hsl.s * (1 - math.Abs(2*hsl.l-1))
+		franja := int(math.Floor(hsl.h/(360/franjasTono))) % franjasTono
+		cromatico := intensidad >= intensidadMinima
+		if cromatico {
+			votos[franja] += 1 + intensidad
+		}
+		leidos = append(leidos, pixelLeido{c, franja, cromatico})
+	}
+	return leidos, votos
+}
+
+func normalizarFranja(franja int) int {
+	return (franja%franjasTono + franjasTono) % franjasTono
+}
+
+func distanciaFranjas(a, b int) int {
+	diferencia := a - b
+	if diferencia < 0 {
+		diferencia = -diferencia
+	}
+	return min(diferencia, franjasTono-diferencia)
+}
+
+// franjaCentral busca la franja con más votos sumando sus vecinas (un tono
+// justo en el borde entre dos franjas no pierde contra uno concentrado en
+// una) y devuelve, dentro de esa vecindad, la franja con más votos propios:
+// si se tomara el centro de la vecindad, un tono vecino (el rojo al lado del
+// rosa) entraría en el promedio y lo correría.
+func franjaCentral(votos []float64) int {
 	vecindad := func(franja int) float64 {
-		return votos[normalizar(franja-1)] + votos[franja] + votos[normalizar(franja+1)]
+		return votos[normalizarFranja(franja-1)] + votos[franja] + votos[normalizarFranja(franja+1)]
 	}
 	ganadora := 0
 	for franja := 1; franja < franjasTono; franja++ {
@@ -170,23 +206,12 @@ func colorDominante(pixeles []uint8) (colorRGB, bool) {
 	}
 
 	centro := ganadora
-	for _, franja := range []int{normalizar(ganadora - 1), normalizar(ganadora + 1)} {
+	for _, franja := range []int{normalizarFranja(ganadora - 1), normalizarFranja(ganadora + 1)} {
 		if votos[franja] > votos[centro] {
 			centro = franja
 		}
 	}
-
-	cercanos := []pixelLeido{}
-	for _, pixel := range cromaticos {
-		diferencia := pixel.franja - centro
-		if diferencia < 0 {
-			diferencia = -diferencia
-		}
-		if min(diferencia, franjasTono-diferencia) <= 1 {
-			cercanos = append(cercanos, pixel)
-		}
-	}
-	return promedioPixeles(cercanos)
+	return centro
 }
 
 // fondoDesdeColor arma un fondo pastel del mismo tono y un acento oscurecido

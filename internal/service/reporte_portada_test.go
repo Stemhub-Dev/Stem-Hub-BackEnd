@@ -85,51 +85,49 @@ func (s *storagePortadaFalso) Descargar(_ context.Context, key string, _ int64) 
 	return s.contenido, s.err
 }
 
-func TestPortadaParaPDF(t *testing.T) {
-	logo := "proyectos/3/logo.png"
+const logoDePrueba = "proyectos/3/logo.png"
+
+func TestPortadaParaPDF_DescargaYPreparaElLogo(t *testing.T) {
+	logo := logoDePrueba
+	almacenamiento := &storagePortadaFalso{contenido: pngDePrueba(t, 120, 120)}
+
+	portada := portadaParaPDF(almacenamiento, &logo, 3)
+	if portada == nil || len(portada.jpeg) == 0 {
+		t.Fatal("se esperaba una portada")
+	}
+	if len(almacenamiento.pedidos) != 1 || almacenamiento.pedidos[0] != logo {
+		t.Errorf("pedidos = %v", almacenamiento.pedidos)
+	}
+}
+
+func TestPortadaParaPDF_SinLogoNoConsultaElStorage(t *testing.T) {
 	vacio := ""
+	almacenamiento := &storagePortadaFalso{}
+	for _, clave := range []*string{nil, &vacio} {
+		if portadaParaPDF(almacenamiento, clave, 3) != nil {
+			t.Error("sin logo se esperaba nil")
+		}
+	}
+	if len(almacenamiento.pedidos) != 0 {
+		t.Errorf("no debería descargar nada: %v", almacenamiento.pedidos)
+	}
+}
 
-	t.Run("descarga y prepara el logo", func(t *testing.T) {
-		almacenamiento := &storagePortadaFalso{contenido: pngDePrueba(t, 120, 120)}
-		if portada := portadaParaPDF(almacenamiento, &logo, 3); portada == nil || len(portada.jpeg) == 0 {
-			t.Fatal("se esperaba una portada")
+// En todos estos casos el PDF tiene que caer en la portada generada.
+func TestPortadaParaPDF_UsaLaGeneradaSiNoPuedeLeerla(t *testing.T) {
+	logo := logoDePrueba
+	casos := map[string]*storagePortadaFalso{
+		"falla la descarga": {err: errors.New("minio caído")},
+		"no es una imagen":  {contenido: []byte("texto")},
+	}
+	for nombre, almacenamiento := range casos {
+		if portadaParaPDF(almacenamiento, &logo, 3) != nil {
+			t.Errorf("%s: se esperaba nil", nombre)
 		}
-		if len(almacenamiento.pedidos) != 1 || almacenamiento.pedidos[0] != logo {
-			t.Errorf("pedidos = %v", almacenamiento.pedidos)
-		}
-	})
-
-	t.Run("sin logo no consulta el storage", func(t *testing.T) {
-		almacenamiento := &storagePortadaFalso{}
-		for _, clave := range []*string{nil, &vacio} {
-			if portada := portadaParaPDF(almacenamiento, clave, 3); portada != nil {
-				t.Errorf("portada = %+v, quería nil", portada)
-			}
-		}
-		if len(almacenamiento.pedidos) != 0 {
-			t.Errorf("no debería descargar nada: %v", almacenamiento.pedidos)
-		}
-	})
-
-	t.Run("sin storage usa la generada", func(t *testing.T) {
-		if portada := portadaParaPDF(nil, &logo, 3); portada != nil {
-			t.Error("se esperaba nil")
-		}
-	})
-
-	t.Run("si falla la descarga usa la generada", func(t *testing.T) {
-		almacenamiento := &storagePortadaFalso{err: errors.New("minio caído")}
-		if portada := portadaParaPDF(almacenamiento, &logo, 3); portada != nil {
-			t.Error("se esperaba nil")
-		}
-	})
-
-	t.Run("si el archivo no es una imagen usa la generada", func(t *testing.T) {
-		almacenamiento := &storagePortadaFalso{contenido: []byte("texto")}
-		if portada := portadaParaPDF(almacenamiento, &logo, 3); portada != nil {
-			t.Error("se esperaba nil")
-		}
-	})
+	}
+	if portadaParaPDF(nil, &logo, 3) != nil {
+		t.Error("sin storage: se esperaba nil")
+	}
 }
 
 func TestConstruirReportePDF_ConPortadaReal(t *testing.T) {

@@ -98,21 +98,27 @@ type disenoPortada struct {
 	formas []formaPortada
 }
 
+// Colores de las portadas de la landing que se repiten entre diseños.
+var (
+	colorPortadaRojo    = colorHex("#d1495b")
+	colorPortadaNaranja = colorHex("#f2a65a")
+)
+
 var disenosPortada = []disenoPortada{
-	{colorHex("#d1495b"), []formaPortada{
+	{colorPortadaRojo, []formaPortada{
 		{'c', colorHex("#ffe3b3"), []float64{68, 34, 17}},
 		{'r', colorHex("#5b2a5e"), []float64{0, 68, 100, 32}},
 	}},
 	{colorHex("#2c6f65"), []formaPortada{{'c', colorHex("#e2f1ee"), []float64{50, 118, 62}}}},
 	{colorHex("#efedf6"), []formaPortada{{'r', colorHex("#3a3359"), []float64{30, 30, 40, 40}}}},
-	{colorHex("#f2a65a"), []formaPortada{{'p', colorHex("#a8462a"), []float64{0, 100, 100, 0, 100, 100}}}},
+	{colorPortadaNaranja, []formaPortada{{'p', colorCoral700, []float64{0, 100, 100, 0, 100, 100}}}},
 	{colorHex("#6f62a0"), []formaPortada{{'c', colorHex("#f6f5fa"), []float64{50, 50, 27}}}},
-	{colorHex("#2a2540"), []formaPortada{{'r', colorHex("#f2a65a"), []float64{0, 46, 100, 8}}}},
-	{colorHex("#3a3359"), []formaPortada{{'c', colorHex("#f2a65a"), []float64{50, 100, 34}}}},
+	{colorHex("#2a2540"), []formaPortada{{'r', colorPortadaNaranja, []float64{0, 46, 100, 8}}}},
+	{colorHex("#3a3359"), []formaPortada{{'c', colorPortadaNaranja, []float64{50, 100, 34}}}},
 	{colorHex("#fdebe5"), []formaPortada{
-		{'r', colorHex("#a8462a"), []float64{24, 24, 52, 12}},
-		{'r', colorHex("#d1495b"), []float64{24, 44, 52, 12}},
-		{'r', colorHex("#f2a65a"), []float64{24, 64, 52, 12}},
+		{'r', colorCoral700, []float64{24, 24, 52, 12}},
+		{'r', colorPortadaRojo, []float64{24, 44, 52, 12}},
+		{'r', colorPortadaNaranja, []float64{24, 64, 52, 12}},
 	}},
 }
 
