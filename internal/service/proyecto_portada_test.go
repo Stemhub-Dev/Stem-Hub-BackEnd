@@ -91,6 +91,10 @@ func (r *portadaRepositoryFalso) EsPropietarioActivo(int64, int64) (bool, error)
 	return r.propietario, nil
 }
 
+func (r *portadaRepositoryFalso) PuedeRealizarEnProyecto(int64, int64, string) (bool, error) {
+	return true, nil
+}
+
 func (r *portadaRepositoryFalso) ObtenerDetalle(codigo int64) (*model.Proyecto, string, string, error) {
 	return &model.Proyecto{
 		CodigoProyecto: codigo,

@@ -81,6 +81,7 @@ func prepararEscenarioInvitaciones(t *testing.T) *escenarioInvitaciones {
 			ejecutar(`DELETE FROM integrante WHERE codintegrante = $1`, id)
 		}
 		for _, id := range usuarios {
+			ejecutar(`DELETE FROM auditoria WHERE codigousuario = $1`, id)
 			ejecutar(`DELETE FROM usuario WHERE codigousuario = $1`, id)
 		}
 	})

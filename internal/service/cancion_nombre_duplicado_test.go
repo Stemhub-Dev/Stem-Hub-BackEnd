@@ -55,6 +55,10 @@ func (proyectoGestionableFalso) PuedeGestionarCanciones(int64, int64) (bool, err
 	return true, nil
 }
 
+func (proyectoGestionableFalso) PuedeRealizarEnProyecto(int64, int64, string) (bool, error) {
+	return true, nil
+}
+
 func servicioNombreCarrera() CancionService {
 	return NewCancionService(
 		cancionNombreCarreraFalsa{},

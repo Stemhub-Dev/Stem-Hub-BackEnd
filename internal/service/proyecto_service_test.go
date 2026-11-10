@@ -270,3 +270,7 @@ func TestListarProyectos_PropagaErrores(t *testing.T) {
 		})
 	}
 }
+
+func (r *proyectoRepositoryFalso) ListarPermisosEnProyecto(int64, int64) ([]string, error) {
+	return nil, nil
+}

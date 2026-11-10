@@ -84,7 +84,7 @@ func TestConsultasMisCancionesCompartenFiltro(t *testing.T) {
 		"c.nombrecancion ILIKE '%' || $2::text || '%'",
 		"COALESCE(array_length($3::bigint[], 1), 0) = 0",
 		"c.codigoproyecto = ANY($3::bigint[])",
-		"NOT $4::boolean",
+		"NOT $5::boolean",
 		"LOWER(ecp.nombreestadocom) = 'pendiente'",
 		"cop.fechahorabajacomentario IS NULL",
 		"cvp.fechahorabajaversion IS NULL",
@@ -108,7 +108,7 @@ func TestConsultaListarCubreTodosLosOrdenes(t *testing.T) {
 		dto.OrdenMisCancionesNombreAsc,
 		dto.OrdenMisCancionesNombreDesc,
 	} {
-		if !strings.Contains(consultaListarMisCanciones, "$5::text = '"+orden+"'") {
+		if !strings.Contains(consultaListarMisCanciones, "$6::text = '"+orden+"'") {
 			t.Errorf("la consulta no contempla el orden %q", orden)
 		}
 	}
@@ -156,8 +156,8 @@ func TestContarPorIntegrante_AplicaFiltroYBusquedaEscapada(t *testing.T) {
 		`c\.fechahorabajacancion IS NULL.*`+
 		`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*`+
 		`c\.codigoproyecto = ANY\(\$3::bigint\[\]\).*`+
-		`NOT \$4::boolean`).
-		WithArgs(int64(42), `50\%`, []int64{9}, true).
+		`NOT \$5::boolean`).
+		WithArgs(int64(42), `50\%`, []int64{9}, "VER_CANCION", true).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
 	filtro := filtroBase()
@@ -179,7 +179,7 @@ func TestContarPorIntegrante_SinFiltrosPasaVaciosYNull(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).
-		WithArgs(int64(42), "", nil, false).
+		WithArgs(int64(42), "", nil, "VER_CANCION", false).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	filtro := filtroBase()
@@ -212,12 +212,12 @@ func TestListarPorIntegrante_PasaFiltrosOrdenYPaginacion(t *testing.T) {
 		`ip\.codintegrante = \$1.*`+
 			`c\.nombrecancion ILIKE '%' \|\| \$2::text \|\| '%'.*`+
 			`c\.codigoproyecto = ANY\(\$3::bigint\[\]\).*`+
-			`NOT \$4::boolean.*`+
-			regexp.QuoteMeta(`CASE WHEN $5::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC`)+
+			`NOT \$5::boolean.*`+
+			regexp.QuoteMeta(`CASE WHEN $6::text = 'nombreAsc' THEN lower(c.nombrecancion) END ASC`)+
 			`.*`+
 			regexp.QuoteMeta(`c.codigocancion DESC`)+
-			`\s+LIMIT \$6 OFFSET \$7`).
-		WithArgs(int64(42), "bal", []int64{9, 4}, false, dto.OrdenMisCancionesNombreAsc, 10, 10).
+			`\s+LIMIT \$7 OFFSET \$8`).
+		WithArgs(int64(42), "bal", []int64{9, 4}, "VER_CANCION", false, dto.OrdenMisCancionesNombreAsc, 10, 10).
 		WillReturnRows(
 			sqlmock.NewRows(columnasMisCanciones).
 				AddRow(5, "Balada", 9, "Disco", 50, 3, "proyectos/9/canciones/5/v3.mp3", "mp3",
@@ -271,8 +271,8 @@ func TestListarPorIntegrante_PasaFiltrosOrdenYPaginacion(t *testing.T) {
 func TestListarPorIntegrante_SinFilasDevuelveSliceVacio(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 
-	mock.ExpectQuery(`LIMIT \$6 OFFSET \$7`).
-		WithArgs(int64(42), "", nil, false, dto.OrdenMisCancionesReciente, 10, 0).
+	mock.ExpectQuery(`LIMIT \$7 OFFSET \$8`).
+		WithArgs(int64(42), "", nil, "VER_CANCION", false, dto.OrdenMisCancionesReciente, 10, 0).
 		WillReturnRows(sqlmock.NewRows(columnasMisCanciones))
 
 	filtro := filtroBase()
@@ -293,7 +293,7 @@ func TestListarPorIntegrante_PropagaError(t *testing.T) {
 	repo, mock := nuevoRepositorioConMock(t)
 	errBase := errors.New("fallo de base")
 
-	mock.ExpectQuery(`LIMIT \$6 OFFSET \$7`).WillReturnError(errBase)
+	mock.ExpectQuery(`LIMIT \$7 OFFSET \$8`).WillReturnError(errBase)
 
 	if _, err := repo.ListarPorIntegrante(42, filtroBase(), 0); !errors.Is(err, errBase) {
 		t.Fatalf("err = %v, se esperaba %v", err, errBase)
