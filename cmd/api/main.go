@@ -64,6 +64,10 @@ func main() {
 	tipoProyectoService := service.NewTipoProyectoService(tipoProyectoRepository)
 	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
 
+	preguntaFrecuenteRepository := repository.NewPreguntaFrecuenteRepository(db)
+	ayudaService := service.NewAyudaService(preguntaFrecuenteRepository)
+	ayudaHandler := handler.NewAyudaHandler(ayudaService)
+
 	// Estado de proyecto
 	estadoProyectoRepository :=
 		repository.NewEstadoProyectoRepository(db)
@@ -274,6 +278,7 @@ func main() {
 		auditoriaHandler,
 		permisoHandler,
 		rolPermisoHandler,
+		ayudaHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,
