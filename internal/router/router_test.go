@@ -34,8 +34,10 @@ func nuevoRouterDePrueba(t *testing.T) *gin.Engine {
 		&handler.StemHandler{},
 		&handler.ReporteHandler{},
 		&handler.TableroHandler{},
+		&handler.AuditoriaHandler{},
 		&handler.PermisoHandler{},
 		&handler.RolPermisoHandler{},
+		&handler.AyudaHandler{},
 		&middleware.AuthMiddleware{},
 		&middleware.PermisoMiddleware{},
 		nil,
@@ -207,5 +209,18 @@ func TestTablero_RequiereAutenticacion(t *testing.T) {
 				t.Fatalf("status = %d, se esperaba 401", grabador.Code)
 			}
 		})
+	}
+}
+
+func TestAyuda_RequiereAutenticacion(t *testing.T) {
+	router := nuevoRouterDePrueba(t)
+
+	for _, url := range []string{"/ayuda/preguntas-frecuentes", "/ayuda/manual"} {
+		respuesta := httptest.NewRecorder()
+		router.ServeHTTP(respuesta, httptest.NewRequest(http.MethodGet, url, nil))
+
+		if respuesta.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, se esperaba 401", url, respuesta.Code)
+		}
 	}
 }

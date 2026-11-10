@@ -239,6 +239,7 @@ func (s *comentarioService) Crear(
 	}
 
 	codigoComentario, err := s.comentarioRepository.Crear(
+		codigoUsuario,
 		integrante.CodIntegrante,
 		codigoVersion,
 		request.CodStem,
@@ -558,9 +559,14 @@ func (s *comentarioService) Modificar(
 	}
 
 	err = s.comentarioRepository.Modificar(
+		codigoUsuario,
 		codigoComentario,
 		request.Texto,
 	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrComentarioNoEncontrado
+	}
 
 	if err != nil {
 		return nil, err
@@ -620,6 +626,7 @@ func (s *comentarioService) Eliminar(
 
 	eliminado, err :=
 		s.comentarioRepository.DarDeBaja(
+			codigoUsuario,
 			codigoComentario,
 		)
 
@@ -797,6 +804,7 @@ func (s *comentarioService) CambiarEstado(
 
 	actualizado, err :=
 		s.comentarioRepository.CambiarEstado(
+			codigoUsuario,
 			codigoComentario,
 			codigoVersion,
 			estadoNormalizado,

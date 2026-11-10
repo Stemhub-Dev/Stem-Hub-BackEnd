@@ -30,6 +30,7 @@ func (e *escenarioVersiones) nuevoAjeno(t *testing.T) int64 {
 	}
 	t.Cleanup(func() {
 		_, _ = e.db.Exec(`DELETE FROM integrante WHERE codigousuario = $1`, usuario)
+		_, _ = e.db.Exec(`DELETE FROM auditoria WHERE codigousuario = $1`, usuario)
 		_, _ = e.db.Exec(`DELETE FROM usuario WHERE codigousuario = $1`, usuario)
 	})
 	return usuario

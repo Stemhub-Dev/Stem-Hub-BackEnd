@@ -24,6 +24,7 @@ func (r *comentarioRepositoryFalso) ExisteStemActivoEnVersion(int64, int64) (boo
 func (r *comentarioRepositoryFalso) Crear(
 	_ int64,
 	_ int64,
+	_ int64,
 	codStem *int64,
 	_ string,
 	_ *float64,

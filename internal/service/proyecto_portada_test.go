@@ -52,7 +52,8 @@ func (r *portadaRepositoryFalso) ExistenGeneros([]int64) (bool, error) {
 }
 
 func (r *portadaRepositoryFalso) Crear(
-	_ int64,
+	_ int64, // Usuario actor.
+	_ int64, // Integrante propietario.
 	_ string,
 	_ *string,
 	_ int64,
@@ -90,6 +91,10 @@ func (r *portadaRepositoryFalso) EsPropietarioActivo(int64, int64) (bool, error)
 	return r.propietario, nil
 }
 
+func (r *portadaRepositoryFalso) PuedeRealizarEnProyecto(int64, int64, string) (bool, error) {
+	return true, nil
+}
+
 func (r *portadaRepositoryFalso) ObtenerDetalle(codigo int64) (*model.Proyecto, string, string, error) {
 	return &model.Proyecto{
 		CodigoProyecto: codigo,
@@ -105,6 +110,7 @@ func (r *portadaRepositoryFalso) ListarGenerosProyecto(int64) ([]dto.GeneroProye
 }
 
 func (r *portadaRepositoryFalso) Actualizar(
+	_ int64,
 	_ int64,
 	_ string,
 	_ *string,

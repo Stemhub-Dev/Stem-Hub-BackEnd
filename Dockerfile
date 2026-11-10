@@ -21,6 +21,9 @@ WORKDIR /app
 
 COPY --from=builder /stemhub-backend ./stemhub-backend
 
+# Manual de usuario que entrega GET /ayuda/manual (MANUAL_USUARIO_PATH).
+COPY --from=builder /app/assets/manual ./assets/manual
+
 EXPOSE 8080
 
 CMD ["./stemhub-backend"]

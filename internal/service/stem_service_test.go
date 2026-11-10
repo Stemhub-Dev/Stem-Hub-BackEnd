@@ -132,7 +132,7 @@ func (r *stemRepositoryFalso) Crear(
 	return 99, nil
 }
 
-func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.CambiosStem) error {
+func (r *stemRepositoryFalso) Actualizar(_ int64, _ int64, cod int64, cambios repository.CambiosStem) error {
 	if r.errActualizar != nil {
 		return r.errActualizar
 	}
@@ -151,7 +151,7 @@ func (r *stemRepositoryFalso) Actualizar(_ int64, cod int64, cambios repository.
 	return nil
 }
 
-func (r *stemRepositoryFalso) Eliminar(cod int64) error {
+func (r *stemRepositoryFalso) Eliminar(_ int64, _ int64, cod int64) error {
 	r.eliminado = cod
 	delete(r.stems, cod)
 	return nil
@@ -246,7 +246,7 @@ func TestCrearStem_ConCategoriaExistente(t *testing.T) {
 	if stem.Nombre != "Guitarra 2" || stem.GeneradoConIA {
 		t.Fatalf("stem = %+v", stem)
 	}
-	if e.proyecto.permisoPide != "GESTIONAR_STEMS" {
+	if e.proyecto.permisoPide != "CREAR_STEM" {
 		t.Fatalf("permiso pedido = %q", e.proyecto.permisoPide)
 	}
 	if len(e.storage.subidos) != 1 ||
@@ -523,14 +523,16 @@ func TestEliminarStem_SinPermiso(t *testing.T) {
 	}
 }
 
-func TestObtenerURLAudioStem_NoPideGestionar(t *testing.T) {
+func TestObtenerURLAudioStem_PideVerStem(t *testing.T) {
 	e := nuevoEscenarioStems()
-	e.proyecto.sinPermiso = true
 
 	audio, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 10)
 
 	if err != nil {
-		t.Fatalf("un integrante sin GESTIONAR_STEMS debería poder escuchar: %v", err)
+		t.Fatalf("un integrante con VER_STEM debería poder escuchar: %v", err)
+	}
+	if e.proyecto.permisoPide != "VER_STEM" {
+		t.Fatalf("permiso pedido = %q", e.proyecto.permisoPide)
 	}
 	if audio.URL != "https://storage.test/viejo.wav" {
 		t.Fatalf("url = %q", audio.URL)

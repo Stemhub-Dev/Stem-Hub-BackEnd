@@ -53,6 +53,7 @@ func nuevoAdministrador(t *testing.T, db *sql.DB, nombre string) int64 {
 	}
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM usuariorol WHERE codigousuario = $1`, codigoUsuario)
+		_, _ = db.Exec(`DELETE FROM auditoria WHERE codigousuario = $1`, codigoUsuario)
 		_, _ = db.Exec(`DELETE FROM usuario WHERE codigousuario = $1`, codigoUsuario)
 	})
 

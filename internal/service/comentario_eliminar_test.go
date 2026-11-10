@@ -8,8 +8,9 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
 )
 
-// PRU-09 (HU-COM-B04): un integrante sin GESTIONAR_COMENTARIOS (rol Músico)
-// no puede eliminar el comentario de otro; el autor sí puede eliminar el suyo.
+// PRU-09 (HU-COM-B04): sin ELIMINAR_CUALQUIER_COMENTARIO (rol Músico) no se
+// puede eliminar el comentario de otro; el autor elimina el suyo con
+// ELIMINAR_COMENTARIO_PROPIO.
 
 type comentarioAutorFalso struct {
 	repository.ComentarioRepository
@@ -23,7 +24,10 @@ func (r *comentarioAutorFalso) ObtenerAutorComentario(int64, int64) (int64, erro
 	return r.codigoAutor, nil
 }
 
-func (r *comentarioAutorFalso) DarDeBaja(codigoComentario int64) (bool, error) {
+func (r *comentarioAutorFalso) DarDeBaja(
+	_ int64,
+	codigoComentario int64,
+) (bool, error) {
 	r.bajaLlamada = true
 	r.bajaComentario = codigoComentario
 	return true, nil
@@ -53,7 +57,7 @@ func TestEliminarComentario_AjenoSinPermisoDevuelveSinPermiso(t *testing.T) {
 	if !errors.Is(err, ErrComentarioSinPermisoEliminar) {
 		t.Fatalf("err = %v, se esperaba ErrComentarioSinPermisoEliminar", err)
 	}
-	if proyectos.permisoPide != "GESTIONAR_COMENTARIOS" {
+	if proyectos.permisoPide != "ELIMINAR_CUALQUIER_COMENTARIO" {
 		t.Fatalf("permiso consultado = %q", proyectos.permisoPide)
 	}
 	if repo.bajaLlamada {
@@ -61,15 +65,15 @@ func TestEliminarComentario_AjenoSinPermisoDevuelveSinPermiso(t *testing.T) {
 	}
 }
 
-func TestEliminarComentario_PropioNoPideElPermiso(t *testing.T) {
+func TestEliminarComentario_PropioPideElPermisoDeLoPropio(t *testing.T) {
 	repo := &comentarioAutorFalso{codigoAutor: 42}
-	proyectos := &proyectoAccesoFalso{sinPermiso: true}
+	proyectos := &proyectoAccesoFalso{}
 
 	if err := nuevoServicioEliminarComentario(repo, proyectos).Eliminar(1, 7, 8, 9, 10); err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if proyectos.permisoPide != "" {
-		t.Fatalf("no debería consultar permisos, consultó %q", proyectos.permisoPide)
+	if proyectos.permisoPide != "ELIMINAR_COMENTARIO_PROPIO" {
+		t.Fatalf("permiso consultado = %q", proyectos.permisoPide)
 	}
 	if !repo.bajaLlamada || repo.bajaComentario != 10 {
 		t.Fatalf("baja = %v (comentario %d)", repo.bajaLlamada, repo.bajaComentario)

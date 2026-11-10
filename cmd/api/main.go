@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	// Base de zonas horarias embebida: la imagen alpine no trae tzdata.
 	_ "time/tzdata"
 
@@ -62,6 +63,15 @@ func main() {
 	tipoProyectoRepository := repository.NewTipoProyectoRepository(db)
 	tipoProyectoService := service.NewTipoProyectoService(tipoProyectoRepository)
 	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
+
+	preguntaFrecuenteRepository := repository.NewPreguntaFrecuenteRepository(db)
+	rutaManual := os.Getenv("MANUAL_USUARIO_PATH")
+	if rutaManual == "" {
+		// Ruta dentro de la imagen, ver Dockerfile.
+		rutaManual = "assets/manual/manual-usuario.pdf"
+	}
+	ayudaService := service.NewAyudaService(preguntaFrecuenteRepository, rutaManual)
+	ayudaHandler := handler.NewAyudaHandler(ayudaService)
 
 	// Estado de proyecto
 	estadoProyectoRepository :=
@@ -247,6 +257,11 @@ func main() {
 	)
 	tableroHandler := handler.NewTableroHandler(tableroService)
 
+	//Auditoria
+	auditoriaRepository := repository.NewAuditoriaConsultaRepository(db)
+	auditoriaService := service.NewAuditoriaService(auditoriaRepository)
+	auditoriaHandler := handler.NewAuditoriaHandler(auditoriaService)
+
 	corsAllowedOrigins := strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",")
 
 	r := router.NewRouter(
@@ -265,8 +280,10 @@ func main() {
 		stemHandler,
 		reporteHandler,
 		tableroHandler,
+		auditoriaHandler,
 		permisoHandler,
 		rolPermisoHandler,
+		ayudaHandler,
 		authMiddleware,
 		permisoMiddleware,
 		corsAllowedOrigins,

@@ -34,7 +34,12 @@ func (cancionNombreCarreraFalsa) ExisteNombreEnProyectoExceptoCancion(int64, int
 	return false, nil
 }
 
-func (cancionNombreCarreraFalsa) ActualizarNombre(int64, int64, string) error {
+func (cancionNombreCarreraFalsa) ActualizarNombre(
+	int64,
+	int64,
+	int64,
+	string,
+) error {
 	return repository.ErrNombreCancionDuplicado
 }
 
@@ -47,6 +52,10 @@ func (proyectoGestionableFalso) ExisteProyectoActivo(int64) (bool, error) {
 }
 
 func (proyectoGestionableFalso) PuedeGestionarCanciones(int64, int64) (bool, error) {
+	return true, nil
+}
+
+func (proyectoGestionableFalso) PuedeRealizarEnProyecto(int64, int64, string) (bool, error) {
 	return true, nil
 }
 

@@ -20,6 +20,7 @@ func nuevoUsuarioVisita(t *testing.T) (TableroRepository, int64) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM auditoria WHERE codigousuario = $1`, usuario)
 		_, _ = db.Exec(`DELETE FROM usuario WHERE codigousuario = $1`, usuario)
 	})
 	return NewTableroRepository(db), usuario

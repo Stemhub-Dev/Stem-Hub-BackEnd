@@ -2,8 +2,10 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
@@ -16,6 +18,7 @@ type ProyectoRepository interface {
 	ExistenGeneros(codigosGeneros []int64) (bool, error)
 
 	Crear(
+		codigoUsuario int64,
 		codigoIntegrante int64,
 		nombre string,
 		descripcion *string,
@@ -47,6 +50,7 @@ type ProyectoRepository interface {
 	// que quedó guardado y, si cambió, la clave que reemplazó (las dos
 	// leídas en la misma transacción).
 	Actualizar(
+		codigoUsuario int64,
 		codigoProyecto int64,
 		nombre string,
 		descripcion *string,
@@ -110,6 +114,7 @@ type ProyectoRepository interface {
 	) error
 
 	DarDeBaja(
+		codigoUsuario int64,
 		codigoProyecto int64,
 	) error
 
@@ -137,6 +142,44 @@ func NewProyectoRepository(db *sql.DB) ProyectoRepository {
 	return &proyectoRepository{
 		db: db,
 	}
+}
+
+// Se llama dentro de la transacción y con la fila del proyecto bloqueada.
+// Los géneros se ordenan para que cambiar su orden no parezca una edición.
+func obtenerContextoProyectoTx(
+	tx *sql.Tx,
+	codigoProyecto int64,
+) (json.RawMessage, error) {
+	var contexto string
+
+	err := tx.QueryRow(`
+		SELECT jsonb_build_object(
+			'nombreProyecto', p.nombreproyecto,
+			'descripcion', p.descripcionproyecto,
+			'logoObjectKey', p.logoproyecto,
+			'codigoEstadoProyecto', p.codestadoproy,
+			'codigoTipoProyecto', p.codtipoproy,
+			'codigosGeneros', COALESCE(
+				(
+					SELECT jsonb_agg(
+						pg.codigogeneroproy
+						ORDER BY pg.codigogeneroproy
+					)
+					FROM proyectogeneromusical pg
+					WHERE pg.codigoproyecto = p.codigoproyecto
+				),
+				'[]'::jsonb
+			)
+		)::text
+		FROM proyecto p
+		WHERE p.codigoproyecto = $1
+	`, codigoProyecto).Scan(&contexto)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.RawMessage(contexto), nil
 }
 
 func (r *proyectoRepository) PuedeGestionarCanciones(
@@ -264,6 +307,7 @@ func (r *proyectoRepository) ExistenGeneros(
 }
 
 func (r *proyectoRepository) Crear(
+	codigoUsuario int64,
 	codigoIntegrante int64,
 	nombre string,
 	descripcion *string,
@@ -375,6 +419,25 @@ func (r *proyectoRepository) Crear(
 		if err != nil {
 			return 0, err
 		}
+	}
+
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "proyecto",
+		CodigoRegistro: codigoProyecto,
+		Accion:         "INSERT",
+		Evento:         "ALTA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto":       nombre,
+			"codigoEstadoProyecto": codigoEstadoProyecto,
+			"codigoTipoProyecto":   codigoTipoProyecto,
+			"codigosGeneros":       codigosGeneros,
+		},
+	})
+
+	if err != nil {
+		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -944,6 +1007,7 @@ func (r *proyectoRepository) ListarGenerosProyecto(
 }
 
 func (r *proyectoRepository) Actualizar(
+	codigoUsuario int64,
 	codigoProyecto int64,
 	nombre string,
 	descripcion *string,
@@ -953,16 +1017,13 @@ func (r *proyectoRepository) Actualizar(
 	codigoTipoProyecto int64,
 	codigosGeneros []int64,
 ) (*string, *string, error) {
-
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, nil, err
 	}
-
 	defer tx.Rollback()
 
-	// FOR UPDATE: dos ediciones simultáneas no pueden leer el mismo logo
-	// anterior, así cada una borra solo el archivo que ella reemplazó.
+	// Conservamos el bloqueo que protege las ediciones de portada.
 	var logoAnterior *string
 
 	err = tx.QueryRow(`
@@ -971,16 +1032,16 @@ func (r *proyectoRepository) Actualizar(
 		WHERE codigoproyecto = $1
 		  AND fechahorabajaproyecto IS NULL
 		FOR UPDATE
-	`,
-		codigoProyecto,
-	).Scan(&logoAnterior)
-
+	`, codigoProyecto).Scan(&logoAnterior)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Sin cambio de logo se conserva el valor de la fila: no se reescribe
-	// el que el service leyó antes, que pudo haber cambiado desde entonces.
+	anterior, err := obtenerContextoProyectoTx(tx, codigoProyecto)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var logoVigente *string
 
 	err = tx.QueryRow(`
@@ -1002,37 +1063,51 @@ func (r *proyectoRepository) Actualizar(
 		codigoTipoProyecto,
 		codigoProyecto,
 	).Scan(&logoVigente)
-
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Eliminamos las relaciones actuales.
 	_, err = tx.Exec(`
 		DELETE FROM proyectogeneromusical
 		WHERE codigoproyecto = $1
-	`,
-		codigoProyecto,
-	)
-
+	`, codigoProyecto)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Insertamos nuevamente los géneros seleccionados.
 	for _, codigoGenero := range codigosGeneros {
-
 		_, err = tx.Exec(`
 			INSERT INTO proyectogeneromusical (
 				codigoproyecto,
 				codigogeneroproy
 			)
 			VALUES ($1, $2)
-		`,
-			codigoProyecto,
-			codigoGenero,
-		)
+		`, codigoProyecto, codigoGenero)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
+	posterior, err := obtenerContextoProyectoTx(tx, codigoProyecto)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Ambos estados vienen de la misma consulta JSONB, con géneros ordenados.
+	if string(anterior) != string(posterior) {
+		err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+			CodigoUsuario:  codigoUsuario,
+			Entidad:        "proyecto",
+			CodigoRegistro: codigoProyecto,
+			Accion:         "UPDATE",
+			Evento:         "MODIFICACION",
+			CodigoProyecto: &codigoProyecto,
+			Contexto: map[string]any{
+				"nombreProyecto": nombre,
+				"anterior":       anterior,
+				"posterior":      posterior,
+			},
+		})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1050,29 +1125,49 @@ func (r *proyectoRepository) Actualizar(
 }
 
 func (r *proyectoRepository) DarDeBaja(
+	codigoUsuario int64,
 	codigoProyecto int64,
 ) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-	resultado, err := r.db.Exec(`
+	var nombre string
+	var fechaBaja time.Time
+
+	// Solo modifica un proyecto activo.
+	// Dos solicitudes concurrentes no pueden generar dos bajas.
+	err = tx.QueryRow(`
 		UPDATE proyecto
 		SET fechahorabajaproyecto = CURRENT_TIMESTAMP
 		WHERE codigoproyecto = $1
 		  AND fechahorabajaproyecto IS NULL
-	`,
-		codigoProyecto,
-	)
-
+		RETURNING nombreproyecto, fechahorabajaproyecto
+	`, codigoProyecto).Scan(&nombre, &fechaBaja)
 	if err != nil {
 		return err
 	}
 
-	filas, err := resultado.RowsAffected()
+	err = RegistrarAuditoriaTx(tx, RegistroAuditoria{
+		CodigoUsuario:  codigoUsuario,
+		Entidad:        "proyecto",
+		CodigoRegistro: codigoProyecto,
+		Accion:         "UPDATE",
+		Evento:         "BAJA",
+		CodigoProyecto: &codigoProyecto,
+		Contexto: map[string]any{
+			"nombreProyecto": nombre,
+			"fechaBaja":      fechaBaja,
+		},
+	})
 	if err != nil {
 		return err
 	}
 
-	if filas == 0 {
-		return sql.ErrNoRows
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("%w: %w", ErrConfirmacionIncierta, err)
 	}
 
 	return nil

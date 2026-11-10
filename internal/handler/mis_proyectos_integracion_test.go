@@ -109,6 +109,7 @@ func prepararEscenarioProyectos(t *testing.T) escenarioMisProyectos {
 		borrar(`DELETE FROM integranteproyecto WHERE codigointegranteproyecto = $1`, membresias)
 		borrar(`DELETE FROM proyecto WHERE codigoproyecto = $1`, proyectos)
 		borrar(`DELETE FROM integrante WHERE codintegrante = $1`, integrantes)
+		borrar(`DELETE FROM auditoria WHERE codigousuario = $1`, usuarios)
 		borrar(`DELETE FROM usuario WHERE codigousuario = $1`, usuarios)
 	})
 

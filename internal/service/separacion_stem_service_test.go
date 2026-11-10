@@ -174,8 +174,8 @@ func TestSolicitarSeparacion_CompletaYGuardaStems(t *testing.T) {
 	if separacion.Estado != model.EstadoSeparacionPendiente || separacion.CantidadStems != 4 {
 		t.Fatalf("separación = %+v", separacion)
 	}
-	if e.proyecto.permisoPide != "" {
-		t.Fatalf("separar no debería pedir permiso, pidió %q", e.proyecto.permisoPide)
+	if e.proyecto.permisoPide != "SEPARAR_STEMS_IA" {
+		t.Fatalf("separar debería pedir SEPARAR_STEMS_IA, pidió %q", e.proyecto.permisoPide)
 	}
 	if e.separaciones.creada.CodIntegrante != 42 {
 		t.Fatalf("integrante = %d", e.separaciones.creada.CodIntegrante)
@@ -224,11 +224,10 @@ func TestSolicitarSeparacion_PorDefectoCuatroStems(t *testing.T) {
 	}
 }
 
-// HU-IA-F01: separar está habilitado para todos los roles, también para un
-// integrante sin GESTIONAR_STEMS (Músico).
-func TestSolicitarSeparacion_IntegranteSinGestionarStemsPuedeSeparar(t *testing.T) {
+// HU-IA-F01: separar depende de SEPARAR_STEMS_IA, que tienen Productor y
+// Músico, y no de los permisos de alta de stems.
+func TestSolicitarSeparacion_ConPermisoDeSepararPuedeSeparar(t *testing.T) {
 	e := nuevoEscenarioSeparacion()
-	e.proyecto.sinPermiso = true
 
 	if _, err := e.servicio.Solicitar(1, 7, 8, 9, nil); err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -309,8 +308,8 @@ func TestObtenerUltimaSeparacion_SinSeparaciones(t *testing.T) {
 	if !errors.Is(err, ErrSeparacionNoEncontrada) {
 		t.Fatalf("err = %v", err)
 	}
-	if e.proyecto.permisoPide != "" {
-		t.Fatalf("consultar no debería pedir permiso, pidió %q", e.proyecto.permisoPide)
+	if e.proyecto.permisoPide != "VER_STEM" {
+		t.Fatalf("consultar debería pedir VER_STEM, pidió %q", e.proyecto.permisoPide)
 	}
 }
 

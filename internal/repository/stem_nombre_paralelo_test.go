@@ -51,6 +51,7 @@ func versionParaStems(t *testing.T) (StemRepository, int64, int64, int64) {
 		_, _ = db.Exec(`DELETE FROM cancion WHERE codigocancion = $1`, cancion)
 		_, _ = db.Exec(`DELETE FROM proyecto WHERE codigoproyecto = $1`, proyecto)
 		_, _ = db.Exec(`DELETE FROM integrante WHERE codigousuario = $1`, usuario)
+		_, _ = db.Exec(`DELETE FROM auditoria WHERE codigousuario = $1`, usuario)
 		_, _ = db.Exec(`DELETE FROM usuario WHERE codigousuario = $1`, usuario)
 	})
 
