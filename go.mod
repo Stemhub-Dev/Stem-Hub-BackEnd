@@ -12,6 +12,8 @@ require (
 	github.com/minio/minio-go/v7 v7.3.0
 )
 
+require golang.org/x/image v0.48.0
+
 require (
 	github.com/MicahParks/jwkset v0.11.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
@@ -56,9 +58,9 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.58.0
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect

@@ -8,14 +8,13 @@ import (
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/dto"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/model"
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/repository"
+	"github.com/facu-1538/Stem-Hub-BackEnd/internal/storage"
 )
 
-const (
-	ReporteActividad       = "actividad-proyecto"
-	ReporteHistorial       = "historial-versiones"
-	ReporteParticipacion   = "participacion-colaboradores"
-	ReporteEstadoCanciones = "estado-canciones"
-)
+// Hay un único reporte: el estado del proyecto (canciones, versión actual y
+// comentarios resueltos/pendientes). El slug se conserva para no romper la
+// URL /report/reportes/estado-canciones/... ni los clientes existentes.
+const ReporteEstadoCanciones = "estado-canciones"
 
 var (
 	ErrReporteTipoNoEncontrado     = errors.New("el tipo de reporte no existe")
@@ -37,18 +36,28 @@ type reporteService struct {
 	reporteRepository    repository.ReporteRepository
 	proyectoRepository   repository.ProyectoRepository
 	integranteRepository repository.IntegranteRepository
+	// almacenamiento es de donde sale la portada real del proyecto para el
+	// PDF. Puede ser nil: el PDF usa entonces la portada generada.
+	almacenamiento storage.AudioStorage
 }
 
-func NewReporteService(reporteRepository repository.ReporteRepository, proyectoRepository repository.ProyectoRepository, integranteRepository repository.IntegranteRepository) ReporteService {
-	return &reporteService{reporteRepository: reporteRepository, proyectoRepository: proyectoRepository, integranteRepository: integranteRepository}
+func NewReporteService(
+	reporteRepository repository.ReporteRepository,
+	proyectoRepository repository.ProyectoRepository,
+	integranteRepository repository.IntegranteRepository,
+	almacenamiento storage.AudioStorage,
+) ReporteService {
+	return &reporteService{
+		reporteRepository:    reporteRepository,
+		proyectoRepository:   proyectoRepository,
+		integranteRepository: integranteRepository,
+		almacenamiento:       almacenamiento,
+	}
 }
 
 func catalogoReportes() []dto.ReporteCatalogoResponse {
 	return []dto.ReporteCatalogoResponse{
-		{IDReporte: "REP-001", TipoReporte: ReporteActividad, FuncionEjecucionReporte: "generarActividadProyecto"},
-		{IDReporte: "REP-002", TipoReporte: ReporteHistorial, FuncionEjecucionReporte: "generarHistorialVersiones"},
-		{IDReporte: "REP-003", TipoReporte: ReporteParticipacion, FuncionEjecucionReporte: "generarParticipacionColaboradores"},
-		{IDReporte: "REP-004", TipoReporte: ReporteEstadoCanciones, FuncionEjecucionReporte: "generarEstadoCanciones"},
+		{IDReporte: "REP-001", TipoReporte: ReporteEstadoCanciones, FuncionEjecucionReporte: "generarEstadoProyecto"},
 	}
 }
 
@@ -179,45 +188,15 @@ func (s *reporteService) generarConPermiso(
 	}
 
 	filtros := repository.ReporteFiltros{
-		FechaDesde:       request.FechaDesde,
-		FechaHasta:       request.FechaHasta,
 		CodigoCancion:    request.CodigoCancion,
-		CodigoVersion:    request.CodigoVersion,
 		EstadoComentario: request.EstadoComentario,
 	}
 
-	var datos []map[string]interface{}
-
-	switch tipo {
-
-	case ReporteActividad:
-		datos, err =
-			s.reporteRepository.ObtenerActividad(
-				request.CodigoProyecto,
-				filtros,
-			)
-
-	case ReporteHistorial:
-		datos, err =
-			s.reporteRepository.ObtenerHistorialVersiones(
-				request.CodigoProyecto,
-				filtros,
-			)
-
-	case ReporteParticipacion:
-		datos, err =
-			s.reporteRepository.ObtenerParticipacionColaboradores(
-				request.CodigoProyecto,
-				filtros,
-			)
-
-	case ReporteEstadoCanciones:
-		datos, err =
-			s.reporteRepository.ObtenerEstadoCanciones(
-				request.CodigoProyecto,
-				filtros,
-			)
-	}
+	datos, err :=
+		s.reporteRepository.ObtenerEstadoCanciones(
+			request.CodigoProyecto,
+			filtros,
+		)
 
 	if err != nil {
 		return nil, err
@@ -254,8 +233,10 @@ func (s *reporteService) ExportarPDF(
 	// El armado del documento vive en reporte_pdf.go: el PDF tiene que
 	// mostrar lo mismo que la vista previa del frontend, con los colores y
 	// las etiquetas del design system.
+	portada := portadaParaPDF(s.almacenamiento, reporte.Proyecto.Logo, request.CodigoProyecto)
+
 	contenido, err :=
-		construirReportePDF(reporte)
+		construirReportePDF(reporte, portada)
 
 	if err != nil {
 		log.Printf(
@@ -279,8 +260,9 @@ func (s *reporteService) ExportarPDF(
 }
 
 func esTipoReporteValido(tipo string) bool {
-	return tipo == ReporteActividad || tipo == ReporteHistorial || tipo == ReporteParticipacion || tipo == ReporteEstadoCanciones
+	return tipo == ReporteEstadoCanciones
 }
+
 func idReporte(tipo string) string {
 	for _, reporte := range catalogoReportes() {
 		if reporte.TipoReporte == tipo {

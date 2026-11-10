@@ -63,6 +63,10 @@ func (storageFalso) Eliminar(context.Context, string) error {
 	return nil
 }
 
+func (storageFalso) Descargar(context.Context, string, int64) ([]byte, error) {
+	return nil, nil
+}
+
 func (s storageFalso) ObtenerURLDescarga(_ context.Context, objectKey string, _ time.Duration) (string, error) {
 	if s.err != nil {
 		return "", s.err
