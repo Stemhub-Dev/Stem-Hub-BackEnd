@@ -215,10 +215,12 @@ func TestTablero_RequiereAutenticacion(t *testing.T) {
 func TestAyuda_RequiereAutenticacion(t *testing.T) {
 	router := nuevoRouterDePrueba(t)
 
-	respuesta := httptest.NewRecorder()
-	router.ServeHTTP(respuesta, httptest.NewRequest(http.MethodGet, "/ayuda/preguntas-frecuentes", nil))
+	for _, url := range []string{"/ayuda/preguntas-frecuentes", "/ayuda/manual"} {
+		respuesta := httptest.NewRecorder()
+		router.ServeHTTP(respuesta, httptest.NewRequest(http.MethodGet, url, nil))
 
-	if respuesta.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, se esperaba 401", respuesta.Code)
+		if respuesta.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, se esperaba 401", url, respuesta.Code)
+		}
 	}
 }

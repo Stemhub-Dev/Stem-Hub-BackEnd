@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -8,6 +9,8 @@ import (
 
 	"github.com/facu-1538/Stem-Hub-BackEnd/internal/service"
 )
+
+const nombreDescargaManual = "manual-usuario-stemhub.pdf"
 
 type AyudaHandler struct {
 	service service.AyudaService
@@ -26,4 +29,20 @@ func (h *AyudaHandler) ListarPreguntasFrecuentes(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, preguntas)
+}
+
+func (h *AyudaHandler) DescargarManual(c *gin.Context) {
+	ruta, err := h.service.ObtenerRutaManual()
+
+	if errors.Is(err, service.ErrManualUsuarioNoDisponible) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		log.Println("Error al obtener el manual de usuario:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener el manual de usuario"})
+		return
+	}
+
+	c.FileAttachment(ruta, nombreDescargaManual)
 }

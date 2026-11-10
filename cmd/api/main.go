@@ -65,7 +65,12 @@ func main() {
 	tipoProyectoHandler := handler.NewTipoProyectoHandler(tipoProyectoService)
 
 	preguntaFrecuenteRepository := repository.NewPreguntaFrecuenteRepository(db)
-	ayudaService := service.NewAyudaService(preguntaFrecuenteRepository)
+	rutaManual := os.Getenv("MANUAL_USUARIO_PATH")
+	if rutaManual == "" {
+		// Ruta dentro de la imagen, ver Dockerfile.
+		rutaManual = "assets/manual/manual-usuario.pdf"
+	}
+	ayudaService := service.NewAyudaService(preguntaFrecuenteRepository, rutaManual)
 	ayudaHandler := handler.NewAyudaHandler(ayudaService)
 
 	// Estado de proyecto

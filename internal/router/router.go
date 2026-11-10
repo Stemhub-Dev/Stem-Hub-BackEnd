@@ -413,6 +413,7 @@ func NewRouter(db *sql.DB,
 		authMiddleware.UsuarioActivo,
 	)
 	ayuda.GET("/preguntas-frecuentes", ayudaHandler.ListarPreguntasFrecuentes)
+	ayuda.GET("/manual", ayudaHandler.DescargarManual)
 
 	// Tablero (HU-DASH-B01/B02): cualquier usuario autenticado; los datos se
 	// limitan a los proyectos en los que participa (lo resuelve el service).
