@@ -246,7 +246,7 @@ func TestCrearStem_ConCategoriaExistente(t *testing.T) {
 	if stem.Nombre != "Guitarra 2" || stem.GeneradoConIA {
 		t.Fatalf("stem = %+v", stem)
 	}
-	if e.proyecto.permisoPide != "GESTIONAR_STEMS" {
+	if e.proyecto.permisoPide != "CREAR_STEM" {
 		t.Fatalf("permiso pedido = %q", e.proyecto.permisoPide)
 	}
 	if len(e.storage.subidos) != 1 ||
@@ -523,14 +523,16 @@ func TestEliminarStem_SinPermiso(t *testing.T) {
 	}
 }
 
-func TestObtenerURLAudioStem_NoPideGestionar(t *testing.T) {
+func TestObtenerURLAudioStem_PideVerStem(t *testing.T) {
 	e := nuevoEscenarioStems()
-	e.proyecto.sinPermiso = true
 
 	audio, err := e.servicio.ObtenerURLAudio(1, 7, 8, 9, 10)
 
 	if err != nil {
-		t.Fatalf("un integrante sin GESTIONAR_STEMS debería poder escuchar: %v", err)
+		t.Fatalf("un integrante con VER_STEM debería poder escuchar: %v", err)
+	}
+	if e.proyecto.permisoPide != "VER_STEM" {
+		t.Fatalf("permiso pedido = %q", e.proyecto.permisoPide)
 	}
 	if audio.URL != "https://storage.test/viejo.wav" {
 		t.Fatalf("url = %q", audio.URL)

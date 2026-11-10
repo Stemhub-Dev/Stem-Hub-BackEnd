@@ -129,17 +129,17 @@ func TestListarComentarios_FallaSiNoPuedeFirmarElAvatar(t *testing.T) {
 	}
 }
 
-func TestEliminarRespuesta_PropiaNoPideElPermiso(t *testing.T) {
+func TestEliminarRespuesta_PropiaPideElPermisoDeLoPropio(t *testing.T) {
 	repo := &comentarioRespuestaFalso{codigoAutorRespuesta: 42}
-	proyectos := &proyectoAccesoFalso{sinPermiso: true}
+	proyectos := &proyectoAccesoFalso{}
 
 	err := nuevoServicioRespuestas(repo, proyectos, nil).EliminarRespuesta(1, 7, 8, 9, 10, 20)
 
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if proyectos.permisoPide != "" {
-		t.Fatalf("no debería consultar permisos, consultó %q", proyectos.permisoPide)
+	if proyectos.permisoPide != "ELIMINAR_COMENTARIO_PROPIO" {
+		t.Fatalf("permiso consultado = %q", proyectos.permisoPide)
 	}
 	if repo.bajaRespuesta != 20 {
 		t.Fatalf("respuesta dada de baja = %d, se esperaba 20", repo.bajaRespuesta)
@@ -155,7 +155,7 @@ func TestEliminarRespuesta_AjenaSinPermisoDevuelveSinPermiso(t *testing.T) {
 	if !errors.Is(err, ErrComentarioSinPermisoEliminar) {
 		t.Fatalf("err = %v, se esperaba ErrComentarioSinPermisoEliminar", err)
 	}
-	if proyectos.permisoPide != "GESTIONAR_COMENTARIOS" {
+	if proyectos.permisoPide != "ELIMINAR_CUALQUIER_COMENTARIO" {
 		t.Fatalf("permiso consultado = %q", proyectos.permisoPide)
 	}
 	if repo.bajaRespuesta != 0 {

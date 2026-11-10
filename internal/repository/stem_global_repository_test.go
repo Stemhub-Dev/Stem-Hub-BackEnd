@@ -19,6 +19,7 @@ import (
 
 type escenarioStemsGlobales struct {
 	db          *sql.DB
+	usuario     int64
 	integrante  int64
 	catBateria  int64
 	catBajo     int64
@@ -67,6 +68,7 @@ func prepararStemsGlobales(t *testing.T) escenarioStemsGlobales {
 			_, _ = db.Exec(`DELETE FROM proyecto WHERE codigoproyecto = $1`, p)
 		}
 		_, _ = db.Exec(`DELETE FROM integrante WHERE codigousuario = $1`, usuario)
+		_, _ = db.Exec(`DELETE FROM auditoria WHERE codigousuario = $1`, usuario)
 		_, _ = db.Exec(`DELETE FROM usuario WHERE codigousuario = $1`, usuario)
 	})
 
@@ -132,6 +134,7 @@ func prepararStemsGlobales(t *testing.T) escenarioStemsGlobales {
 	stem(versionMia, "Bajo borrado", e.catBajo, true)
 	stem(versionAjena, "Bajo ajeno", e.catBajo, false)
 
+	e.usuario = usuario
 	return e
 }
 
@@ -143,11 +146,11 @@ func (e escenarioStemsGlobales) listar(t *testing.T, filtro dto.ListarStemsGloba
 		filtro.Pagina, filtro.TamanoPagina = 1, 50
 	}
 
-	total, err := repo.ContarGlobalPorProductor(e.integrante, filtro)
+	total, err := repo.ContarGlobal(e.integrante, filtro)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stems, err := repo.ListarGlobalPorProductor(e.integrante, filtro, (filtro.Pagina-1)*filtro.TamanoPagina)
+	stems, err := repo.ListarGlobal(e.integrante, filtro, (filtro.Pagina-1)*filtro.TamanoPagina)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +179,7 @@ func TestStemsGlobales_SoloProyectosDondeEsProductor(t *testing.T) {
 func TestStemsGlobales_TraeOrigenYDatosDelStem(t *testing.T) {
 	e := prepararStemsGlobales(t)
 
-	stems, err := NewStemRepository(e.db).ListarGlobalPorProductor(e.integrante, dto.ListarStemsGlobalFiltro{
+	stems, err := NewStemRepository(e.db).ListarGlobal(e.integrante, dto.ListarStemsGlobalFiltro{
 		Busqueda: "eléctrico", Pagina: 1, TamanoPagina: 10,
 	}, 0)
 	if err != nil {
@@ -271,7 +274,7 @@ func TestEliminarStem_ConservaElHistorialParaElIndicadorDelInicio(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := NewStemRepository(e.db).Eliminar(codStem); err != nil {
+	if err := NewStemRepository(e.db).Eliminar(e.usuario, e.proyectoMio, codStem); err != nil {
 		t.Fatal(err)
 	}
 

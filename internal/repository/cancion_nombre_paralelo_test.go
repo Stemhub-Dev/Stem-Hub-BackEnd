@@ -21,7 +21,7 @@ func usuarioParaAuditoriaCancion(t *testing.T) int64 {
 
 	err := db.QueryRow(`
 		INSERT INTO usuario (email, idautenticacion)
-		VALUES ($1, md5($1)::uuid)
+		VALUES ($1::text, md5($1::text)::uuid)
 		RETURNING codigousuario
 	`, email).Scan(&codigoUsuario)
 	if err != nil {

@@ -73,6 +73,7 @@ func prepararEscenarioInicio(t *testing.T) escenarioInicio {
 		borrar(`DELETE FROM integranteproyecto WHERE codigoproyecto = $1`, proyectos)
 		borrar(`DELETE FROM proyecto WHERE codigoproyecto = $1`, proyectos)
 		borrar(`DELETE FROM integrante WHERE codintegrante = $1`, integrantes)
+		borrar(`DELETE FROM auditoria WHERE codigousuario = $1`, usuarios)
 		borrar(`DELETE FROM usuario WHERE codigousuario = $1`, usuarios)
 	})
 

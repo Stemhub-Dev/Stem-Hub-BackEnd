@@ -76,3 +76,7 @@ func TestExportarPDF_PropagaErrorDeGenerar(t *testing.T) {
 		t.Errorf("no debería devolver contenido ni nombre ante un error")
 	}
 }
+
+func (proyectoReporteFalso) PuedeRealizarEnProyecto(int64, int64, string) (bool, error) {
+	return true, nil
+}

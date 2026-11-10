@@ -94,7 +94,7 @@ func TestContarMisProyectos_PasaFiltros(t *testing.T) {
 		`p\.nombreproyecto ILIKE '%' \|\| \$2::text \|\| '%'.*`+
 		`p\.codestadoproy = ANY\(\$3::bigint\[\]\).*`+
 		`p\.codtipoproy = ANY\(\$4::bigint\[\]\)`).
-		WithArgs(int64(42), `100\%`, []int64{2}, []int64{1, 3}).
+		WithArgs(int64(42), `100\%`, []int64{2}, []int64{1, 3}, "VER_PROYECTO").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 
 	filtro := filtroProyectosBase()
@@ -113,7 +113,7 @@ func TestContarMisProyectos_SinFiltrosPasaVacioYNulls(t *testing.T) {
 	repo, mock := nuevoRepositorioProyectosConMock(t)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\)`).
-		WithArgs(int64(42), "", nil, nil).
+		WithArgs(int64(42), "", nil, nil, "VER_PROYECTO").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	filtro := filtroProyectosBase()
@@ -144,8 +144,8 @@ func TestListarMisProyectos_PaginaOrdenaYMapea(t *testing.T) {
 		`p\.codestadoproy = ANY\(\$3::bigint\[\]\).*`+
 			`p\.codtipoproy = ANY\(\$4::bigint\[\]\).*`+
 			regexp.QuoteMeta(`ORDER BY actividad.fechaultimamodificacion DESC,`)+
-			`\s+p\.codigoproyecto DESC\s+LIMIT \$5 OFFSET \$6`).
-		WithArgs(int64(42), "rock", []int64{2}, nil, 10, 10).
+			`\s+p\.codigoproyecto DESC\s+LIMIT \$6 OFFSET \$7`).
+		WithArgs(int64(42), "rock", []int64{2}, nil, "VER_PROYECTO", 10, 10).
 		WillReturnRows(
 			sqlmock.NewRows(columnasMisProyectos).
 				AddRow(9, "Rock Nacional", "Primer disco", logo, "Single", "En Desarrollo", 3, 2, 1, "Productor", true, fecha).
@@ -185,7 +185,7 @@ func TestListarMisProyectos_PaginaOrdenaYMapea(t *testing.T) {
 func TestListarMisProyectos_SinFilasDevuelveSliceVacio(t *testing.T) {
 	repo, mock := nuevoRepositorioProyectosConMock(t)
 
-	mock.ExpectQuery(`LIMIT \$5 OFFSET \$6`).
+	mock.ExpectQuery(`LIMIT \$6 OFFSET \$7`).
 		WillReturnRows(sqlmock.NewRows(columnasMisProyectos))
 
 	proyectos, err := repo.ListarPorIntegrante(42, filtroProyectosBase(), 0)
@@ -199,7 +199,7 @@ func TestListarMisProyectos_PropagaError(t *testing.T) {
 	repo, mock := nuevoRepositorioProyectosConMock(t)
 	errBase := errors.New("fallo de base")
 
-	mock.ExpectQuery(`LIMIT \$5 OFFSET \$6`).WillReturnError(errBase)
+	mock.ExpectQuery(`LIMIT \$6 OFFSET \$7`).WillReturnError(errBase)
 
 	if _, err := repo.ListarPorIntegrante(42, filtroProyectosBase(), 0); !errors.Is(err, errBase) {
 		t.Fatalf("err = %v, se esperaba %v", err, errBase)
@@ -218,17 +218,23 @@ func esperarAltaProyecto(mock sqlmock.Sqlmock) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
+func esperarAuditoriaProyecto(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO public.auditoria`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
 func crearProyectoDePrueba(
 	repo ProyectoRepository,
 	subirLogo func(codigoProyecto int64) (string, error),
 ) (int64, error) {
-	return repo.Crear(42, "Rock Nacional", nil, 1, 1, []int64{3}, 2, "PROYECTO", subirLogo)
+	return repo.Crear(42, 7, "Rock Nacional", nil, 1, 1, []int64{3}, 2, "PROYECTO", subirLogo)
 }
 
 func TestCrearProyecto_SinPortadaNoActualizaElLogo(t *testing.T) {
 	repo, mock := nuevoRepositorioProyectosConMock(t)
 
 	esperarAltaProyecto(mock)
+	esperarAuditoriaProyecto(mock)
 	mock.ExpectCommit()
 
 	codigo, err := crearProyectoDePrueba(repo, nil)
@@ -245,6 +251,7 @@ func TestCrearProyecto_ConPortadaGuardaLaClaveEnLaMismaTransaccion(t *testing.T)
 	mock.ExpectExec(regexp.QuoteMeta(`SET logoproyecto = $1`)).
 		WithArgs("proyectos/9/logo.png", int64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	esperarAuditoriaProyecto(mock)
 	mock.ExpectCommit()
 
 	var codigoRecibido int64
@@ -299,6 +306,7 @@ func TestCrearProyecto_UnFalloDelCommitEsIncierto(t *testing.T) {
 	errCommit := errors.New("conexión cortada")
 
 	esperarAltaProyecto(mock)
+	esperarAuditoriaProyecto(mock)
 	mock.ExpectCommit().WillReturnError(errCommit)
 
 	_, err := crearProyectoDePrueba(repo, nil)
@@ -313,6 +321,7 @@ func esperarActualizacionProyecto(mock sqlmock.Sqlmock, logoActual *string, camb
 	mock.ExpectQuery(`SELECT logoproyecto\s+FROM proyecto[\s\S]+FOR UPDATE`).
 		WithArgs(int64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}).AddRow(logoActual))
+	esperarContextoProyecto(mock, `{"nombreProyecto":"Viejo"}`)
 	vigente := logoActual
 	if cambiarLogo {
 		vigente = logoNuevo
@@ -322,6 +331,14 @@ func esperarActualizacionProyecto(mock sqlmock.Sqlmock, logoActual *string, camb
 		WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}).AddRow(vigente))
 	mock.ExpectExec(`DELETE FROM proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO proyectogeneromusical`).WillReturnResult(sqlmock.NewResult(0, 1))
+	esperarContextoProyecto(mock, `{"nombreProyecto":"Rock"}`)
+	esperarAuditoriaProyecto(mock)
+}
+
+func esperarContextoProyecto(mock sqlmock.Sqlmock, contexto string) {
+	mock.ExpectQuery(`jsonb_build_object`).
+		WithArgs(int64(9)).
+		WillReturnRows(sqlmock.NewRows([]string{"contexto"}).AddRow(contexto))
 }
 
 func TestActualizarProyecto_ConLogoNuevoDevuelveElAnterior(t *testing.T) {
@@ -332,7 +349,7 @@ func TestActualizarProyecto_ConLogoNuevoDevuelveElAnterior(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, true, &nuevo)
 	mock.ExpectCommit()
 
-	vigente, anterior, err := repo.Actualizar(9, "Rock", nil, true, &nuevo, 1, 1, []int64{3})
+	vigente, anterior, err := repo.Actualizar(7, 9, "Rock", nil, true, &nuevo, 1, 1, []int64{3})
 
 	if err != nil || anterior == nil || *anterior != actual || vigente == nil || *vigente != nuevo {
 		t.Fatalf("vigente = %v, anterior = %v, err = %v", vigente, anterior, err)
@@ -346,7 +363,7 @@ func TestActualizarProyecto_SinCambiarLogoConservaElDeLaFila(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, false, nil)
 	mock.ExpectCommit()
 
-	vigente, anterior, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+	vigente, anterior, err := repo.Actualizar(7, 9, "Rock", nil, false, nil, 1, 1, []int64{3})
 
 	if err != nil || anterior != nil {
 		t.Fatalf("sin cambio de logo no hay nada que borrar: anterior = %v, err = %v", anterior, err)
@@ -364,7 +381,7 @@ func TestActualizarProyecto_ProyectoInexistente(t *testing.T) {
 	mock.ExpectQuery(`FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"logoproyecto"}))
 	mock.ExpectRollback()
 
-	_, _, err := repo.Actualizar(9, "Rock", nil, false, nil, 1, 1, []int64{3})
+	_, _, err := repo.Actualizar(7, 9, "Rock", nil, false, nil, 1, 1, []int64{3})
 
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("err = %v", err)
@@ -378,7 +395,7 @@ func TestActualizarProyecto_UnFalloDelCommitEsIncierto(t *testing.T) {
 	esperarActualizacionProyecto(mock, &actual, true, nil)
 	mock.ExpectCommit().WillReturnError(errors.New("conexión cortada"))
 
-	_, _, err := repo.Actualizar(9, "Rock", nil, true, nil, 1, 1, []int64{3})
+	_, _, err := repo.Actualizar(7, 9, "Rock", nil, true, nil, 1, 1, []int64{3})
 
 	if !errors.Is(err, ErrConfirmacionIncierta) {
 		t.Fatalf("err = %v", err)
